@@ -66,11 +66,12 @@ TUI ratatui, outras linguagens, OAuth/assinaturas, licença Pro, roteamento Oper
 - Manual: `coturbo run --tools ast "adicione um método X"` no fixture com `ANTHROPIC_API_KEY`; conferir edição, cargo test, status de tokens.
 - `coturbo bench` com um modelo real: relatório mostra tokens/custo naive vs ast e taxa de sucesso — este é o critério de validação da ideia (A).
 
-## Roadmap — Sub-projeto 2: CoTurbo Design (spec própria, após o benchmark do MVP)
-Objetivo: fazer qualquer modelo gerar UI/UX profissional, não genérica, gastando poucos tokens. Tudo em Rust.
+## Fase 7 — Design embutido (parte do v1, mesmo binário; não é variante nem plugin)
+Decisão do usuário (2026-10-14): o CoTurbo já vem com uma função de design nativa que eleva o nível de qualquer UI que ele gera. Entra logo após o núcleo (Fases 1–6), antes de qualquer lançamento.
+Ativação automática quando a tarefa toca UI (arquivos .tsx/.jsx/.css/.html/.vue/.svelte ou pedido de tela).
 1. Kernel DESIGN.md (formato Google Labs): ler/gerar tokens e injetar compactado no prefixo cacheado.
 2. Pesquisa de referências via cliente MCP (Mobbin/Refero do usuário, BYOK) → brief curto feito pelo modelo barato.
 3. Linter anti-genérico determinístico: `oxc` (TSX) + `lightningcss` (CSS) — cor fora dos tokens, espaçamento fora da escala, fontes default, gradientes clichê, contraste WCAG.
 4. Skeleton de UI: componentes/props sem miolo (equivalente do coturbo-ast para TSX).
 5. Verificação visual: `chromiumoxide` → screenshot → crítica pelo modelo.
-Reaproveita do MVP: providers, loop do agente, ContextManager, padrão de saída compacta das ferramentas.
+As ferramentas de design se registram no mesmo `Tools` (Fase 3) e usam o mesmo padrão de saída compacta.
