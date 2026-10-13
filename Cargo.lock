@@ -107,6 +107,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "coturbo-agent"
+version = "0.1.0"
+dependencies = [
+ "coturbo-providers",
+ "coturbo-tools",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "coturbo-ast"
 version = "0.1.0"
 dependencies = [

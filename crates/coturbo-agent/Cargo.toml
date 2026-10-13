@@ -1,0 +1,15 @@
+[package]
+name = "coturbo-agent"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+coturbo-providers = { path = "../coturbo-providers" }
+coturbo-tools = { path = "../coturbo-tools" }
+serde_json.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+tempfile = "3"
