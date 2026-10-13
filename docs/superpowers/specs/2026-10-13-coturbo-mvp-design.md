@@ -47,7 +47,8 @@ Dependências principais (todas Rust): `tokio`, `reqwest` (feature `rustls-tls`,
    - Paths confinados à raiz do projeto; erro de ferramenta vira tool_result de erro.
 4. **coturbo-agent**
    - Loop: envia → stream → executa tool_uses → repete até sem tools ou `max_turns`.
-   - `ContextManager`: prefixo estável (system+tools ordenados deterministicamente); compactação determinística: leituras de símbolo/arquivo editado depois → `[desatualizado: releia]`; outputs antigos de cargo_check substituídos quando há novo.
+   - `ContextManager`: prefixo estável (system+tools ordenados deterministicamente) e histórico **append-only** — editar mensagens antigas invalida o cache de prefixo e, nos modelos Claude atuais (thinking sempre ligado, "preserved thinking"), gera 400 ao reenviar blocos de thinking. Blocos de thinking são guardados opacos e reenviados byte a byte.
+   - Compactação = **reset no fim de cada tarefa**: o histórico inteiro vira um resumo determinístico (arquivos/símbolos alterados + diff stat + último cargo_check), sem reenviar thinking antigo. Nada é reescrito no meio da tarefa.
    - Acumula `Usage` por turno/sessão. Teste e2e com `MockProvider` roteirizado.
 5. **coturbo-cli**
    - `coturbo` (REPL) com status: `tokens ↑in ⟳cache ↓out · $custo`.
