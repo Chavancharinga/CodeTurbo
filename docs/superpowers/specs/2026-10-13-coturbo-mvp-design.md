@@ -66,12 +66,17 @@ TUI ratatui, outras linguagens, OAuth/assinaturas, licença Pro, roteamento Oper
 - Manual: `coturbo run --tools ast "adicione um método X"` no fixture com `ANTHROPIC_API_KEY`; conferir edição, cargo test, status de tokens.
 - `coturbo bench` com um modelo real: relatório mostra tokens/custo naive vs ast e taxa de sucesso — este é o critério de validação da ideia (A).
 
-## Fase 7 — Design embutido (parte do v1, mesmo binário; não é variante nem plugin)
-Decisão do usuário (2026-10-14): o CoTurbo já vem com uma função de design nativa que eleva o nível de qualquer UI que ele gera. Entra logo após o núcleo (Fases 1–6), antes de qualquer lançamento.
-Ativação automática quando a tarefa toca UI (arquivos .tsx/.jsx/.css/.html/.vue/.svelte ou pedido de tela).
-1. Kernel DESIGN.md (formato Google Labs): ler/gerar tokens e injetar compactado no prefixo cacheado.
-2. Pesquisa de referências via cliente MCP (Mobbin/Refero do usuário, BYOK) → brief curto feito pelo modelo barato.
-3. Linter anti-genérico determinístico: `oxc` (TSX) + `lightningcss` (CSS) — cor fora dos tokens, espaçamento fora da escala, fontes default, gradientes clichê, contraste WCAG.
-4. Skeleton de UI: componentes/props sem miolo (equivalente do coturbo-ast para TSX).
-5. Verificação visual: `chromiumoxide` → screenshot → crítica pelo modelo.
-As ferramentas de design se registram no mesmo `Tools` (Fase 3) e usam o mesmo padrão de saída compacta.
+## Fase 7 — Método CoTurbo de design embutido (v1, mesmo binário; código, não skill)
+Decisões do usuário: 2026-10-14 (embutido, não variante) e 2026-10-14 (método próprio em código, não skills de prompt).
+
+Base: as melhores skills (Anthropic frontend-design, Impeccable, avoid-ai-design, Mobbin redesign-screen) usam 7 mecanismos — plano antes do código, catálogo de defaults, ancoragem no assunto/evidência, teste "isso é default?", contenção, detector pós-edição, render+crítica. Os mecanismos verificáveis viram código (custo ~0 tokens, não ignoráveis); o modelo decide só o que exige julgamento.
+
+Ativação automática quando a tarefa toca UI (.tsx/.jsx/.css/.html/.vue/.svelte ou pedido de tela).
+1. **Compilador de Design** — brief curto do modelo (assunto, público, tom, 1 elemento de assinatura) → motor gera: paleta OKLCH com contraste WCAG calculado, escala tipográfica modular, pares de fontes de catálogo curado (sem fontes-default), escalas de espaçamento/raio/sombra com regra de variação, semente controlada contra colapso para a média.
+2. **Contrato de Design** — saída vira DESIGN.md travado (formato Google Labs); o build só usa esses tokens.
+3. **Fiscal pós-edição** — ~60 regras determinísticas em `oxc` (TSX) + `lightningcss` (CSS): catálogo de defaults, cor fora do contrato, espaçamento fora da escala, contraste, linha >80ch, alvos de toque, heading pulado, foco/reduced-motion ausentes. Saída compacta `arquivo:linha regra`, como cargo_check. Severidade P0/P1/P2.
+4. **Métricas de mesmice no render** — `chromiumoxide`: variância de raio/sombra, ordem de seções vs sequência-template, teste da silhueta algorítmico (contorno em blocos comparado a biblioteca de layouts genéricos).
+5. **Crítica do modelo** — screenshot + só os pontos que as métricas não decidem.
+6. **Referências reais** — cliente MCP consulta Mobbin (BYOK) para telas conhecidas; decisões citam telas.
+Limite: o código impede o genérico e garante o piso; a ideia (assinatura/conceito) vem do modelo.
+Ferramentas de design se registram no mesmo `Tools` (Fase 3).
