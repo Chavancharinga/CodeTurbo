@@ -203,10 +203,11 @@ impl<'a> Agent<'a> {
                 } else {
                     self.tools.call(&name, &input).await
                 };
-                if !out.is_error && EDIT_TOOLS.contains(&name.as_str()) {
-                    if let Some(p) = input["path"].as_str() {
-                        edited.insert(p.replace('\\', "/"));
-                    }
+                if !out.is_error
+                    && EDIT_TOOLS.contains(&name.as_str())
+                    && let Some(p) = input["path"].as_str()
+                {
+                    edited.insert(p.replace('\\', "/"));
                 }
                 obs.on_tool(&name, &input, &out);
                 results.push(ContentBlock::ToolResult { tool_use_id: id, content: out.content, is_error: out.is_error });
