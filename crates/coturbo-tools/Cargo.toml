@@ -1,0 +1,17 @@
+[package]
+name = "coturbo-tools"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+coturbo-ast = { path = "../coturbo-ast" }
+coturbo-providers = { path = "../coturbo-providers" }
+tokio.workspace = true
+serde_json.workspace = true
+ignore = "0.4"
+regex = "1"
+
+[dev-dependencies]
+tempfile = "3"
