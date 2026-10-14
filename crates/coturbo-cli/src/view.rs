@@ -33,6 +33,11 @@ fn hunk_start(line: &str) -> Option<(usize, usize)> {
 /// `width` is the row width the colored background fills; `color` off
 /// gives plain text.
 pub fn render_diff(diff: &str, width: usize, color: bool) -> Vec<String> {
+    render_diff_upto(diff, width, color, MAX_DIFF_LINES)
+}
+
+/// [`render_diff`] showing at most `max` changed lines.
+pub fn render_diff_upto(diff: &str, width: usize, color: bool, max: usize) -> Vec<String> {
     let mut out = Vec::new();
     let (mut old, mut new) = (0usize, 0usize);
     let mut hunks = 0;
@@ -47,7 +52,7 @@ pub fn render_diff(diff: &str, width: usize, color: bool) -> Vec<String> {
             if let Some((o, n)) = hunk_start(line) {
                 (old, new) = (o, n);
             }
-            if hunks > 0 && shown < MAX_DIFF_LINES {
+            if hunks > 0 && shown < max {
                 out.push(if color { "\x1b[2m      ⋮\x1b[0m".into() } else { "      ⋮".into() });
             }
             hunks += 1;
@@ -69,7 +74,7 @@ pub fn render_diff(diff: &str, width: usize, color: bool) -> Vec<String> {
                 (new - 1, None)
             }
         };
-        if shown >= MAX_DIFF_LINES {
+        if shown >= max {
             hidden += 1;
             continue;
         }

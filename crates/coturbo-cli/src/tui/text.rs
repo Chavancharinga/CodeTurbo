@@ -175,3 +175,100 @@ pub fn wrap(line: &Line, width: usize) -> Vec<Line<'static>> {
     rows.push(build(&row));
     rows
 }
+
+const HEADING: Color = Color::Rgb(47, 123, 255);
+const CODE: Color = Color::Rgb(130, 200, 255);
+
+/// Whether a line opens or closes a fenced code block.
+pub fn is_fence(s: &str) -> bool {
+    s.trim_start().starts_with("```")
+}
+
+/// Inline markdown of one line: `**bold**`, `*italic*`/`_italic_` and
+/// `` `code` ``, with the markers removed.
+fn inline(line: &mut Line<'static>, s: &str, base: Style) {
+    let chars: Vec<char> = s.chars().collect();
+    let (mut bold, mut italic, mut code) = (false, false, false);
+    let mut buf = String::new();
+    let style = |b: bool, i: bool, c: bool| {
+        let mut st = base;
+        if b {
+            st = st.add_modifier(Modifier::BOLD);
+        }
+        if i {
+            st = st.add_modifier(Modifier::ITALIC);
+        }
+        if c {
+            st = st.fg(CODE);
+        }
+        st
+    };
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        let next = chars.get(i + 1).copied();
+        let toggle = if c == '`' {
+            Some(2)
+        } else if code {
+            None
+        } else if (c == '*' && next == Some('*')) || (c == '_' && next == Some('_')) {
+            Some(0)
+        } else if (c == '*' || c == '_')
+            && (italic || next.is_some_and(|n| !n.is_whitespace()))
+            && (c == '*' || italic || i == 0 || !chars[i - 1].is_alphanumeric())
+        {
+            Some(1)
+        } else {
+            None
+        };
+        match toggle {
+            Some(kind) => {
+                push(line, &buf, style(bold, italic, code));
+                buf.clear();
+                match kind {
+                    0 => {
+                        bold = !bold;
+                        i += 1;
+                    }
+                    1 => italic = !italic,
+                    _ => code = !code,
+                }
+            }
+            None => buf.push(c),
+        }
+        i += 1;
+    }
+    push(line, &buf, style(bold, italic, code));
+}
+
+/// One line of model text rendered from markdown: headings without `#`,
+/// bullets as `•`, emphasis and inline code styled; inside a code block
+/// (`code`) the text is shown as is.
+pub fn markdown_line(s: &str, code: bool, base: Style) -> Line<'static> {
+    let mut line = Line::default();
+    if code {
+        push(&mut line, &format!("  {s}"), base.fg(CODE));
+        return line;
+    }
+    if is_fence(s) {
+        return line;
+    }
+    let trimmed = s.trim_start();
+    let indent = &s[..s.len() - trimmed.len()];
+    let hashes = trimmed.chars().take_while(|&c| c == '#').count();
+    if (1..=6).contains(&hashes) && trimmed[hashes..].starts_with(' ') {
+        inline(&mut line, trimmed[hashes..].trim(), base.fg(HEADING).add_modifier(Modifier::BOLD));
+        return line;
+    }
+    if let Some(rest) = trimmed.strip_prefix("- ").or_else(|| trimmed.strip_prefix("* ")).or_else(|| trimmed.strip_prefix("+ ")) {
+        push(&mut line, &format!("{indent}• "), base);
+        inline(&mut line, rest, base);
+        return line;
+    }
+    if trimmed.chars().all(|c| c == '-' || c == '*' || c == '_') && trimmed.len() >= 3 {
+        push(&mut line, &"─".repeat(24), base.add_modifier(Modifier::DIM));
+        return line;
+    }
+    inline(&mut line, s, base);
+    line
+}

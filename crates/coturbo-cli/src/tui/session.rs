@@ -340,6 +340,7 @@ impl Session {
         base += agent.session_usage();
         let mut host = TuiHost::new(self.out.clone(), self.pricer(), self.root.clone(), self.verbose, base);
         self.send(Out::Busy(Some("pensando".into())));
+        let started = std::time::Instant::now();
         let result = tokio::select! {
             r = agent.run_task(text, &mut host) => Some(r),
             _ = cancel.recv() => None,
@@ -351,7 +352,12 @@ impl Session {
                 let cost = self.pricer().cost(&report.usage);
                 self.send(Out::Lines(vec![
                     Line::default(),
-                    ansi_line(&format!("{} · tarefa {}", stop_note(&report), status_line(&report.usage, cost))),
+                    ansi_line(&format!(
+                        "{} · {} · tarefa {}",
+                        stop_note(&report),
+                        crate::status::elapsed(started.elapsed()),
+                        status_line(&report.usage, cost)
+                    )),
                 ]));
                 agent.compact();
             }

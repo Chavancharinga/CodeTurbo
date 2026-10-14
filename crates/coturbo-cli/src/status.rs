@@ -33,6 +33,16 @@ pub fn status_line(u: &Usage, cost: Option<f64>) -> String {
     s
 }
 
+/// `42s`, `2min 05s`, `1h 03min`.
+pub fn elapsed(d: std::time::Duration) -> String {
+    let s = d.as_secs();
+    match s {
+        0..60 => format!("{s}s"),
+        60..3600 => format!("{}min {:02}s", s / 60, s % 60),
+        _ => format!("{}h {:02}min", s / 3600, s % 3600 / 60),
+    }
+}
+
 /// How a task ended, with the verification result.
 pub fn stop_note(report: &TaskReport) -> String {
     let turns = report.turns;

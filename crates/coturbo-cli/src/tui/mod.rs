@@ -68,6 +68,8 @@ pub enum Question {
 /// From the agent side to the screen.
 pub enum Out {
     Lines(Vec<Line<'static>>),
+    /// Code shown as `preview` until the user expands it (Ctrl+B).
+    Fold { preview: Vec<Line<'static>>, full: Vec<Line<'static>> },
     Stream(StreamKind, String),
     /// What the agent is doing; `None` when it is idle.
     Busy(Option<String>),

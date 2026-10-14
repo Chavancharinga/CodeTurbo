@@ -420,3 +420,54 @@ fn the_screen_draws_logo_conversation_box_and_status() {
     let top: String = (0..40).map(|x| small.backend().buffer()[(x, 0)].symbol().to_string()).collect();
     assert!(top.contains("CodeTurbo"), "{top}");
 }
+
+#[test]
+fn model_markdown_is_rendered_without_markers() {
+    use coturbo_cli::tui::text::markdown_line;
+    use ratatui::style::Style;
+    let base = Style::new();
+    assert_eq!(plain(&markdown_line("## Plano de ação", false, base)), "Plano de ação");
+    assert!(markdown_line("# Título", false, base).spans[0].style.add_modifier.contains(Modifier::BOLD));
+    let l = markdown_line("Use **negrito**, *itálico* e `index.html`.", false, base);
+    assert_eq!(plain(&l), "Use negrito, itálico e index.html.");
+    assert!(l.spans.iter().any(|s| s.content == "negrito" && s.style.add_modifier.contains(Modifier::BOLD)));
+    assert!(l.spans.iter().any(|s| s.content == "itálico" && s.style.add_modifier.contains(Modifier::ITALIC)));
+    assert_eq!(plain(&markdown_line("- item", false, base)), "• item");
+    assert_eq!(plain(&markdown_line("  * sub", false, base)), "  • sub");
+    assert_eq!(plain(&markdown_line("snake_case_name e 2 * 3", false, base)), "snake_case_name e 2 * 3");
+    assert_eq!(plain(&markdown_line("**x** = *y*", true, base)), "  **x** = *y*", "code is shown as is");
+
+    let mut t = Transcript::default();
+    t.stream(StreamKind::Text, "## Feito\nVeja:\n```html\n<p>*oi*</p>\n```\nfim **ok**");
+    let shown: Vec<String> = t.lines().iter().map(plain).collect();
+    assert_eq!(shown, ["Feito", "Veja:", "", "  <p>*oi*</p>", "", "fim ok"]);
+}
+
+#[test]
+fn long_code_is_folded_until_ctrl_b() {
+    use coturbo_cli::tui::host::{PREVIEW_ROWS, diff_fold};
+    let long: String = (0..40).map(|i| format!("+linha {i}\n")).collect();
+    let Out::Fold { preview, full } = diff_fold(&format!("@@ -0,0 +1,40 @@\n{long}"), 80) else { panic!("folded") };
+    assert_eq!(preview.len(), PREVIEW_ROWS + 1);
+    assert!(plain(preview.last().unwrap()).contains("mais 30 linhas · Ctrl+B"));
+    assert_eq!(full.len(), 41, "every line, nothing capped");
+    let short = diff_fold("@@ -3,1 +3,1 @@\n-velho\n+novo\n", 80);
+    assert!(matches!(short, Out::Lines(ref l) if l.len() == 2), "a small fix is shown whole");
+
+    let mut h = harness();
+    h.app.apply(Out::Fold { preview: preview.clone(), full: full.clone() });
+    assert_eq!(h.app.transcript().lines().len(), PREVIEW_ROWS + 1);
+    h.ctrl('b');
+    assert_eq!(h.app.transcript().lines().len(), 41);
+    h.ctrl('b');
+    assert_eq!(h.app.transcript().lines().len(), PREVIEW_ROWS + 1);
+}
+
+#[test]
+fn task_time_reads_naturally() {
+    use coturbo_cli::status::elapsed;
+    use std::time::Duration;
+    assert_eq!(elapsed(Duration::from_secs(42)), "42s");
+    assert_eq!(elapsed(Duration::from_secs(125)), "2min 05s");
+    assert_eq!(elapsed(Duration::from_secs(3780)), "1h 03min");
+}

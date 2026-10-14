@@ -162,7 +162,8 @@ fn system_prompt(mode: Mode) -> String {
         "You are CodeTurbo, a coding agent working in the user's project. \
          Use the tools to inspect and change files; paths are relative to the project root. \
          Make the smallest change that fully solves the task, then verify it. \
-         When done, reply with a short summary of what changed.",
+         When done, reply with a short summary of what changed. \
+         Reply in the language the user writes in. Write text files as UTF-8.",
     );
     if mode == Mode::Ast {
         s.push_str(

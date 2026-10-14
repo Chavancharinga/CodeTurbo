@@ -204,7 +204,15 @@ async fn a_session_runs_tasks_switches_models_and_quits() {
     assert!(saved.contains("model = \"outro:2b\""), "{saved}");
 
     tx.send(In::Submit("de novo".into())).unwrap();
-    wait_for(&seen, "concluído em 1 rodada · tarefa").await;
+    for _ in 0..200 {
+        if seen.lock().unwrap().lines.iter().filter(|l| l.contains("concluído em 1 rodada")).count() == 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    let done: Vec<String> = seen.lock().unwrap().lines.iter().filter(|l| l.contains("concluído")).cloned().collect();
+    assert_eq!(done.len(), 2, "{done:?}");
+    assert!(done[1].contains("s · tarefa tokens"), "shows how long it took: {}", done[1]);
     tx.send(In::Submit("/uso".into())).unwrap();
     wait_for(&seen, "Sessão: tokens").await;
     tx.send(In::Submit("/inexistente".into())).unwrap();

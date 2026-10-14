@@ -40,58 +40,110 @@ fn dim() -> Style {
     Style::new().add_modifier(Modifier::DIM)
 }
 
+/// One entry of the conversation.
+#[derive(Debug, Clone)]
+enum Entry {
+    Line(Line<'static>),
+    /// Streamed model text, rendered from markdown when drawn.
+    Markdown {
+        text: String,
+        /// Inside a fenced code block.
+        code: bool,
+        prefix: &'static str,
+        style: Style,
+    },
+    /// Code shown shortened until Ctrl+B.
+    Fold { preview: Vec<Line<'static>>, full: Vec<Line<'static>> },
+}
+
+impl Entry {
+    fn rows(&self, expanded: bool) -> Vec<Line<'static>> {
+        match self {
+            Entry::Line(l) => vec![l.clone()],
+            Entry::Markdown { text, code, prefix, style } => {
+                let mut line = Line::default();
+                text::push(&mut line, prefix, *style);
+                let body = if text::is_fence(text) { Line::default() } else { text::markdown_line(text, *code, *style) };
+                line.spans.extend(body.spans);
+                vec![line]
+            }
+            Entry::Fold { preview, full } => if expanded { full.clone() } else { preview.clone() },
+        }
+    }
+}
+
 /// The conversation: finished lines plus the one being streamed.
 #[derive(Debug, Default)]
 pub struct Transcript {
-    lines: Vec<Line<'static>>,
+    entries: Vec<Entry>,
     stream: Option<StreamKind>,
+    /// Folded code shown in full (Ctrl+B).
+    expanded: bool,
 }
 
 impl Transcript {
-    pub fn lines(&self) -> &[Line<'static>] {
-        &self.lines
+    /// Every row as currently shown, before wrapping.
+    pub fn lines(&self) -> Vec<Line<'static>> {
+        self.entries.iter().flat_map(|e| e.rows(self.expanded)).collect()
     }
 
     pub fn push(&mut self, line: Line<'static>) {
         self.stream = None;
-        self.lines.push(line);
+        self.entries.push(Entry::Line(line));
     }
 
     pub fn extend(&mut self, lines: Vec<Line<'static>>) {
         self.stream = None;
-        self.lines.extend(lines);
+        self.entries.extend(lines.into_iter().map(Entry::Line));
+    }
+
+    /// Code that shows `preview` until expanded.
+    pub fn fold(&mut self, preview: Vec<Line<'static>>, full: Vec<Line<'static>>) {
+        self.stream = None;
+        self.entries.push(Entry::Fold { preview, full });
+    }
+
+    /// Shows folded code in full, or folds it again. Returns the new state.
+    pub fn toggle_folds(&mut self) -> bool {
+        self.expanded = !self.expanded;
+        self.expanded
     }
 
     pub fn clear(&mut self) {
-        self.lines.clear();
+        self.entries.clear();
         self.stream = None;
     }
 
     /// Appends streamed model output: reasoning dimmed in italics after
-    /// `∴`, the answer as plain text.
+    /// `∴`, the answer as text; both rendered from markdown.
     pub fn stream(&mut self, kind: StreamKind, delta: &str) {
-        let (style, indent) = match kind {
-            StreamKind::Thinking => (Style::new().add_modifier(Modifier::DIM | Modifier::ITALIC), "  "),
-            StreamKind::Text => (Style::new(), ""),
+        let (style, first, indent) = match kind {
+            StreamKind::Thinking => (Style::new().add_modifier(Modifier::DIM | Modifier::ITALIC), "∴ ", "  "),
+            StreamKind::Text => (Style::new(), "", ""),
         };
         if self.stream != Some(kind) {
-            if self.lines.last().is_some_and(|l| text::width(l) > 0) {
-                self.lines.push(Line::default());
+            let blank = match self.entries.last() {
+                Some(Entry::Line(l)) => text::width(l) > 0,
+                Some(_) => true,
+                None => false,
+            };
+            if blank {
+                self.entries.push(Entry::Line(Line::default()));
             }
-            let mut first = Line::default();
-            if kind == StreamKind::Thinking {
-                text::push(&mut first, "∴ ", style);
-            }
-            self.lines.push(first);
+            self.entries.push(Entry::Markdown { text: String::new(), code: false, prefix: first, style });
             self.stream = Some(kind);
         }
         for (n, part) in delta.split('\n').enumerate() {
             if n > 0 {
-                let mut line = Line::default();
-                text::push(&mut line, indent, style);
-                self.lines.push(line);
+                let code = match self.entries.last() {
+                    Some(Entry::Markdown { text, code, .. }) => *code != text::is_fence(text),
+                    _ => false,
+                };
+                self.entries.push(Entry::Markdown { text: String::new(), code, prefix: indent, style });
             }
-            text::push(self.lines.last_mut().expect("a stream line exists"), part, style);
+            if let Some(Entry::Markdown { text, .. }) = self.entries.last_mut() {
+                text.push_str(part);
+            }
         }
     }
 
@@ -100,13 +152,15 @@ impl Transcript {
     pub fn view(&self, width: usize, height: usize, scroll: usize) -> (Vec<Line<'static>>, usize) {
         let need = height + scroll;
         let mut rows = Vec::new();
-        for line in self.lines.iter().rev() {
-            if rows.len() >= need {
-                break;
+        'entries: for entry in self.entries.iter().rev() {
+            for line in entry.rows(self.expanded).iter().rev() {
+                if rows.len() >= need {
+                    break 'entries;
+                }
+                let mut wrapped = text::wrap(line, width);
+                wrapped.reverse();
+                rows.extend(wrapped);
             }
-            let mut wrapped = text::wrap(line, width);
-            wrapped.reverse();
-            rows.extend(wrapped);
         }
         let scroll = scroll.min(rows.len().saturating_sub(height));
         let mut visible: Vec<_> = rows.into_iter().skip(scroll).take(height).collect();
@@ -237,6 +291,7 @@ impl App {
     pub fn apply(&mut self, m: Out) {
         match m {
             Out::Lines(lines) => self.transcript.extend(lines),
+            Out::Fold { preview, full } => self.transcript.fold(preview, full),
             Out::Stream(kind, delta) => self.transcript.stream(kind, &delta),
             Out::Busy(label) => {
                 let since = self.busy.as_ref().map_or_else(Instant::now, |(_, t)| *t);
@@ -341,6 +396,10 @@ impl App {
             }
             KeyCode::Char('d') if ctrl && !alt && self.input.is_empty() && self.asking.is_none() => {
                 self.quit();
+                return;
+            }
+            KeyCode::Char('b') if ctrl && !alt => {
+                self.transcript.toggle_folds();
                 return;
             }
             KeyCode::PageUp => {
@@ -805,7 +864,7 @@ impl App {
             None if self.asking.is_some() => Line::default(),
             None if self.scroll > 0 => Line::styled("  há mais mensagens abaixo · Esc volta ao fim", dim()),
             None => Line::styled(
-                "  Enter envia · Shift+Enter quebra a linha · ↑↓ rolam a conversa · Ctrl+↑↓ histórico · /ajuda",
+                "  Enter envia · Shift+Enter quebra a linha · ↑↓ rolam · Ctrl+B mostra o código · /ajuda",
                 dim(),
             ),
         };
