@@ -41,7 +41,7 @@ pub(crate) async fn stream_sse(
                 .get("retry-after")
                 .and_then(|v| v.to_str().ok()?.parse::<u64>().ok())
                 .unwrap_or(1 << attempt);
-            eprintln!("[coturbo] HTTP {status}, retrying in {wait}s ({}/{MAX_RETRIES})", attempt + 1);
+            eprintln!("[codeturbo] HTTP {status}, retrying in {wait}s ({}/{MAX_RETRIES})", attempt + 1);
             tokio::time::sleep(Duration::from_secs(wait.min(60))).await;
             attempt += 1;
             continue;

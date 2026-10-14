@@ -1,5 +1,5 @@
 //! Plan mode, modelled on oh-my-pi: the project is read-only, the model
-//! writes `.coturbo/plans/<slug>-plan.md` and asks for approval only through
+//! writes `.codeturbo/plans/<slug>-plan.md` and asks for approval only through
 //! the `propose_plan` tool; the user picks one of five next steps.
 
 use crate::approval::{PLAN_DIR, plan_slug};
@@ -49,7 +49,7 @@ pub(crate) fn plan_path(slug: &str) -> Option<String> {
 pub(crate) const PLAN_NOTICE: &str = "\
 [Plan mode is active]
 - The project is read-only: do not edit, create, delete or rename project files and do not run state-changing commands; such calls are refused.
-- Write the plan to `.coturbo/plans/<slug>-plan.md` (slug: letters, digits, `-`, `_`) with write_file/edit_file, recording findings as you learn them.
+- Write the plan to `.codeturbo/plans/<slug>-plan.md` (slug: letters, digits, `-`, `_`) with write_file/edit_file, recording findings as you learn them.
 - A plan is an execution spec, not a design essay: an implementer who never saw this conversation must be able to follow it top to bottom without making a single decision. List the exact files, symbols and changes, and how to verify them.
 - Ground every claim: each path, symbol, signature and behaviour you state must have been read in this session; mark anything unconfirmed as `unverified`.
 - When the plan is complete, call propose_plan with its slug. Never ask for approval in prose.

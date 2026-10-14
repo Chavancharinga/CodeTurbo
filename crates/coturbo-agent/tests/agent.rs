@@ -374,7 +374,7 @@ fn plan_writes() -> Vec<Response> {
             vec![
                 tool("t1", "edit_file", json!({"path": "src/lib.rs", "old": "a + b", "new": "a - b"})),
                 tool("t2", "bash", json!({"command": "echo hi"})),
-                tool("t3", "write_file", json!({"path": ".coturbo/plans/sub-plan.md", "content": "# Plan\n1. change add to sub\n"})),
+                tool("t3", "write_file", json!({"path": ".codeturbo/plans/sub-plan.md", "content": "# Plan\n1. change add to sub\n"})),
             ],
             "tool_use",
             usage(10, 1),
@@ -448,7 +448,7 @@ async fn refine_keeps_plan_mode_and_save_quit_stops() {
     assert_eq!(reqs[2].model, "planner", "still planning after refine");
     assert_eq!(r.stop, Stop::PlanSaved);
     assert!(!agent.plan_mode());
-    assert!(dir.path().join(".coturbo/plans/sub-plan.md").exists());
+    assert!(dir.path().join(".codeturbo/plans/sub-plan.md").exists());
     assert!(std::fs::read_to_string(dir.path().join("src/lib.rs")).unwrap().contains("a + b"));
 }
 

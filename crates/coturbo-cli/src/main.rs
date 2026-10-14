@@ -6,13 +6,13 @@ use coturbo_cli::{
     status::{TermHost, status_line},
 };
 use coturbo_tools::{Mode, Tools};
-use coturbo_cli::splash;
+use coturbo_cli::{splash, update};
 use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 #[derive(Parser)]
-#[command(name = "coturbo", version, about = "Token-frugal coding agent. No subcommand starts the REPL.")]
+#[command(name = "codeturbo", version, about = "Agente de código que entrega código verificado gastando menos tokens. Sem subcomando, abre a interface.")]
 struct Cli {
     #[command(flatten)]
     opts: Opts,
@@ -20,7 +20,7 @@ struct Cli {
     cmd: Option<Cmd>,
 }
 
-/// Overrides for values in config.toml.
+/// Substituem os valores do config.toml.
 #[derive(Args)]
 struct Opts {
     /// anthropic | openai | openrouter | ollama
@@ -38,44 +38,46 @@ struct Opts {
     effort: Option<String>,
     #[arg(long, global = true)]
     base_url: Option<String>,
-    /// Project root the tools are confined to (default: current dir).
+    /// Pasta do projeto onde as ferramentas atuam (padrão: a pasta atual).
     #[arg(long, global = true)]
     root: Option<PathBuf>,
     /// always-ask | write | yolo
     #[arg(long, global = true)]
     approval_mode: Option<String>,
-    /// Start in plan mode: read-only until you approve a plan.
+    /// Começa no modo plano: somente leitura até você aprovar um plano.
     #[arg(long, global = true)]
     plan: bool,
-    /// Model used while planning (e.g. a stronger one than --model).
+    /// Modelo usado no planejamento (por exemplo, um mais forte que o --model).
     #[arg(long, global = true)]
     plan_model: Option<String>,
-    /// Approve every tool call (same as --approval-mode yolo).
+    /// Aprova todas as ações (o mesmo que --approval-mode yolo).
     #[arg(long, global = true)]
     auto_approve: bool,
-    /// Print the running token count after every turn.
+    /// Mostra a contagem de tokens após cada rodada.
     #[arg(short, long, global = true)]
     verbose: bool,
 }
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Run one task and exit.
+    /// Executa uma tarefa e sai.
     Run { task: String },
-    /// Play the CodeTurbo intro animation.
+    /// Mostra a animação de abertura do CodeTurbo.
     Splash,
-    /// A/B benchmark of the tool sets over a fixture.
+    /// Atualiza o CodeTurbo para a versão mais recente.
+    Update,
+    /// Comparação A/B dos conjuntos de ferramentas sobre um projeto de teste.
     Bench {
         #[arg(long, default_value = "bench/tasks")]
         tasks: PathBuf,
         #[arg(long, default_value = "bench/fixture")]
         fixture: PathBuf,
-        /// Comma-separated tool sets.
+        /// Conjuntos de ferramentas separados por vírgula.
         #[arg(long, default_value = "naive,ast")]
         modes: String,
         #[arg(long, default_value = "bench/runs")]
         out: PathBuf,
-        /// Only tasks whose id contains this.
+        /// Apenas as tarefas cujo id contém este texto.
         #[arg(long)]
         only: Option<String>,
     },
@@ -149,7 +151,19 @@ async fn main() -> ExitCode {
     }
 }
 
+/// The update check's result, waiting at most a moment for it: it runs
+/// while the intro plays, so it is usually ready.
+async fn update_notice(check: Option<tokio::task::JoinHandle<Option<String>>>) -> Option<String> {
+    let tag = tokio::time::timeout(std::time::Duration::from_millis(1500), check?).await.ok()?.ok()??;
+    Some(update::notice(&tag))
+}
+
 async fn real_main(cli: Cli) -> Result<ExitCode, String> {
+    update::cleanup_old_binary();
+    if matches!(cli.cmd, Some(Cmd::Update)) {
+        eprintln!("{}", update::self_update().await?);
+        return Ok(ExitCode::SUCCESS);
+    }
     if matches!(cli.cmd, Some(Cmd::Splash)) {
         // Runs until Enter.
         let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -170,11 +184,24 @@ async fn real_main(cli: Cli) -> Result<ExitCode, String> {
     let cfg = apply(cfg, &cli.opts);
     let mode = parse_mode(&cfg.tools)?;
     cfg.approval_config()?; // config errors before credential errors
+    let wants_check = cfg.update_check
+        && std::env::var_os("CODETURBO_NO_UPDATE_CHECK").is_none()
+        && matches!(cli.cmd, None | Some(Cmd::Run { .. }));
+    let check = wants_check.then(|| tokio::spawn(update::check_now(dir.clone())));
     // The REPL opens with the snail, before anything that can fail on a
     // missing key, so the intro always shows.
     let animated = cli.cmd.is_none() && splash::can_animate(std::io::stderr().is_terminal());
     if animated {
         splash::play(&mut std::io::stderr(), true, &std::sync::atomic::AtomicBool::new(true));
+    }
+    // In the REPL the notice goes right under the intro; `run` shows it at the end.
+    let mut check = check;
+    let mut notice_lines = 0;
+    if cli.cmd.is_none()
+        && let Some(msg) = update_notice(check.take()).await
+    {
+        eprintln!("\x1b[33m{msg}\x1b[0m");
+        notice_lines = 1;
     }
     let provider = config::make_provider(&cfg)?;
     let pricer = Pricer { table: prices, model: cfg.model.clone(), provider: cfg.provider.clone() };
@@ -197,7 +224,7 @@ async fn real_main(cli: Cli) -> Result<ExitCode, String> {
             cfg.verify = project.verify.or(cfg.verify);
             cfg.run = project.run.or(cfg.run);
         } else {
-            eprintln!("  ! ignoring .coturbo.toml commands (not trusted)");
+            eprintln!("  ! ignoring .codeturbo.toml commands (not trusted)");
         }
     }
 
@@ -210,6 +237,9 @@ async fn real_main(cli: Cli) -> Result<ExitCode, String> {
             println!();
             eprintln!("{}", stop_note(&report));
             eprintln!("{}", status_line(&report.usage, pricer.cost(&report.usage)));
+            if let Some(msg) = update_notice(check.take()).await {
+                eprintln!("\x1b[33m{msg}\x1b[0m");
+            }
             let ok = matches!(report.stop, Stop::Done | Stop::PlanSaved) && report.verified != Some(false);
             Ok(if ok { ExitCode::SUCCESS } else { ExitCode::FAILURE })
         }
@@ -256,8 +286,11 @@ async fn real_main(cli: Cli) -> Result<ExitCode, String> {
             eprintln!("wrote {} and {}", jp.display(), mp.display());
             Ok(ExitCode::SUCCESS)
         }
-        Some(Cmd::Splash) => unreachable!("handled before the provider is built"),
-        None => repl(provider.as_ref(), &root, mode, &cfg, &pricer, &mut host, cli.opts.plan).await,
+        Some(Cmd::Splash | Cmd::Update) => unreachable!("handled before the provider is built"),
+        None => {
+            let session = Session { plan: cli.opts.plan, lines_under_intro: notice_lines };
+            repl(provider.as_ref(), &root, mode, &cfg, &pricer, &mut host, session).await
+        }
     }
 }
 
@@ -276,6 +309,13 @@ fn stop_note(report: &TaskReport) -> String {
     }
 }
 
+/// REPL options decided before it starts.
+struct Session {
+    plan: bool,
+    /// Lines printed between the intro and the REPL header (update notice).
+    lines_under_intro: usize,
+}
+
 async fn repl(
     provider: &dyn coturbo_providers::Provider,
     root: &std::path::Path,
@@ -283,25 +323,26 @@ async fn repl(
     cfg: &Config,
     pricer: &Pricer,
     host: &mut TermHost,
-    plan: bool,
+    session: Session,
 ) -> Result<ExitCode, String> {
     use rustyline::error::ReadlineError;
     let tools = make_tools(root, mode, cfg);
     let mut agent = Agent::new(provider, &tools, agent_config(cfg)?);
-    agent.set_plan_mode(plan);
+    agent.set_plan_mode(session.plan);
     // The intro already played (in `real_main`) under this same condition.
     let animated = splash::can_animate(std::io::stderr().is_terminal());
     let mut rl = rustyline::DefaultEditor::new().map_err(|e| e.to_string())?;
     eprintln!(
-        "coturbo · {} · {} · tools {} · approval {} · /plan, /usage, /exit",
+        "codeturbo · {} · {} · tools {} · approval {} · /plan, /usage, /exit",
         cfg.provider,
         cfg.model,
         mode_name(mode),
         cfg.approval_mode
     );
     // The snail keeps running above the prompt until the first task.
-    // From the prompt: header (1) + tagline (1) + logo rows.
-    let mut live = animated.then(|| splash::LiveLogo::start(2 + splash::ROWS));
+    // From the prompt: header (1) + any lines printed under the intro +
+    // tagline (1) + logo rows.
+    let mut live = animated.then(|| splash::LiveLogo::start(2 + session.lines_under_intro + splash::ROWS));
     loop {
         let prompt = if agent.plan_mode() { "plan › " } else { "› " };
         let read = rl.readline(prompt);

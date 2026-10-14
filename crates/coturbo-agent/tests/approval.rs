@@ -80,11 +80,11 @@ fn plan_mode_is_read_only_except_plan_files() {
     assert!(matches!(v, Verdict::Deny(m) if m.contains("plan mode")));
     let v = resolve("bash", Tier::Exec, &json!({"command": "ls"}), &c, &g, true);
     assert!(matches!(v, Verdict::Deny(_)));
-    let v = resolve("write_file", Tier::Write, &json!({"path": ".coturbo/plans/x-plan.md"}), &c, &g, true);
+    let v = resolve("write_file", Tier::Write, &json!({"path": ".codeturbo/plans/x-plan.md"}), &c, &g, true);
     assert_eq!(v, Verdict::Allow);
-    let v = resolve("write_file", Tier::Write, &json!({"path": "./.coturbo\\plans/x-plan.md"}), &c, &g, true);
+    let v = resolve("write_file", Tier::Write, &json!({"path": "./.codeturbo\\plans/x-plan.md"}), &c, &g, true);
     assert_eq!(v, Verdict::Allow);
-    let v = resolve("write_file", Tier::Write, &json!({"path": ".coturbo/plans/../../src/x-plan.md"}), &c, &g, true);
+    let v = resolve("write_file", Tier::Write, &json!({"path": ".codeturbo/plans/../../src/x-plan.md"}), &c, &g, true);
     assert!(matches!(v, Verdict::Deny(_)));
     let v = resolve("read_file", Tier::Read, &json!({"path": "src/lib.rs"}), &c, &g, true);
     assert_eq!(v, Verdict::Allow);
@@ -93,10 +93,10 @@ fn plan_mode_is_read_only_except_plan_files() {
 #[test]
 fn plan_slugs() {
     use coturbo_agent::approval::plan_slug;
-    assert_eq!(plan_slug(".coturbo/plans/auth-fix-plan.md").as_deref(), Some("auth-fix"));
-    assert_eq!(plan_slug(".coturbo/plans/-plan.md"), None);
-    assert_eq!(plan_slug(".coturbo/plans/a b-plan.md"), None);
-    assert_eq!(plan_slug(".coturbo/plans/sub/x-plan.md"), None);
+    assert_eq!(plan_slug(".codeturbo/plans/auth-fix-plan.md").as_deref(), Some("auth-fix"));
+    assert_eq!(plan_slug(".codeturbo/plans/-plan.md"), None);
+    assert_eq!(plan_slug(".codeturbo/plans/a b-plan.md"), None);
+    assert_eq!(plan_slug(".codeturbo/plans/sub/x-plan.md"), None);
     assert_eq!(plan_slug("src/x-plan.md"), None);
 }
 

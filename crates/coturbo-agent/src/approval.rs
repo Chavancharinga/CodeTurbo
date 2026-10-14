@@ -149,9 +149,9 @@ fn norm_path(p: &str) -> String {
 }
 
 /// Directory plan files live in, relative to the project root.
-pub const PLAN_DIR: &str = ".coturbo/plans";
+pub const PLAN_DIR: &str = ".codeturbo/plans";
 
-/// `Some(slug)` if `path` is `.coturbo/plans/<slug>-plan.md`.
+/// `Some(slug)` if `path` is `.codeturbo/plans/<slug>-plan.md`.
 pub fn plan_slug(path: &str) -> Option<String> {
     let p = norm_path(path);
     let name = p.strip_prefix(PLAN_DIR)?.strip_prefix('/')?;

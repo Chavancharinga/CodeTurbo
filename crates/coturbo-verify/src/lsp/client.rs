@@ -161,7 +161,7 @@ impl Client {
             "processId": std::process::id(),
             "rootUri": path_to_uri(root),
             "workspaceFolders": [{"uri": path_to_uri(root), "name": "root"}],
-            "clientInfo": {"name": "coturbo"},
+            "clientInfo": {"name": "codeturbo"},
             "capabilities": {
                 "textDocument": {
                     "publishDiagnostics": {"versionSupport": true},

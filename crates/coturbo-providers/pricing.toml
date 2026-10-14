@@ -1,6 +1,6 @@
 # USD per million tokens. cache_write = 5-minute TTL write price.
 # Anthropic first-party prices as of 2026-10. Add other models (OpenAI,
-# OpenRouter ids, ...) in ~/.config/coturbo/pricing.toml; unknown models
+# OpenRouter ids, ...) in ~/.config/codeturbo/pricing.toml; unknown models
 # show token counts without a dollar figure.
 
 [models."claude-opus-5-5"]

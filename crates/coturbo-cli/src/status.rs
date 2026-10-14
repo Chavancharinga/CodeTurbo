@@ -191,12 +191,12 @@ impl TermHost {
         read_line().is_some_and(|l| matches!(l.trim().to_ascii_lowercase().as_str(), "y" | "yes" | "s" | "sim"))
     }
 
-    /// Asks once whether the project's `.coturbo.toml` commands may run.
+    /// Asks once whether the project's `.codeturbo.toml` commands may run.
     pub fn trust_project(&self, commands: &[String]) -> bool {
         if commands.is_empty() {
             return true;
         }
-        eprintln!("\x1b[33m? this project's .coturbo.toml wants the verification gate to run:\x1b[0m");
+        eprintln!("\x1b[33m? this project's .codeturbo.toml wants the verification gate to run:\x1b[0m");
         for c in commands {
             eprintln!("    {c}");
         }

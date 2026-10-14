@@ -266,7 +266,7 @@ fn splash_frames_keep_their_shape_and_reveal_the_name() {
         let f = splash::frame(i, width);
         assert!(f[..splash::ROWS].iter().all(|l| strip(l).chars().count() == w), "frame {i} misaligned");
     }
-    assert!(strip(&last[splash::ROWS]).trim() == "fast · frugal · verified");
+    assert!(strip(&last[splash::ROWS]).trim() == "rápido · econômico · verificado");
     assert!(strip(&splash::frame(0, width)[splash::ROWS]).is_empty(), "tagline waits for the full name");
     // Narrow terminal: the trail shrinks away, the logo stays intact.
     let narrow = splash::frame(0, splash::logo_width() + 2);
@@ -274,7 +274,7 @@ fn splash_frames_keep_their_shape_and_reveal_the_name() {
 
     let mut buf = Vec::new();
     splash::play(&mut buf, false, &std::sync::atomic::AtomicBool::new(true));
-    assert_eq!(String::from_utf8(buf).unwrap(), "CodeTurbo — fast · frugal · verified\n");
+    assert_eq!(String::from_utf8(buf).unwrap(), "CodeTurbo — rápido · econômico · verificado\n");
     assert!(strip(&splash::spinner_line(3, "verifying")).ends_with("@ verifying"));
 }
 
@@ -424,4 +424,70 @@ fn live_logo_redraws_only_the_track() {
         assert!(strip(f).ends_with(&strip(t)), "{f:?} vs {t:?}");
         assert!(strip(f).chars().count() > strip(t).chars().count());
     }
+}
+
+#[test]
+fn versions_compare_numerically() {
+    use coturbo_cli::update::{is_newer, parse_version};
+    assert_eq!(parse_version("v1.2.3"), Some((1, 2, 3)));
+    assert_eq!(parse_version("0.10.0-beta.1"), Some((0, 10, 0)));
+    assert_eq!(parse_version("garbage"), None);
+    assert!(is_newer("v0.10.0", "0.9.9"), "numeric, not lexical");
+    assert!(is_newer("v1.0.0", "0.99.0"));
+    assert!(!is_newer("v0.1.0", "0.1.0"));
+    assert!(!is_newer("v0.0.9", "0.1.0"));
+    assert!(!is_newer("nightly", "0.1.0"));
+}
+
+#[test]
+fn every_supported_platform_has_a_release_asset() {
+    use coturbo_cli::update::asset_name_for;
+    assert_eq!(asset_name_for("windows", "x86_64").as_deref(), Some("codeturbo-x86_64-pc-windows-msvc.tar.gz"));
+    assert_eq!(asset_name_for("windows", "aarch64").as_deref(), Some("codeturbo-x86_64-pc-windows-msvc.tar.gz"));
+    assert_eq!(asset_name_for("linux", "x86_64").as_deref(), Some("codeturbo-x86_64-unknown-linux-musl.tar.gz"));
+    assert_eq!(asset_name_for("linux", "aarch64").as_deref(), Some("codeturbo-aarch64-unknown-linux-musl.tar.gz"));
+    assert_eq!(asset_name_for("macos", "aarch64").as_deref(), Some("codeturbo-aarch64-apple-darwin.tar.gz"));
+    assert_eq!(asset_name_for("macos", "x86_64").as_deref(), Some("codeturbo-x86_64-apple-darwin.tar.gz"));
+    assert_eq!(asset_name_for("freebsd", "x86_64"), None);
+    assert!(coturbo_cli::update::asset_name().is_some(), "this machine is a supported platform");
+}
+
+fn release_archive(name: &str, bytes: &[u8]) -> Vec<u8> {
+    let mut tar = tar::Builder::new(flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default()));
+    let mut header = tar::Header::new_gnu();
+    header.set_size(bytes.len() as u64);
+    header.set_mode(0o755);
+    header.set_cksum();
+    tar.append_data(&mut header, name, bytes).unwrap();
+    tar.into_inner().unwrap().finish().unwrap()
+}
+
+#[test]
+fn the_binary_is_extracted_and_swapped_in() {
+    use coturbo_cli::update::{extract_binary, replace_binary};
+    let exe_name = if cfg!(windows) { "codeturbo.exe" } else { "codeturbo" };
+    let archive = release_archive(exe_name, b"new build");
+    assert_eq!(extract_binary(&archive).unwrap(), b"new build");
+    assert!(extract_binary(&release_archive("README.md", b"x")).is_err());
+
+    let dir = tempfile::tempdir().unwrap();
+    let exe = dir.path().join(exe_name);
+    std::fs::write(&exe, b"old build").unwrap();
+    replace_binary(&exe, b"new build").unwrap();
+    assert_eq!(std::fs::read(&exe).unwrap(), b"new build");
+    let parked = dir.path().join(format!("{exe_name}.old"));
+    assert_eq!(std::fs::read(parked).unwrap(), b"old build", "old binary parked for cleanup");
+}
+
+#[tokio::test]
+async fn a_fresh_cache_answers_without_asking_github() {
+    use coturbo_cli::update::{VERSION, check, notice};
+    let dir = tempfile::tempdir().unwrap();
+    let now = 1_000_000;
+    std::fs::write(dir.path().join("update-check.txt"), format!("{} v999.0.0\n", now - 60)).unwrap();
+    assert_eq!(check(Some(dir.path().to_path_buf()), now).await.as_deref(), Some("v999.0.0"));
+    std::fs::write(dir.path().join("update-check.txt"), format!("{} v{VERSION}\n", now - 60)).unwrap();
+    assert_eq!(check(Some(dir.path().to_path_buf()), now).await, None, "same version: no notice");
+    let msg = notice("v999.0.0");
+    assert!(msg.contains("v999.0.0") && msg.contains("codeturbo update"), "{msg}");
 }

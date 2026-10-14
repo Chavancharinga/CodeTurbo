@@ -159,7 +159,7 @@ const GAP: usize = 3;
 const TRAIL_LEN: usize = 18;
 const FRAMES: usize = 40;
 const FRAME: Duration = Duration::from_millis(50);
-const TAGLINE: &str = "fast · frugal · verified";
+const TAGLINE: &str = "rápido · econômico · verificado";
 
 fn word_width() -> usize {
     NAME.len() * 6 - 1

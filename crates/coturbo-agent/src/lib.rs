@@ -202,7 +202,7 @@ pub struct Agent<'a> {
 
 /// Project files (not CoTurbo's own plan files) changed in the task.
 fn code_edits(edited: &BTreeSet<String>) -> bool {
-    edited.iter().any(|p| !p.starts_with(".coturbo/"))
+    edited.iter().any(|p| !p.starts_with(".codeturbo/"))
 }
 
 impl<'a> Agent<'a> {

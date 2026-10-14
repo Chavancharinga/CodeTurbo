@@ -138,7 +138,7 @@ impl Tools {
             spec("list_files", "List files (respects .gitignore).", obj(json!({"path": s("relative dir, default .")}), &[])),
             spec("grep", "Regex search; returns path:line: text.", obj(json!({"pattern": s("regex"), "path": s("relative dir or file, default .")}), &["pattern"])),
             spec("bash", "Run a shell command in the project root.", obj(json!({"command": s("command")}), &["command"])),
-            spec("propose_plan", "Plan mode only: submit .coturbo/plans/<slug>-plan.md for the user's approval.", obj(json!({"slug": s("plan slug")}), &["slug"])),
+            spec("propose_plan", "Plan mode only: submit .codeturbo/plans/<slug>-plan.md for the user's approval.", obj(json!({"slug": s("plan slug")}), &["slug"])),
         ];
         if self.mode == Mode::Ast {
             let sym = s("symbol path, e.g. `Point::new` or `utils::parse`");

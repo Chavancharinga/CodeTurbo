@@ -39,6 +39,8 @@ pub struct Config {
     pub run: Option<String>,
     /// Gate failures sent back to the model before giving up.
     pub max_fix_rounds: u32,
+    /// Look for a newer CodeTurbo release (at most once a day).
+    pub update_check: bool,
     /// Append language-server diagnostics to every edit result.
     pub diagnostics_on_write: bool,
     /// Format files after edits (rustfmt for Rust, the language server otherwise).
@@ -63,7 +65,7 @@ pub struct ServerToml {
     pub extensions: Vec<String>,
 }
 
-/// `.coturbo.toml` at the project root. It can make the gate run arbitrary
+/// `.codeturbo.toml` at the project root. It can make the gate run arbitrary
 /// commands, so it is only used after the user trusts it.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -79,7 +81,7 @@ impl ProjectConfig {
 }
 
 pub fn load_project(root: &Path) -> Result<Option<ProjectConfig>, String> {
-    let p = root.join(".coturbo.toml");
+    let p = root.join(".codeturbo.toml");
     match std::fs::read_to_string(&p) {
         Ok(s) => toml::from_str(&s).map(Some).map_err(|e| format!("{}: {e}", p.display())),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -105,6 +107,7 @@ impl Default for Config {
             verify: None,
             run: None,
             max_fix_rounds: 3,
+            update_check: true,
             diagnostics_on_write: true,
             format_on_write: true,
             lsp: LspToml::default(),
@@ -112,8 +115,8 @@ impl Default for Config {
     }
 }
 
-/// `%APPDATA%\coturbo` on Windows, `$XDG_CONFIG_HOME/coturbo` or
-/// `~/.config/coturbo` elsewhere.
+/// `%APPDATA%\codeturbo` on Windows, `$XDG_CONFIG_HOME/codeturbo` or
+/// `~/.config/codeturbo` elsewhere.
 pub fn config_dir() -> Option<PathBuf> {
     let base = if cfg!(windows) {
         std::env::var_os("APPDATA").map(PathBuf::from)
@@ -122,7 +125,7 @@ pub fn config_dir() -> Option<PathBuf> {
             .map(PathBuf::from)
             .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
     };
-    base.map(|b| b.join("coturbo"))
+    base.map(|b| b.join("codeturbo"))
 }
 
 /// Reads `config.toml` and merges `pricing.toml` over the builtin prices.
