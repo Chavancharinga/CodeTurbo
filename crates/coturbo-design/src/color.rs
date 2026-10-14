@@ -54,6 +54,20 @@ pub fn parse_hex(s: &str) -> Option<Rgb> {
     Some(((n >> 16) as u8, (n >> 8) as u8, n as u8))
 }
 
+/// OKLCH `(l, c, h)` of an sRGB color.
+pub fn to_oklch((r, g, b): Rgb) -> (f64, f64, f64) {
+    let (r, g, b) = (to_linear(r as f64 / 255.0), to_linear(g as f64 / 255.0), to_linear(b as f64 / 255.0));
+    let l = (0.412_221_470_8 * r + 0.536_332_536_3 * g + 0.051_445_992_9 * b).cbrt();
+    let m = (0.211_903_498_2 * r + 0.680_699_545_1 * g + 0.107_396_956_6 * b).cbrt();
+    let s = (0.088_302_461_9 * r + 0.281_718_837_6 * g + 0.629_978_700_5 * b).cbrt();
+    let ll = 0.210_454_255_3 * l + 0.793_617_785 * m - 0.004_072_046_8 * s;
+    let a = 1.977_998_495_1 * l - 2.428_592_205 * m + 0.450_593_709_9 * s;
+    let bb = 0.025_904_037_1 * l + 0.782_771_766_2 * m - 0.808_675_766 * s;
+    let c = (a * a + bb * bb).sqrt();
+    let h = (bb.atan2(a).to_degrees() + 360.0) % 360.0;
+    (ll, c, h)
+}
+
 /// WCAG relative luminance.
 pub fn luminance((r, g, b): Rgb) -> f64 {
     let f = |v: u8| to_linear(v as f64 / 255.0);

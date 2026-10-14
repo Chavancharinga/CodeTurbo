@@ -114,6 +114,19 @@ pub enum Delta {
     Thinking(String),
     /// Rate-limit response headers (`*ratelimit*`), sent once per request.
     Limits(Vec<(String, String)>),
+    /// A tool call being generated: its name, the `path` argument once it
+    /// has streamed in, and the arguments' size so far.
+    Composing { tool: String, path: Option<String>, chars: usize },
+}
+
+/// The `path` argument of partially streamed tool JSON, once complete.
+/// Only the start is searched: models put `path` before long contents.
+pub fn partial_path(json: &str) -> Option<String> {
+    let head = &json[..json.len().min(400)];
+    let rest = &head[head.find("\"path\"")? + 6..];
+    let rest = rest.trim_start().strip_prefix(':')?.trim_start().strip_prefix('"')?;
+    let end = rest.find('"')?;
+    Some(rest[..end].to_string())
 }
 
 pub type TextSink<'a> = dyn FnMut(Delta) + Send + 'a;

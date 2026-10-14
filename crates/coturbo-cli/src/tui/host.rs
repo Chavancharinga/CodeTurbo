@@ -29,9 +29,9 @@ pub fn diff_fold(diff: &str, width: usize) -> Out {
     }
     let hint = Style::new().add_modifier(Modifier::DIM);
     let mut preview = full[..PREVIEW_ROWS].to_vec();
-    preview.push(Line::styled(format!("      … mais {} linhas · Ctrl+B mostra o código", full.len() - PREVIEW_ROWS), hint));
+    preview.push(Line::styled(format!("      … mais {} linhas · clique ou Ctrl+B para ver", full.len() - PREVIEW_ROWS), hint));
     let mut full = full;
-    full.push(Line::styled("      Ctrl+B recolhe o código", hint));
+    full.push(Line::styled("      clique ou Ctrl+B para recolher", hint));
     Out::Fold { preview, full }
 }
 
@@ -55,12 +55,14 @@ pub struct TuiHost {
     /// Width diffs are drawn at.
     width: usize,
     label: String,
+    /// File of the tool call being written, once its path streamed in.
+    composing_path: Option<String>,
 }
 
 impl TuiHost {
     pub fn new(out: Sender<Out>, pricer: Pricer, root: PathBuf, verbose: bool, base: Usage) -> Self {
         let width = terminal_size::terminal_size().map_or(100, |(w, _)| w.0 as usize).min(140);
-        Self { out, pricer, root, verbose, limits: None, base, width, label: String::new() }
+        Self { out, pricer, root, verbose, limits: None, base, width, label: String::new(), composing_path: None }
     }
 
     fn send(&self, m: Out) {
@@ -102,7 +104,10 @@ impl Host for TuiHost {
                 self.send(Out::Stream(StreamKind::Text, delta.to_string()));
             }
             Event::Limits(headers) => self.limits = view::limits_summary(headers),
-            Event::ToolStart { name, input } => self.busy(format!("executando {name} {}", arg(input))),
+            Event::ToolStart { name, input } => {
+                self.composing_path = None;
+                self.busy(format!("executando {name} {}", arg(input)));
+            }
             Event::ToolEnd { name, input, output, diff } => {
                 let mut lines = vec![Line::default(), ansi_line(&tool_line(name, input, output))];
                 if let Some(d) = diff {
@@ -136,6 +141,22 @@ impl Host for TuiHost {
                     vec![Line::default(), Line::styled(summary.next().unwrap_or("").to_string(), Style::new().fg(color))];
                 lines.extend(summary.map(|l| Line::styled(l.to_string(), Style::new().add_modifier(Modifier::DIM))));
                 self.lines(lines);
+            }
+            Event::Composing { tool, path, chars } => {
+                if let Some(p) = path {
+                    self.composing_path = Some(p.to_string());
+                }
+                let what = match tool {
+                    "write_file" => "escrevendo",
+                    "edit_file" | "replace_symbol" | "insert_symbol" => "editando",
+                    "bash" => "preparando o comando",
+                    "design_brief" => "definindo o design",
+                    "design_review" => "abrindo a página",
+                    _ => "preparando",
+                };
+                let target = self.composing_path.clone().unwrap_or_else(|| if what == "preparando" { tool.to_string() } else { String::new() });
+                let size = if chars >= 1000 { format!("{:.1}k caracteres", chars as f64 / 1000.0) } else { format!("{chars} caracteres") };
+                self.busy(format!("{what} {target} · {size}").replace("  ", " "));
             }
             Event::Notice(msg) => {
                 self.lines(vec![Line::styled(format!("  ! {msg}"), Style::new().fg(Color::Yellow))]);

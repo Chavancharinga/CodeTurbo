@@ -178,6 +178,24 @@ fn is_emoji(c: char) -> bool {
     matches!(c as u32, 0x1F300..=0x1FAFF | 0x2600..=0x27BF | 0x1F000..=0x1F2FF | 0x2B50 | 0x2B06 | 0x2194..=0x21AA)
 }
 
+/// The colors a project already uses, most used first (near-identical
+/// shades merged): the brand to keep when redesigning.
+pub fn brand_colors(texts: &[(String, String)]) -> Vec<String> {
+    let mut counts: Vec<(Rgb, usize)> = Vec::new();
+    for (path, text) in texts {
+        for r in css_regions(path, text) {
+            for c in literal_colors(&r.css) {
+                match counts.iter_mut().find(|(k, _)| (k.0 as i32 - c.0 as i32).abs() + (k.1 as i32 - c.1 as i32).abs() + (k.2 as i32 - c.2 as i32).abs() < 24) {
+                    Some((_, n)) => *n += 1,
+                    None => counts.push((c, 1)),
+                }
+            }
+        }
+    }
+    counts.sort_by(|a, b| b.1.cmp(&a.1));
+    counts.into_iter().take(5).map(|(c, _)| crate::color::hex(c)).collect()
+}
+
 /// Every finding for one file. `contract` is the project's `DESIGN.md`.
 pub fn check(path: &str, text: &str, contract: Option<&Contract>) -> Vec<Finding> {
     let mut out = Vec::new();
@@ -251,7 +269,9 @@ pub fn check(path: &str, text: &str, contract: Option<&Contract>) -> Vec<Finding
                     "background" | "background-color" => {
                         bg = resolve_color(&value, &vars);
                         if value.contains("gradient(") {
-                            let cols = literal_colors(&value);
+                            // Resolve var(--x) so token colors count too.
+                            let expanded = VAR.replace_all(&value, |c: &regex::Captures| vars.get(&c[1]).cloned().unwrap_or_default());
+                            let cols = literal_colors(&expanded);
                             let chromatic: Vec<(f64, f64)> = cols.iter().map(|c| hue_sat(*c)).filter(|(_, s)| *s > 0.3).collect();
                             if chromatic.len() >= 2 {
                                 let (a, b) = (chromatic[0].0, chromatic[chromatic.len() - 1].0);

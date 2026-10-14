@@ -171,8 +171,13 @@ impl StreamAcc {
                             return Ok(Some(Delta::Text(s.to_string())));
                         }
                     }
-                    Some(Block::Tool { json, .. }) => {
+                    Some(Block::Tool { json, name, .. }) => {
                         json.push_str(d["partial_json"].as_str().unwrap_or(""));
+                        return Ok(Some(Delta::Composing {
+                            tool: name.clone(),
+                            path: crate::partial_path(json),
+                            chars: json.len(),
+                        }));
                     }
                     Some(Block::Opaque(v)) => {
                         for key in ["thinking", "signature"] {

@@ -2,7 +2,7 @@ use coturbo_design::color::{contrast, hex, hue_sat, oklch, parse_hex};
 use coturbo_design::compiler::{Brief, Tone, compile};
 use coturbo_design::contract::{self, Contract};
 use coturbo_design::fiscal::{self, Severity};
-use coturbo_design::render::{Metrics, judge, parse_metrics};
+use coturbo_design::render::{Metrics, Page, judge, parse_metrics};
 
 fn brief(tone: &str) -> Brief {
     Brief {
@@ -10,6 +10,7 @@ fn brief(tone: &str) -> Brief {
         audience: "jovens adultos no primeiro emprego".into(),
         tone: tone.into(),
         signature: "um cofre desenhado com linhas finas que enche conforme a meta".into(),
+        brand: Vec::new(),
     }
 }
 
@@ -154,12 +155,22 @@ fn only_interface_files_are_inspected() {
 
 #[test]
 fn rendered_measurements_are_judged() {
-    let dom = r#"<html data-codeturbo="{&quot;rounded&quot;:9,&quot;radii&quot;:1,&quot;shadowed&quot;:5,&quot;shadows&quot;:1,&quot;centered&quot;:9,&quot;text&quot;:10,&quot;rows&quot;:3}"><body></body></html>"#;
+    let dom = r#"<html data-codeturbo="{&quot;rounded&quot;:9,&quot;radii&quot;:1,&quot;shadowed&quot;:5,&quot;shadows&quot;:1,&quot;centered&quot;:9,&quot;text&quot;:10,&quot;rows&quot;:3,&quot;overlaps&quot;:[&quot;div.card × img&quot;],&quot;tight&quot;:[&quot;a.logo | a&quot;],&quot;broken&quot;:[&quot;img&quot;],&quot;hscroll&quot;:true,&quot;scrollers&quot;:[&quot;div.box&quot;],&quot;small&quot;:4,&quot;tiny&quot;:0}"><body></body></html>"#;
     let m = parse_metrics(dom).unwrap();
-    assert_eq!(m, Metrics { rounded: 9, radii: 1, shadowed: 5, shadows: 1, centered: 9, text: 10, rows: 3 });
-    let rules: Vec<&str> = judge(&m).iter().map(|f| f.rule).collect();
-    assert_eq!(rules, ["render-grades-iguais", "render-raio-unico", "render-centralizado", "render-sombra-unica"]);
-    assert!(judge(&Metrics { rounded: 9, radii: 3, text: 10, centered: 2, ..Metrics::default() }).is_empty());
+    assert_eq!((m.rounded, m.radii, m.rows, m.small), (9, 1, 3, 4));
+    assert_eq!(m.overlaps, ["div.card × img"]);
+    assert!(m.hscroll);
+    let page = Page { desktop: m.clone(), mobile: m };
+    let rules: Vec<&str> = judge(&page).iter().map(|f| f.rule).collect();
+    for r in [
+        "render-sobreposicao", "render-colados", "render-barra-de-rolagem", "render-imagem-quebrada",
+        "render-sem-responsividade", "render-alvo-pequeno", "render-grades-iguais", "render-raio-unico",
+        "render-centralizado", "render-sombra-unica",
+    ] {
+        assert!(rules.contains(&r), "missing {r}: {rules:?}");
+    }
+    let clean = Metrics { rounded: 9, radii: 3, text: 10, centered: 2, ..Metrics::default() };
+    assert!(judge(&Page { desktop: clean.clone(), mobile: clean }).is_empty());
     assert!(parse_metrics("<html>").is_none());
 }
 
@@ -174,7 +185,8 @@ async fn review_renders_in_the_installed_browser() {
     assert!(r.summary.starts_with("✗ design recusado"), "{}", r.summary);
     if coturbo_design::render::find_browser().is_some() {
         assert!(r.summary.contains("página renderizada"), "{}", r.summary);
-        assert!(dir.path().join(".codeturbo/design/index.png").exists(), "screenshot saved");
+        assert!(dir.path().join(".codeturbo/design/index.png").exists(), "desktop screenshot saved");
+        assert!(dir.path().join(".codeturbo/design/index-celular.png").exists(), "phone screenshot saved");
     }
 }
 
@@ -207,4 +219,31 @@ p { font-size: 12px; line-height: 1.1; text-align: justify; }
     }
     let fixed = page.replace(".grid {", "@media (max-width: 700px) { .grid { grid-template-columns: 1fr; } }\n.grid {");
     assert!(!fiscal::check("p.html", &fixed, None).iter().any(|f| f.rule == "sem-responsividade"));
+}
+
+#[test]
+fn a_redesign_keeps_the_brand_and_organizes_it() {
+    use coturbo_design::color::luminance;
+    let mut b = brief("moderno");
+    b.brand = vec!["#ffd60a".into(), "#ffffff".into(), "#111111".into()];
+    let t = compile(&b);
+    assert_eq!(t.color("primary"), (255, 214, 10), "the brand yellow stays exactly");
+    assert_eq!(t.color("bg"), (255, 255, 255), "white stays the page");
+    assert_eq!(t.color("ink"), (17, 17, 17), "black stays the text");
+    assert!(contrast(t.color("on-primary"), t.color("primary")) >= 4.5, "button labels readable on yellow");
+    assert!(contrast(t.color("primary-ink"), t.color("bg")) >= 4.5, "yellow made readable as text");
+    let grays: Vec<_> = ["gray-100", "gray-300", "gray-500", "gray-700"].iter().map(|n| luminance(t.color(n))).collect();
+    assert!(grays.windows(2).all(|w| w[0] > w[1]), "a neutral scale from light to dark");
+    assert!(contract::markdown(&t).contains("Cores da marca preservadas: #ffd60a"));
+}
+
+#[test]
+fn brand_colors_are_found_in_existing_files() {
+    let files = vec![(
+        "site.css".to_string(),
+        ".a{color:#111111} .b{background:#ffd60a} .c{background:#FFD60B} .d{color:#ffd60a} body{background:#fff}".to_string(),
+    )];
+    let found = fiscal::brand_colors(&files);
+    assert_eq!(found[0], "#ffd60a", "most used first, near shades merged: {found:?}");
+    assert!(found.contains(&"#111111".to_string()) && found.contains(&"#ffffff".to_string()));
 }

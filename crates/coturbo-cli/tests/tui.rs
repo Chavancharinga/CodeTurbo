@@ -120,13 +120,13 @@ fn streamed_text_and_scrolling() {
     for n in 0..10 {
         t.push(Line::raw(format!("linha {n}")));
     }
-    let (rows, scroll) = t.view(40, 3, 0);
+    let (rows, scroll, _) = t.view(40, 3, 0);
     assert_eq!(rows.iter().map(plain).collect::<Vec<_>>(), ["linha 7", "linha 8", "linha 9"]);
     assert_eq!(scroll, 0);
-    let (rows, scroll) = t.view(40, 3, 2);
+    let (rows, scroll, _) = t.view(40, 3, 2);
     assert_eq!(rows.iter().map(plain).collect::<Vec<_>>(), ["linha 5", "linha 6", "linha 7"]);
     assert_eq!(scroll, 2);
-    let (rows, scroll) = t.view(40, 3, 99);
+    let (rows, scroll, _) = t.view(40, 3, 99);
     assert_eq!(plain(&rows[0]), "linha 0", "clamped at the top");
     assert_eq!(scroll, 7);
 }
@@ -449,7 +449,7 @@ fn long_code_is_folded_until_ctrl_b() {
     let long: String = (0..40).map(|i| format!("+linha {i}\n")).collect();
     let Out::Fold { preview, full } = diff_fold(&format!("@@ -0,0 +1,40 @@\n{long}"), 80) else { panic!("folded") };
     assert_eq!(preview.len(), PREVIEW_ROWS + 1);
-    assert!(plain(preview.last().unwrap()).contains("mais 30 linhas · Ctrl+B"));
+    assert!(plain(preview.last().unwrap()).contains("mais 30 linhas · clique ou Ctrl+B"));
     assert_eq!(full.len(), 41, "every line, nothing capped");
     let short = diff_fold("@@ -3,1 +3,1 @@\n-velho\n+novo\n", 80);
     assert!(matches!(short, Out::Lines(ref l) if l.len() == 2), "a small fix is shown whole");
@@ -470,4 +470,29 @@ fn task_time_reads_naturally() {
     assert_eq!(elapsed(Duration::from_secs(42)), "42s");
     assert_eq!(elapsed(Duration::from_secs(125)), "2min 05s");
     assert_eq!(elapsed(Duration::from_secs(3780)), "1h 03min");
+}
+
+#[test]
+fn clicking_code_opens_it_and_the_wheel_scrolls() {
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut h = harness();
+    let full: Vec<Line<'static>> = (0..30).map(|i| Line::raw(format!("linha {i}"))).collect();
+    let mut preview = full[..10].to_vec();
+    preview.push(Line::raw("… mais 20"));
+    h.app.apply(Out::Fold { preview, full });
+    let mut term = Terminal::new(TestBackend::new(100, 40)).unwrap();
+    term.draw(|f| h.app.draw(f)).unwrap();
+    let buf = term.backend().buffer().clone();
+    let row = (0..40).find(|&y| (0..100).map(|x| buf[(x, y)].symbol().to_string()).collect::<String>().contains("linha 3")).unwrap();
+    let click = |row| Event::Mouse(MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column: 5, row, modifiers: KeyModifiers::NONE });
+    h.app.on_event(click(row), false);
+    assert_eq!(h.app.transcript().lines().len(), 30, "clicked code opens");
+    term.draw(|f| h.app.draw(f)).unwrap();
+    h.app.on_event(Event::Mouse(MouseEvent { kind: MouseEventKind::ScrollUp, column: 5, row: 10, modifiers: KeyModifiers::NONE }), false);
+    term.draw(|f| h.app.draw(f)).unwrap();
+    let buf = term.backend().buffer().clone();
+    let all: String = (0..40).map(|y| (0..100).map(|x| buf[(x, y)].symbol().to_string()).collect::<String>()).collect();
+    assert!(!all.contains("linha 29"), "the wheel scrolled up");
 }

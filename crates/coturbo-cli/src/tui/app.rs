@@ -53,11 +53,11 @@ enum Entry {
         style: Style,
     },
     /// Code shown shortened until Ctrl+B.
-    Fold { preview: Vec<Line<'static>>, full: Vec<Line<'static>> },
+    Fold { preview: Vec<Line<'static>>, full: Vec<Line<'static>>, open: bool },
 }
 
 impl Entry {
-    fn rows(&self, expanded: bool) -> Vec<Line<'static>> {
+    fn rows(&self) -> Vec<Line<'static>> {
         match self {
             Entry::Line(l) => vec![l.clone()],
             Entry::Markdown { text, code, prefix, style } => {
@@ -67,7 +67,7 @@ impl Entry {
                 line.spans.extend(body.spans);
                 vec![line]
             }
-            Entry::Fold { preview, full } => if expanded { full.clone() } else { preview.clone() },
+            Entry::Fold { preview, full, open } => if *open { full.clone() } else { preview.clone() },
         }
     }
 }
@@ -77,14 +77,12 @@ impl Entry {
 pub struct Transcript {
     entries: Vec<Entry>,
     stream: Option<StreamKind>,
-    /// Folded code shown in full (Ctrl+B).
-    expanded: bool,
 }
 
 impl Transcript {
     /// Every row as currently shown, before wrapping.
     pub fn lines(&self) -> Vec<Line<'static>> {
-        self.entries.iter().flat_map(|e| e.rows(self.expanded)).collect()
+        self.entries.iter().flat_map(Entry::rows).collect()
     }
 
     pub fn push(&mut self, line: Line<'static>) {
@@ -100,13 +98,30 @@ impl Transcript {
     /// Code that shows `preview` until expanded.
     pub fn fold(&mut self, preview: Vec<Line<'static>>, full: Vec<Line<'static>>) {
         self.stream = None;
-        self.entries.push(Entry::Fold { preview, full });
+        self.entries.push(Entry::Fold { preview, full, open: false });
     }
 
     /// Shows folded code in full, or folds it again. Returns the new state.
     pub fn toggle_folds(&mut self) -> bool {
-        self.expanded = !self.expanded;
-        self.expanded
+        let open = !self.entries.iter().any(|e| matches!(e, Entry::Fold { open: true, .. }));
+        for e in &mut self.entries {
+            if let Entry::Fold { open: o, .. } = e {
+                *o = open;
+            }
+        }
+        open
+    }
+
+    /// Opens or closes one block of code (a click on it). `false` if the
+    /// entry is not folded code.
+    pub fn toggle_fold(&mut self, entry: usize) -> bool {
+        match self.entries.get_mut(entry) {
+            Some(Entry::Fold { open, .. }) => {
+                *open = !*open;
+                true
+            }
+            _ => false,
+        }
     }
 
     pub fn clear(&mut self) {
@@ -148,24 +163,26 @@ impl Transcript {
     }
 
     /// At most `height` rows wrapped to `width`, ending `scroll` rows above
-    /// the bottom; and the scroll actually used (clamped at the top).
-    pub fn view(&self, width: usize, height: usize, scroll: usize) -> (Vec<Line<'static>>, usize) {
+    /// the bottom; the scroll actually used (clamped at the top); and the
+    /// entry each row belongs to, for clicks.
+    pub fn view(&self, width: usize, height: usize, scroll: usize) -> (Vec<Line<'static>>, usize, Vec<usize>) {
         let need = height + scroll;
         let mut rows = Vec::new();
-        'entries: for entry in self.entries.iter().rev() {
-            for line in entry.rows(self.expanded).iter().rev() {
+        'entries: for (i, entry) in self.entries.iter().enumerate().rev() {
+            for line in entry.rows().iter().rev() {
                 if rows.len() >= need {
                     break 'entries;
                 }
                 let mut wrapped = text::wrap(line, width);
                 wrapped.reverse();
-                rows.extend(wrapped);
+                rows.extend(wrapped.into_iter().map(|l| (l, i)));
             }
         }
         let scroll = scroll.min(rows.len().saturating_sub(height));
         let mut visible: Vec<_> = rows.into_iter().skip(scroll).take(height).collect();
         visible.reverse();
-        (visible, scroll)
+        let owners = visible.iter().map(|(_, i)| *i).collect();
+        (visible.into_iter().map(|(l, _)| l).collect(), scroll, owners)
     }
 }
 
@@ -235,6 +252,9 @@ pub struct App {
     started: Instant,
     /// A plan file to open in the editor before the next frame.
     edit: Option<PathBuf>,
+    /// Where the conversation was drawn, and the entry behind each row.
+    body: Rect,
+    owners: Vec<usize>,
     /// Set when the user quits; the agent side checks it too.
     closing: Arc<AtomicBool>,
     tx: UnboundedSender<In>,
@@ -258,6 +278,8 @@ impl App {
             suggest: 0,
             started: Instant::now(),
             edit: None,
+            body: Rect::default(),
+            owners: Vec::new(),
             closing,
             tx,
             cancel,
@@ -339,6 +361,25 @@ impl App {
         match ev {
             Event::Key(k) if k.kind != KeyEventKind::Release => self.on_key(k, paste_follows),
             Event::Paste(s) => self.on_paste(&s),
+            Event::Mouse(m) => self.on_mouse(m),
+            _ => {}
+        }
+    }
+
+    /// The wheel scrolls the conversation; a click on code opens or closes it.
+    pub fn on_mouse(&mut self, m: ratatui::crossterm::event::MouseEvent) {
+        use ratatui::crossterm::event::{MouseButton, MouseEventKind};
+        match m.kind {
+            MouseEventKind::ScrollUp => self.scroll += 3,
+            MouseEventKind::ScrollDown => self.scroll = self.scroll.saturating_sub(3),
+            MouseEventKind::Down(MouseButton::Left) => {
+                let b = self.body;
+                if (b.x..b.x + b.width).contains(&m.column) && (b.y..b.y + b.height).contains(&m.row)
+                    && let Some(&entry) = self.owners.get((m.row - b.y) as usize)
+                {
+                    self.transcript.toggle_fold(entry);
+                }
+            }
             _ => {}
         }
     }
@@ -841,8 +882,10 @@ impl App {
 
         let body = Rect { x: body.x + 1, width: body.width.saturating_sub(2), ..body };
         self.page = (body.height as usize).saturating_sub(2).max(1);
-        let (lines, scroll) = self.transcript.view(body.width.max(1) as usize, body.height as usize, self.scroll);
+        let (lines, scroll, owners) = self.transcript.view(body.width.max(1) as usize, body.height as usize, self.scroll);
         self.scroll = scroll;
+        self.body = body;
+        self.owners = owners;
         f.render_widget(Paragraph::new(lines), body);
 
         if let Some((title, lines)) = question {
@@ -864,7 +907,7 @@ impl App {
             None if self.asking.is_some() => Line::default(),
             None if self.scroll > 0 => Line::styled("  há mais mensagens abaixo · Esc volta ao fim", dim()),
             None => Line::styled(
-                "  Enter envia · Shift+Enter quebra a linha · ↑↓ rolam · Ctrl+B mostra o código · /ajuda",
+                "  Enter envia · Shift+Enter quebra a linha · clique ou Ctrl+B abre o código · Shift+arrastar seleciona · /ajuda",
                 dim(),
             ),
         };
@@ -970,10 +1013,10 @@ fn draw_logo(buf: &mut Buffer, area: Rect, i: usize) {
 
 /// Runs the screen until the user quits or the agent side hangs up.
 pub fn run(mut app: App, out: Receiver<Out>) -> std::io::Result<()> {
-    use ratatui::crossterm::event::{DisableBracketedPaste, EnableBracketedPaste};
+    use ratatui::crossterm::event::{DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture};
     use ratatui::crossterm::execute;
     let mut terminal = ratatui::try_init()?;
-    let _ = execute!(std::io::stdout(), EnableBracketedPaste);
+    let _ = execute!(std::io::stdout(), EnableBracketedPaste, EnableMouseCapture);
     let result = (|| -> std::io::Result<()> {
         loop {
             loop {
@@ -993,7 +1036,7 @@ pub fn run(mut app: App, out: Receiver<Out>) -> std::io::Result<()> {
                     .unwrap_or_else(|_| if cfg!(windows) { "notepad".into() } else { "vi".into() });
                 let status = std::process::Command::new(&editor).arg(&path).status();
                 terminal = ratatui::try_init()?;
-                let _ = execute!(std::io::stdout(), EnableBracketedPaste);
+                let _ = execute!(std::io::stdout(), EnableBracketedPaste, EnableMouseCapture);
                 terminal.clear()?;
                 app.after_edit(&path, status.err().map(|e| format!("{editor}: {e}")));
             }
@@ -1020,7 +1063,7 @@ pub fn run(mut app: App, out: Receiver<Out>) -> std::io::Result<()> {
             }
         }
     })();
-    let _ = execute!(std::io::stdout(), DisableBracketedPaste);
+    let _ = execute!(std::io::stdout(), DisableBracketedPaste, DisableMouseCapture);
     ratatui::restore();
     result
 }

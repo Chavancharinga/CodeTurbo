@@ -63,7 +63,7 @@ pub fn markdown(t: &Tokens) -> String {
          a verificação recusa cores, raios e espaçamentos fora deles e os padrões \
          genéricos de interface gerada por IA.\n\n\
          ## Resumo\n\n\
-         - Assunto: {}\n- Público: {}\n- Tom: {} ({})\n- Elemento de assinatura: {}\n\n\
+         - Assunto: {}\n- Público: {}\n- Tom: {} ({})\n- Elemento de assinatura: {}\n- Cores da marca preservadas: {}\n\n\
          ## Composição\n\n{}.\n\n\
          Evitar: sequência herói, recursos, depoimentos, preços, perguntas e contato; \
          grade de cartões idênticos com ícone, título e texto; ícones de emoji; \
@@ -75,6 +75,7 @@ pub fn markdown(t: &Tokens) -> String {
         b.tone,
         t.tone.name(),
         b.signature,
+        if b.brand.is_empty() { "nenhuma (paleta nova)".to_string() } else { b.brand.join(", ") },
         t.layout,
         font_link(t),
         css(t)

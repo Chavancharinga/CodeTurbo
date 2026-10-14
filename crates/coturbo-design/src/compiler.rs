@@ -3,7 +3,7 @@
 //! signature); colors, type, spacing, radii and shadows are computed, with
 //! contrast checked and the usual AI defaults ruled out.
 
-use crate::color::{Rgb, contrast, hex, oklch};
+use crate::color::{Rgb, contrast, hex, hue_sat, luminance, oklch, parse_hex, to_oklch};
 
 /// What the model decides before any UI code.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -13,6 +13,9 @@ pub struct Brief {
     pub tone: String,
     /// The one element that makes this interface recognizable.
     pub signature: String,
+    /// Colors the brand already uses (`#rrggbb`), most important first. When
+    /// present, the palette is organized around them instead of replaced.
+    pub brand: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -120,6 +123,79 @@ fn reach(mut l: f64, c: f64, h: f64, bg: Rgb, ratio: f64, darker: bool) -> Rgb {
     }
 }
 
+/// Brand colors sorted into roles: the light one becomes the page, the dark
+/// one the text, the saturated ones primary and accent.
+struct BrandRoles {
+    light: Option<Rgb>,
+    dark: Option<Rgb>,
+    chromatic: Vec<Rgb>,
+}
+
+fn brand_roles(colors: &[String]) -> Option<BrandRoles> {
+    let parsed: Vec<Rgb> = colors.iter().filter_map(|c| parse_hex(c)).collect();
+    if parsed.is_empty() {
+        return None;
+    }
+    let mut roles = BrandRoles { light: None, dark: None, chromatic: Vec::new() };
+    for c in parsed {
+        let (_, sat) = hue_sat(c);
+        let lum = luminance(c);
+        if sat > 0.25 && (0.03..0.9).contains(&lum) {
+            roles.chromatic.push(c);
+        } else if lum >= 0.75 {
+            roles.light.get_or_insert(c);
+        } else if lum <= 0.05 {
+            roles.dark.get_or_insert(c);
+        } else if sat > 0.25 {
+            roles.chromatic.push(c);
+        }
+    }
+    Some(roles)
+}
+
+/// A color with the same hue, made dark (or light) enough to read on `bg`.
+fn readable(c: Rgb, bg: Rgb, ratio: f64) -> Rgb {
+    if contrast(c, bg) >= ratio {
+        return c;
+    }
+    let (l, ch, h) = to_oklch(c);
+    reach(l, ch, h, bg, ratio, luminance(bg) > 0.4)
+}
+
+/// The palette built around the brand's own colors.
+fn brand_palette(roles: &BrandRoles, chroma_hint: f64) -> Option<Vec<(&'static str, Rgb)>> {
+    let primary = *roles.chromatic.first().or(roles.dark.as_ref())?;
+    let (_, _, hue) = to_oklch(primary);
+    let bg = roles.light.unwrap_or_else(|| oklch(0.985, 0.008, hue));
+    let ink = match roles.dark {
+        Some(d) if contrast(d, bg) >= 7.0 => d,
+        _ => reach(0.22, 0.02, hue, bg, 10.0, true),
+    };
+    let white = (255, 255, 255);
+    let on_primary = [ink, white, (0, 0, 0)].into_iter().max_by(|a, b| contrast(*a, primary).total_cmp(&contrast(*b, primary))).unwrap_or(ink);
+    let accent = roles.chromatic.get(1).copied().unwrap_or_else(|| {
+        let (l, c, h) = to_oklch(primary);
+        oklch((l - 0.25).max(0.3), (c * 0.9).max(chroma_hint * 0.5), h)
+    });
+    Some(vec![
+        ("bg", bg),
+        ("surface", oklch(0.955, 0.01, hue)),
+        ("ink", ink),
+        ("muted", reach(0.48, 0.015, hue, bg, 4.6, true)),
+        ("line", oklch(0.86, 0.01, hue)),
+        ("primary", primary),
+        ("on-primary", on_primary),
+        // The brand color as text on the page, darkened only if it must be.
+        ("primary-ink", readable(primary, bg, 4.5)),
+        ("accent", accent),
+        // A neutral scale for hierarchy, tinted toward the brand.
+        ("gray-100", oklch(0.95, 0.008, hue)),
+        ("gray-300", oklch(0.82, 0.01, hue)),
+        ("gray-500", oklch(0.6, 0.012, hue)),
+        ("gray-700", oklch(0.4, 0.014, hue)),
+    ])
+}
+
 pub fn compile(b: &Brief) -> Tokens {
     let tone = Tone::from_words(&format!("{} {}", b.tone, b.signature));
     let seed = hash(&format!("{}|{}|{}|{}", b.subject, b.audience, b.tone, b.signature));
@@ -182,10 +258,11 @@ pub fn compile(b: &Brief) -> Tokens {
         Tone::Warm => "seções com respiro largo, imagens ou ilustrações com cantos suaves, texto à esquerda, ritmo variado entre seções",
         Tone::Balanced => "alinhamento à esquerda, uma seção de destaque fora da grade, alternância de larguras entre seções",
     };
+    let brand = brand_roles(&b.brand).and_then(|r| brand_palette(&r, chroma));
     Tokens {
         tone,
         brief: b.clone(),
-        colors: vec![
+        colors: if let Some(p) = brand { p } else { vec![
             ("bg", bg),
             ("surface", surface),
             ("ink", ink),
@@ -194,7 +271,7 @@ pub fn compile(b: &Brief) -> Tokens {
             ("primary", primary),
             ("on-primary", on_primary),
             ("accent", accent),
-        ],
+        ] },
         font_display: display.to_string(),
         font_body: body.to_string(),
         type_ratio: ratio,

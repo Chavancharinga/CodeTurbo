@@ -110,6 +110,9 @@ pub enum Event<'a> {
     /// The final gate ran; `summary` is exactly what the model is told.
     Gate { ok: bool, summary: &'a str },
     Notice(&'a str),
+    /// The model is writing a tool call: which tool, the file once known,
+    /// and how much it has written.
+    Composing { tool: &'a str, path: Option<&'a str>, chars: usize },
 }
 
 /// A tool call waiting for the user's decision.
@@ -167,6 +170,9 @@ fn system_prompt(mode: Mode) -> String {
          Make the smallest change that fully solves the task, then verify it. \
          When done, reply with a short summary of what changed. \
          Reply in the language the user writes in. Write text files as UTF-8. \
+         Do exactly what was asked: a bug fix, optimization or back-end task never changes the design, \
+         the text or the features, and never adds anything that was not requested. \
+         When improving an existing interface, keep the brand: organize its colors, do not replace them. \
          For any user interface work, call design_brief first and build only with the tokens it returns; \
          the design check rejects generic patterns (default fonts and palettes, emoji icons, \
          identical card grids, the template section order). After building a page, call design_review          to see it rendered and fix whatever still looks generic.",
@@ -381,6 +387,9 @@ impl<'a> Agent<'a> {
                     Delta::Text(t) => host.on_event(Event::Text(t)),
                     Delta::Thinking(t) => host.on_event(Event::Thinking(t)),
                     Delta::Limits(l) => host.on_event(Event::Limits(l)),
+                    Delta::Composing { tool, path, chars } => {
+                        host.on_event(Event::Composing { tool, path: path.as_deref(), chars: *chars })
+                    }
                 })
                 .await?;
             let secs = started.elapsed().as_secs_f64();

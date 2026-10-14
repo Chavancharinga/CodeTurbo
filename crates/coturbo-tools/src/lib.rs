@@ -149,7 +149,9 @@ impl Tools {
                         "subject": s("what the product or page is about"),
                         "audience": s("who it is for"),
                         "tone": s("tone in a few words, e.g. editorial and calm, playful, technical"),
-                        "signature": s("the one distinctive visual element of this interface")
+                        "signature": s("the one distinctive visual element of this interface"),
+                        "brand_colors": {"type": "array", "items": {"type": "string"}, "description": "the brand's existing colors as #rrggbb, most important first; omit to detect them from the project's files"},
+                        "new_palette": {"type": "boolean", "description": "true only if the user asked to replace the brand colors"}
                     }),
                     &["subject", "audience", "tone", "signature"],
                 ),
@@ -177,17 +179,46 @@ impl Tools {
     /// Compiles the brief into tokens and locks them in `DESIGN.md`.
     fn design_brief(&self, input: &Value) -> Res {
         use coturbo_design::{compiler, contract};
+        let given: Vec<String> =
+            input["brand_colors"].as_array().into_iter().flatten().filter_map(|v| v.as_str().map(str::to_string)).collect();
+        let brand = if input["new_palette"].as_bool() == Some(true) {
+            Vec::new()
+        } else if !given.is_empty() {
+            given
+        } else {
+            // A redesign keeps the colors the project already uses.
+            let files: Vec<(String, String)> = ignore::WalkBuilder::new(&self.root)
+                .build()
+                .filter_map(Result::ok)
+                .filter(|e| e.file_type().is_some_and(|t| t.is_file()))
+                .map(|e| self.display(e.path()))
+                .filter(|rel| coturbo_design::fiscal::is_ui_file(rel))
+                .take(40)
+                .filter_map(|rel| Some((rel.clone(), std::fs::read_to_string(self.root.join(&rel)).ok()?)))
+                .collect();
+            coturbo_design::fiscal::brand_colors(&files)
+        };
         let brief = compiler::Brief {
             subject: arg(input, "subject")?.to_string(),
             audience: arg(input, "audience")?.to_string(),
             tone: arg(input, "tone")?.to_string(),
             signature: arg(input, "signature")?.to_string(),
+            brand,
         };
         let tokens = compiler::compile(&brief);
         let path = self.root.join(contract::FILE);
         std::fs::write(&path, contract::markdown(&tokens)).map_err(|e| format!("{}: {e}", path.display()))?;
+        let kept = if brief.brand.is_empty() {
+            String::new()
+        } else {
+            format!(
+                " Brand colors kept and organized: {} (primary = main brand color for fills, primary-ink = the same hue safe for text, \
+                 gray-* = neutral scale for hierarchy). Do not drift from the brand.",
+                brief.brand.join(", ")
+            )
+        };
         Ok(ToolOutput::ok(format!(
-            "wrote {} (tone: {}). Use only these tokens: every color, font, size, space, radius and shadow through var(--…); \
+            "wrote {} (tone: {}).{kept} Use only these tokens: every color, font, size, space, radius and shadow through var(--…); \
              the design check rejects anything else and generic patterns (default fonts/palettes, emoji icons, identical card grids, \
              template section order, one radius everywhere, centered body text).\n\
              Layout: {}.\nSignature element to build around: {}.\nFonts:\n{}\n{}",
@@ -211,19 +242,22 @@ impl Tools {
         let browser = render::find_browser().ok_or("nenhum navegador encontrado (Edge ou Chrome); defina CODETURBO_BROWSER")?;
         let stem = abs.file_stem().map_or("page".into(), |s| s.to_string_lossy().into_owned());
         let shot = self.root.join(".codeturbo/design").join(format!("{stem}.png"));
-        let metrics = render::measure(&browser, &abs, &shot).await?;
-        findings.extend(render::judge(&metrics));
+        let page = render::measure(&browser, &abs, &shot).await?;
+        findings.extend(render::judge(&page));
+        let phone = render::mobile_shot(&shot);
         let mut out = ToolOutput::ok(format!(
-            "{}\nmeasurements: {} rounded elements with {} radii, {} shadowed with {} shadows, {} of {} text blocks centered, {} rows of identical blocks.\n\
-             Screenshot attached ({}). Critique it honestly: would a designer call it generic? Is the signature element the first thing you see? \
-             Is there a clear hierarchy and rhythm? Fix what you find, keeping DESIGN.md.",
+            "{}\nScreenshots attached: desktop 1440px ({}) and phone 390px ({}). Look at them as a demanding designer: \
+             anything overlapping, cramped, cut off, misaligned or scrolling sideways? Does it look generic? \
+             Is the signature element the first thing you see? Fix every problem, keeping DESIGN.md, then call design_review again.",
             fiscal::render(&rel, &findings),
-            metrics.rounded, metrics.radii, metrics.shadowed, metrics.shadows, metrics.centered, metrics.text, metrics.rows,
-            self.display(&shot)
+            self.display(&shot),
+            self.display(&phone)
         ));
-        if let Ok(png) = std::fs::read(&shot) {
-            use base64::Engine;
-            out.images.push(("image/png".into(), base64::engine::general_purpose::STANDARD.encode(png)));
+        for p in [&shot, &phone] {
+            if let Ok(png) = std::fs::read(p) {
+                use base64::Engine;
+                out.images.push(("image/png".into(), base64::engine::general_purpose::STANDARD.encode(png)));
+            }
         }
         Ok(out)
     }

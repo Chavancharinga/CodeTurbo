@@ -147,6 +147,7 @@ impl StreamAcc {
             self.finish = r.to_string();
         }
         let d = &choice["delta"];
+        let mut composing = None;
         for tc in d["tool_calls"].as_array().into_iter().flatten() {
             let i = tc["index"].as_u64().unwrap_or(0) as usize;
             if self.calls.len() <= i {
@@ -162,6 +163,7 @@ impl StreamAcc {
             if let Some(a) = tc["function"]["arguments"].as_str() {
                 c.args.push_str(a);
             }
+            composing = Some(Delta::Composing { tool: c.name.clone(), path: crate::partial_path(&c.args), chars: c.args.len() });
         }
         // Reasoning models (DeepSeek, OpenRouter, ...) stream it beside content.
         let reasoning = d["reasoning_content"].as_str().or_else(|| d["reasoning"].as_str());
@@ -173,7 +175,7 @@ impl StreamAcc {
                 self.text.push_str(s);
                 Ok(Some(Delta::Text(s.to_string())))
             }
-            _ => Ok(None),
+            _ => Ok(composing),
         }
     }
 
@@ -209,7 +211,11 @@ impl Provider for OpenAiCompat {
             let mut acc = StreamAcc::default();
             let limits = http::stream_sse(
                 || {
-                    let rb = self.client.post(&url).json(&body);
+                    let mut rb = self.client.post(&url).json(&body);
+                    if self.base_url.contains("openrouter.ai") {
+                        // App attribution: lists CodeTurbo in OpenRouter's app rankings.
+                        rb = rb.header("HTTP-Referer", "https://github.com/Chavancharinga/CodeTurbo").header("X-Title", "CodeTurbo");
+                    }
                     match &self.api_key {
                         Some(k) => rb.bearer_auth(k),
                         None => rb,
