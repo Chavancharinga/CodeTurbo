@@ -367,7 +367,7 @@ pub fn frames() -> usize {
 
 /// Without a terminal: one plain line, no escape codes.
 pub fn plain() -> String {
-    format!("codeturbo — {TAGLINE}")
+    format!("CodeTurbo — {TAGLINE}")
 }
 
 fn term_width() -> usize {
@@ -400,8 +400,25 @@ pub fn play(out: &mut dyn Write, animate: bool, stop: &AtomicBool) {
     let _ = out.flush();
 }
 
+/// Column (in cells, from 0) where the track starts, right after the word.
+fn track_col() -> usize {
+    word_width() + GAP
+}
+
+/// Only the track (trail, dust and snail) of frame `i`: once the name is on
+/// screen, this is all that changes.
+pub fn track_rows(i: usize, width: usize) -> Vec<String> {
+    let s = SNAIL;
+    let t0 = track_col();
+    let px = canvas(s, i, track_for(s, width), NAME.len());
+    let track: Vec<Vec<Option<Rgb>>> = px.into_iter().map(|row| row[t0..].to_vec()).collect();
+    half_blocks(&track)
+}
+
 /// Keeps the logo (already on screen, `up` lines above the cursor) running
 /// in place while the user types below it. Stops on [`LiveLogo::stop`].
+/// Only the track is redrawn: the name is never touched again, so it can't
+/// flicker while the prompt is active.
 pub struct LiveLogo {
     stop: Arc<AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
@@ -414,12 +431,13 @@ impl LiveLogo {
         let width = term_width();
         let thread = std::thread::spawn(move || {
             let mut i = FRAMES;
+            let col = track_col() + 1;
             while !flag.load(Ordering::SeqCst) {
-                let rows = frame(i, width);
-                // Save cursor, jump to the logo, redraw its rows, restore: one write.
-                let mut buf = format!("\x1b7\x1b[{up}A\r");
-                for row in &rows[..ROWS] {
-                    buf.push_str(&format!("\x1b[2K{row}\x1b[1E"));
+                // Save cursor, jump to the logo, redraw the track of each
+                // row from its column, restore: one write.
+                let mut buf = format!("\x1b7\x1b[{up}A");
+                for row in track_rows(i, width) {
+                    buf.push_str(&format!("\x1b[{col}G{row}\x1b[K\x1b[1E"));
                 }
                 buf.push_str("\x1b8");
                 let mut err = std::io::stderr().lock();

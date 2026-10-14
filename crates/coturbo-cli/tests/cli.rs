@@ -274,7 +274,7 @@ fn splash_frames_keep_their_shape_and_reveal_the_name() {
 
     let mut buf = Vec::new();
     splash::play(&mut buf, false, &std::sync::atomic::AtomicBool::new(true));
-    assert_eq!(String::from_utf8(buf).unwrap(), "codeturbo — fast · frugal · verified\n");
+    assert_eq!(String::from_utf8(buf).unwrap(), "CodeTurbo — fast · frugal · verified\n");
     assert!(strip(&splash::spinner_line(3, "verifying")).ends_with("@ verifying"));
 }
 
@@ -397,4 +397,30 @@ fn approved_large_snail_animation_is_pinned() {
 fn small_snail_animation_is_pinned() {
     let pinned = include_str!("fixtures/snail_small_frames.txt").replace("\r\n", "\n");
     assert!(loop_frames(&coturbo_cli::splash::SNAIL_SMALL) == pinned, "the small snail animation changed");
+}
+
+#[test]
+fn live_logo_redraws_only_the_track() {
+    use coturbo_cli::splash;
+    let strip = |s: &str| {
+        let mut out = String::new();
+        let mut esc = false;
+        for c in s.chars() {
+            match (esc, c) {
+                (false, '\x1b') => esc = true,
+                (true, 'm') => esc = false,
+                (true, _) => {}
+                (false, c) => out.push(c),
+            }
+        }
+        out
+    };
+    let full = splash::frame(60, 120);
+    let track = splash::track_rows(60, 120);
+    assert_eq!(track.len(), splash::ROWS);
+    for (f, t) in full.iter().zip(&track) {
+        // The track is exactly the tail of the full row: same pixels, no word.
+        assert!(strip(f).ends_with(&strip(t)), "{f:?} vs {t:?}");
+        assert!(strip(f).chars().count() > strip(t).chars().count());
+    }
 }
