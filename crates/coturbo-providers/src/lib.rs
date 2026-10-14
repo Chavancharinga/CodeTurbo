@@ -117,6 +117,8 @@ pub enum Delta {
     /// A tool call being generated: its name, the `path` argument once it
     /// has streamed in, and the arguments' size so far.
     Composing { tool: String, path: Option<String>, chars: usize },
+    /// Something the user should know (a retry after a rate limit).
+    Notice(String),
 }
 
 /// The `path` argument of partially streamed tool JSON, once complete.

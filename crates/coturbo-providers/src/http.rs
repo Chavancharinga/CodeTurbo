@@ -21,12 +21,30 @@ fn rate_limits(headers: &reqwest::header::HeaderMap) -> Vec<(String, String)> {
     v
 }
 
+/// What the stream hands its caller.
+pub(crate) enum Frame<'a> {
+    /// One SSE data payload.
+    Data(&'a str),
+    /// The request is being retried; a message for the user.
+    Retry(String),
+}
+
+/// An HTTP client that gives up on a dead connection instead of waiting
+/// forever: 15s to connect, 180s without any byte from the server.
+pub(crate) fn client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(15))
+        .read_timeout(Duration::from_secs(180))
+        .build()
+        .unwrap_or_default()
+}
+
 /// Sends the request (retrying 408/409/429/5xx with backoff, honoring
-/// `retry-after`) and calls `on_frame` with each SSE data payload. Returns
-/// the response's rate-limit headers.
+/// `retry-after`) and calls `on_frame` with each SSE data payload and each
+/// retry. Returns the response's rate-limit headers.
 pub(crate) async fn stream_sse(
     build: impl Fn() -> reqwest::RequestBuilder,
-    mut on_frame: impl FnMut(&str) -> Result<bool, ProviderError>,
+    mut on_frame: impl FnMut(Frame<'_>) -> Result<bool, ProviderError>,
 ) -> Result<Vec<(String, String)>, ProviderError> {
     let mut attempt = 0;
     let resp = loop {
@@ -41,7 +59,8 @@ pub(crate) async fn stream_sse(
                 .get("retry-after")
                 .and_then(|v| v.to_str().ok()?.parse::<u64>().ok())
                 .unwrap_or(1 << attempt);
-            eprintln!("[codeturbo] HTTP {status}, retrying in {wait}s ({}/{MAX_RETRIES})", attempt + 1);
+            let why = if status == 429 { "limite de uso do provedor atingido".to_string() } else { format!("o provedor respondeu {status}") };
+            on_frame(Frame::Retry(format!("{why}; nova tentativa em {wait}s ({}/{MAX_RETRIES})", attempt + 1)))?;
             tokio::time::sleep(Duration::from_secs(wait.min(60))).await;
             attempt += 1;
             continue;
@@ -55,7 +74,7 @@ pub(crate) async fn stream_sse(
     let mut bytes = resp.bytes_stream();
     while let Some(chunk) = bytes.next().await {
         for (_, data) in parser.push(&chunk?) {
-            if !on_frame(&data)? {
+            if !on_frame(Frame::Data(&data))? {
                 return Ok(limits);
             }
         }

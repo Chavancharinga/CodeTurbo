@@ -155,7 +155,7 @@ fn only_interface_files_are_inspected() {
 
 #[test]
 fn rendered_measurements_are_judged() {
-    let dom = r#"<html data-codeturbo="{&quot;rounded&quot;:9,&quot;radii&quot;:1,&quot;shadowed&quot;:5,&quot;shadows&quot;:1,&quot;centered&quot;:9,&quot;text&quot;:10,&quot;rows&quot;:3,&quot;overlaps&quot;:[&quot;div.card × img&quot;],&quot;tight&quot;:[&quot;a.logo | a&quot;],&quot;broken&quot;:[&quot;img&quot;],&quot;hscroll&quot;:true,&quot;scrollers&quot;:[&quot;div.box&quot;],&quot;small&quot;:4,&quot;tiny&quot;:0}"><body></body></html>"#;
+    let dom = r#"<html data-codeturbo="{&quot;rounded&quot;:9,&quot;radii&quot;:1,&quot;shadowed&quot;:5,&quot;shadows&quot;:1,&quot;centered&quot;:9,&quot;text&quot;:10,&quot;rows&quot;:3,&quot;overlaps&quot;:[&quot;div.card × img&quot;],&quot;tight&quot;:[&quot;a.logo | a&quot;],&quot;broken&quot;:[&quot;img&quot;],&quot;hscroll&quot;:true,&quot;scrollers&quot;:[&quot;div.box&quot;],&quot;small&quot;:4,&quot;tiny&quot;:0,&quot;cut&quot;:[&quot;h1.title&quot;]}"><body></body></html>"#;
     let m = parse_metrics(dom).unwrap();
     assert_eq!((m.rounded, m.radii, m.rows, m.small), (9, 1, 3, 4));
     assert_eq!(m.overlaps, ["div.card × img"]);
@@ -163,7 +163,7 @@ fn rendered_measurements_are_judged() {
     let page = Page { desktop: m.clone(), mobile: m };
     let rules: Vec<&str> = judge(&page).iter().map(|f| f.rule).collect();
     for r in [
-        "render-sobreposicao", "render-colados", "render-barra-de-rolagem", "render-imagem-quebrada",
+        "render-sobreposicao", "render-colados", "render-conteudo-cortado", "render-barra-de-rolagem", "render-imagem-quebrada",
         "render-sem-responsividade", "render-alvo-pequeno", "render-grades-iguais", "render-raio-unico",
         "render-centralizado", "render-sombra-unica",
     ] {

@@ -58,9 +58,12 @@ const gap=Math.max(q.left-p.right,p.left-q.right);
 if(sameLine&&gap>=-2&&gap<4&&own(a)&&own(b)&&a.parentElement!==b.parentElement&&tight.length<8)tight.push(label(a)+' | '+label(b));}}
 const broken=[...document.images].filter(i=>vis(i)&&i.complete&&i.naturalWidth===0).map(label).slice(0,5);
 const hscroll=document.documentElement.scrollWidth>W+1;
+const edge=W<600?items.filter(e=>{const r=R(e);return own(e)&&r.width<W-4&&(r.left<10||r.right>W-10);}).map(label).slice(0,5):[];
+const cut=items.filter(e=>{const r=R(e);return own(e)&&(r.right>W+1||r.left<-1||e.scrollWidth>e.clientWidth+2);}).map(label).slice(0,5);
 const scrollers=[...document.querySelectorAll('body *')].filter(e=>{const s=getComputedStyle(e);return vis(e)&&((/(auto|scroll)/.test(s.overflowY)&&e.scrollHeight>e.clientHeight+1)||(/(auto|scroll)/.test(s.overflowX)&&e.scrollWidth>e.clientWidth+1))&&e.clientWidth>0;}).map(label).slice(0,5);
 const small=W<600?[...document.querySelectorAll('a,button,input,select')].filter(e=>{const r=R(e);return vis(e)&&r.width>0&&(r.height<32||r.width<32);}).length:0;
-document.documentElement.setAttribute('data-codeturbo',JSON.stringify({rounded,radii:radii.size,shadowed,shadows:shadows.size,centered,text,rows,tiny,overlaps,tight,broken,hscroll,scrollers,small}));};
+let host=document.documentElement;try{if(window.parent!==window)host=parent.document.documentElement;}catch(e){}
+host.setAttribute('data-codeturbo',JSON.stringify({rounded,radii:radii.size,shadowed,shadows:shadows.size,centered,text,rows,tiny,overlaps,tight,broken,hscroll,scrollers,small,cut,edge}));};
 if(document.readyState==='complete')setTimeout(go,300);else addEventListener('load',()=>setTimeout(go,300));})();</script>"#;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -86,6 +89,10 @@ pub struct Metrics {
     pub scrollers: Vec<String>,
     /// Touch targets under 32px (phone width only).
     pub small: usize,
+    /// Text running past the edge of the screen (hidden, not scrollable).
+    pub cut: Vec<String>,
+    /// Text touching the screen edge, with no side margin (phone only).
+    pub edge: Vec<String>,
 }
 
 /// Measurements at desktop and phone width.
@@ -117,6 +124,8 @@ pub fn parse_metrics(dom: &str) -> Option<Metrics> {
         hscroll: v["hscroll"].as_bool().unwrap_or(false),
         scrollers: list("scrollers"),
         small: n("small"),
+        cut: list("cut"),
+        edge: list("edge"),
     })
 }
 
@@ -135,13 +144,28 @@ pub fn judge(p: &Page) -> Vec<Finding> {
         if !m.tight.is_empty() {
             add(Severity::P1, "render-colados", format!("elementos colados, sem espaço entre si, {at}: {}", sample(&m.tight)));
         }
+        if !m.cut.is_empty() {
+            add(Severity::P0, "render-conteudo-cortado", format!(
+                "texto cortado pela borda da tela {at}: {}; use larguras fluidas (max-width: 100%, clamp() no tamanho de fonte) em vez de esconder o excesso",
+                sample(&m.cut)
+            ));
+        }
         if !m.scrollers.is_empty() {
             add(Severity::P1, "render-barra-de-rolagem", format!("barra de rolagem visível {at}: {}", sample(&m.scrollers)));
         }
     }
     let broken = if p.desktop.broken.is_empty() { &p.mobile.broken } else { &p.desktop.broken };
     if !broken.is_empty() {
-        add(Severity::P0, "render-imagem-quebrada", format!("imagem que não carrega: {}", sample(broken)));
+        add(Severity::P0, "render-imagem-quebrada", format!(
+            "imagem que não carrega: {}; sem um arquivo real, troque por uma ilustração em SVG embutido ou por um bloco feito em HTML e CSS, ou remova",
+            sample(broken)
+        ));
+    }
+    if !p.mobile.edge.is_empty() {
+        add(Severity::P1, "render-sem-margem", format!(
+            "texto encostado na borda da tela no celular: {}; dê margem lateral (padding-inline) aos contêineres",
+            sample(&p.mobile.edge)
+        ));
     }
     if p.mobile.hscroll {
         add(Severity::P1, "render-sem-responsividade", "a página rola para o lado no celular (390px): não é responsiva".into());
@@ -184,7 +208,7 @@ async fn run(browser: &Path, size: (u32, u32), args: &[String]) -> Result<String
     let n = RUNS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     let profile = std::env::temp_dir().join(format!("codeturbo-render-{}-{n}", std::process::id()));
     let mut cmd = tokio::process::Command::new(browser);
-    cmd.args(["--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check"])
+    cmd.args(["--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--allow-file-access-from-files"])
         .arg(format!("--window-size={},{}", size.0, size.1))
         .arg(format!("--user-data-dir={}", profile.display()))
         .args(args)
@@ -214,14 +238,31 @@ async fn measure_at(browser: &Path, html: &Path, shot: &Path, size: (u32, u32)) 
     let tmp = html.with_file_name(format!(".codeturbo-render-{stem}-{}.html", size.0));
     std::fs::write(&tmp, probed).map_err(|e| e.to_string())?;
     let url = file_url(&tmp.canonicalize().unwrap_or(tmp.clone()));
-    let dom = run(browser, size, &["--virtual-time-budget=5000".into(), "--dump-dom".into(), url]).await;
+    let page = file_url(&html.canonicalize().unwrap_or(html.to_path_buf()));
+    // The browser window can't be narrower than ~500px: phones are shown
+    // in a frame of their real width instead.
+    let framed = size.0 < 500;
+    let frame = |src: &str, name: &str| -> Result<String, String> {
+        let f = html.with_file_name(format!(".codeturbo-render-{stem}-{name}.html"));
+        let doc = format!(
+            "<!DOCTYPE html><html><body style=\"margin:0;background:#1b1d22\"><iframe scrolling=\"no\" src=\"{src}\" style=\"border:0;width:{}px;height:{}px;background:#fff\"></iframe></body></html>",
+            size.0, size.1
+        );
+        std::fs::write(&f, doc).map_err(|e| e.to_string())?;
+        Ok(file_url(&f.canonicalize().unwrap_or(f.clone())))
+    };
+    let (measure_url, shot_url) = if framed { (frame(&url, "medir")?, frame(&page, "ver")?) } else { (url, page) };
+    let window = if framed { (520, size.1) } else { size };
+    let dom = run(browser, window, &["--virtual-time-budget=5000".into(), "--dump-dom".into(), measure_url]).await;
     let shot = std::path::absolute(shot).unwrap_or(shot.to_path_buf());
     if let Some(dir) = shot.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    let page = file_url(&html.canonicalize().unwrap_or(html.to_path_buf()));
-    let _ = run(browser, size, &["--virtual-time-budget=5000".into(), format!("--screenshot={}", shot.display()), page]).await;
+    let _ = run(browser, window, &["--virtual-time-budget=5000".into(), format!("--screenshot={}", shot.display()), shot_url]).await;
     let _ = std::fs::remove_file(&tmp);
+    for name in ["medir", "ver"] {
+        let _ = std::fs::remove_file(html.with_file_name(format!(".codeturbo-render-{stem}-{name}.html")));
+    }
     parse_metrics(&dom?).ok_or_else(|| "a página não pôde ser medida".to_string())
 }
 

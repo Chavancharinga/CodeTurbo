@@ -21,7 +21,7 @@ pub struct Anthropic {
 impl Anthropic {
     pub fn new(api_key: String, base_url: Option<String>) -> Self {
         Self {
-            client: reqwest::Client::new(),
+            client: http::client(),
             api_key,
             base_url: base_url.unwrap_or_else(|| "https://api.anthropic.com".into()),
         }
@@ -260,7 +260,14 @@ impl Provider for Anthropic {
                     }
                     rb
                 },
-                |data| {
+                |frame| {
+                    let data = match frame {
+                        http::Frame::Data(d) => d,
+                        http::Frame::Retry(msg) => {
+                            on_text(Delta::Notice(msg));
+                            return Ok(true);
+                        }
+                    };
                     if let Some(d) = acc.on_data(data)? {
                         on_text(d);
                     }

@@ -507,6 +507,7 @@ impl<'a> Agent<'a> {
                     Delta::Text(t) => host.on_event(Event::Text(t)),
                     Delta::Thinking(t) => host.on_event(Event::Thinking(t)),
                     Delta::Limits(l) => host.on_event(Event::Limits(l)),
+                    Delta::Notice(msg) => host.on_event(Event::Notice(msg)),
                     Delta::Composing { tool, path, chars } => {
                         host.on_event(Event::Composing { tool, path: path.as_deref(), chars: *chars })
                     }

@@ -15,7 +15,7 @@ pub struct OpenAiCompat {
 impl OpenAiCompat {
     /// `base_url` up to and including the version, e.g. `https://api.openai.com/v1`.
     pub fn new(base_url: impl Into<String>, api_key: Option<String>) -> Self {
-        Self { client: reqwest::Client::new(), api_key, base_url: base_url.into() }
+        Self { client: http::client(), api_key, base_url: base_url.into() }
     }
 
     pub fn openai() -> Result<Self, ProviderError> {
@@ -221,7 +221,14 @@ impl Provider for OpenAiCompat {
                         None => rb,
                     }
                 },
-                |data| {
+                |frame| {
+                    let data = match frame {
+                        http::Frame::Data(d) => d,
+                        http::Frame::Retry(msg) => {
+                            on_text(Delta::Notice(msg));
+                            return Ok(true);
+                        }
+                    };
                     if data.trim() == "[DONE]" {
                         return Ok(false);
                     }
