@@ -82,6 +82,8 @@ pub enum Out {
     CloseQuestion,
     /// Empties the conversation (`/limpar`).
     Clear,
+    /// Saves the conversation as text to this file (`/exportar`).
+    Export(std::path::PathBuf),
 }
 
 /// From the screen to the agent side.

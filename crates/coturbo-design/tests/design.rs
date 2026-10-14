@@ -11,6 +11,8 @@ fn brief(tone: &str) -> Brief {
         tone: tone.into(),
         signature: "um cofre desenhado com linhas finas que enche conforme a meta".into(),
         brand: Vec::new(),
+        fonts: Vec::new(),
+        radii: Vec::new(),
     }
 }
 
@@ -323,4 +325,43 @@ fn feature_lists_inside_plans_are_not_cards() {
     let order = r#"<section id="hero"></section><section id="features"></section><section id="testimonials"></section><section id="pricing"></section><section id="faq"></section><section id="contact"></section>"#;
     let f = fiscal::check("p.html", order, None);
     assert!(f.iter().any(|x| x.rule == "sequencia-template" && !x.blocking()), "the order is advice: {f:?}");
+}
+
+#[test]
+fn the_design_system_is_read_from_the_project() {
+    use coturbo_design::extract;
+    let dir = tempfile::tempdir().unwrap();
+    let w = |p: &str, t: &str| {
+        let f = dir.path().join(p);
+        std::fs::create_dir_all(f.parent().unwrap()).unwrap();
+        std::fs::write(f, t).unwrap();
+    };
+    w("src/site.css", ":root { --brand: #ffd60a; --ink: #111111; }\nbody { font-family: 'Space Grotesk', sans-serif; color: #111111; background: #ffffff; }\n.btn { background: #ffd60a; border-radius: 6px; padding: 12px 24px; }\n.card { border-radius: 14px; padding: 24px; gap: 16px; }\n.chip { border-radius: 6px; padding: 4px 12px; }\nh1 { font-family: \"Fraunces\", serif; }\n.btn2 { background: #ffd60a; }");
+    w("tailwind.config.js", "module.exports = { theme: { extend: { colors: { brand: '#ffd60a', night: '#0b0b0f' }, fontFamily: { display: ['Fraunces', 'serif'] } } } }");
+    w("design/tokens.json", r##"{ "color": { "accent": "#ff5a36" } }"##);
+    w("package.json", r#"{ "dependencies": { "tailwindcss": "3", "@radix-ui/react-dialog": "1" } }"#);
+    w("node_modules/x/ignored.css", "a { color: #00ff00; }");
+    let e = extract::scan(dir.path());
+    assert_eq!(e.colors[0], "#ffd60a", "most used first: {:?}", e.colors);
+    assert!(e.colors.contains(&"#ff5a36".to_string()), "token files count: {:?}", e.colors);
+    assert!(!e.colors.contains(&"#00ff00".to_string()), "dependencies are not the project");
+    assert!(e.fonts.contains(&"Space Grotesk".to_string()) && e.fonts.contains(&"Fraunces".to_string()), "{:?}", e.fonts);
+    assert_eq!(e.radii[0], 6);
+    assert!(e.radii.contains(&14));
+    assert!(e.spacing.contains(&24) && e.spacing.contains(&12));
+    assert!(e.tokens.iter().any(|(k, v)| k == "--brand" && v == "#ffd60a"));
+    assert!(e.frameworks.contains(&"Tailwind CSS".to_string()) && e.frameworks.iter().any(|f| f.contains("Radix")));
+    let s = extract::summary(&e);
+    assert!(s.contains("fontes: ") && s.contains("Tailwind CSS"), "{s}");
+
+    // A redesign keeps it: same fonts, same radii, the brand yellow.
+    let mut b = brief("moderno");
+    b.brand = e.brand();
+    b.fonts = e.fonts.iter().take(2).cloned().collect();
+    b.radii = e.radii.clone();
+    let t = compile(&b);
+    assert_eq!(t.color("primary"), (255, 214, 10));
+    assert!(b.fonts.contains(&t.font_display));
+    let radii: Vec<u32> = t.radius.iter().map(|(_, r)| *r).collect();
+    assert!(radii.contains(&6) && radii.contains(&14), "{radii:?}");
 }

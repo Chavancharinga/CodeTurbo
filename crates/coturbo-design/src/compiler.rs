@@ -16,6 +16,10 @@ pub struct Brief {
     /// Colors the brand already uses (`#rrggbb`), most important first. When
     /// present, the palette is organized around them instead of replaced.
     pub brand: Vec<String>,
+    /// Fonts the project already uses (display first); kept when present.
+    pub fonts: Vec<String>,
+    /// Corner radii the project already uses, in px; kept when present.
+    pub radii: Vec<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -224,7 +228,10 @@ pub fn compile(b: &Brief) -> Tokens {
     };
     let accent = oklch(if dark { 0.8 } else { 0.72 }, chroma * 1.1, (hue + offset) % 360.0);
     let pairs = font_pairs(tone);
-    let (display, body) = pairs[(seed / 7) as usize % pairs.len()];
+    let (picked_display, picked_body) = pairs[(seed / 7) as usize % pairs.len()];
+    // The project's own fonts win over the catalog.
+    let display = b.fonts.first().map(String::as_str).unwrap_or(picked_display);
+    let body = b.fonts.get(1).or(b.fonts.first()).map(String::as_str).unwrap_or(picked_body);
     let ratio: f64 = match tone {
         Tone::Editorial => 1.414,
         Tone::Playful => 1.333,
@@ -234,12 +241,20 @@ pub fn compile(b: &Brief) -> Tokens {
     };
     let names = ["sm", "base", "lg", "xl", "2xl", "3xl", "display"];
     let type_scale = names.iter().enumerate().map(|(i, n)| (*n, (ratio.powi(i as i32 - 1) * 1000.0).round() / 1000.0)).collect();
-    let radius = match tone {
+    let mut own: Vec<u32> = b.radii.clone();
+    own.sort_unstable();
+    own.dedup();
+    let radius = if own.len() >= 2 {
+        let pick = |i: usize| own[(i * (own.len() - 1)) / 2];
+        vec![("sm", pick(0)), ("md", pick(1)), ("lg", pick(2))]
+    } else {
+        match tone {
         Tone::Editorial => vec![("sm", 0), ("md", 2), ("lg", 4)],
         Tone::Technical => vec![("sm", 0), ("md", 3), ("lg", 6)],
         Tone::Playful => vec![("sm", 6), ("md", 14), ("lg", 32)],
         Tone::Warm => vec![("sm", 4), ("md", 10), ("lg", 22)],
         Tone::Balanced => vec![("sm", 3), ("md", 8), ("lg", 16)],
+        }
     };
     let ink_hex = hex(ink);
     let shadows = match tone {

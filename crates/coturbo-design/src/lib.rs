@@ -7,6 +7,7 @@
 pub mod color;
 pub mod compiler;
 pub mod contract;
+pub mod extract;
 pub mod fiscal;
 pub mod kit;
 pub mod render;

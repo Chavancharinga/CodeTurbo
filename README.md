@@ -99,6 +99,11 @@ próximas sessões.
 | `/aprovacao` | definir quando o CodeTurbo pede confirmação                    |
 | `/plano`     | ativar o modo plano, somente leitura até a aprovação do plano  |
 | `/uso`       | consultar tokens e custo da sessão                             |
+| `/desfazer`  | desfazer as alterações da última tarefa                        |
+| `/repetir`   | refazer a última tarefa                                        |
+| `/copiar`    | copiar a última resposta                                       |
+| `/exportar`  | salvar a conversa em Markdown                                  |
+| `/enxugar`   | resumir resultados antigos e liberar contexto                  |
 | `/limpar`    | iniciar uma nova conversa                                      |
 | `/atualizar` | instalar a versão mais recente                                 |
 | `/ajuda`     | listar comandos e atalhos                                      |

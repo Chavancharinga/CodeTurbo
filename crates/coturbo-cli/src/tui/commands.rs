@@ -9,6 +9,10 @@ pub enum Command {
     Plan,
     Usage,
     Undo,
+    Shake,
+    Retry,
+    Copy,
+    Export,
     Clear,
     Update,
     Help,
@@ -22,7 +26,7 @@ pub struct CommandInfo {
     pub cmd: Command,
 }
 
-pub const COMMANDS: [CommandInfo; 11] = [
+pub const COMMANDS: [CommandInfo; 15] = [
     CommandInfo { name: "/provedor", aliases: &["/provider"], about: "escolher o provedor de modelos", cmd: Command::Provider },
     CommandInfo {
         name: "/modelo",
@@ -40,6 +44,10 @@ pub const COMMANDS: [CommandInfo; 11] = [
     CommandInfo { name: "/plano", aliases: &["/plan"], about: "ativar ou desativar o modo plano", cmd: Command::Plan },
     CommandInfo { name: "/uso", aliases: &["/usage"], about: "tokens e custo da sessão", cmd: Command::Usage },
     CommandInfo { name: "/desfazer", aliases: &["/undo"], about: "desfazer as alterações da última tarefa", cmd: Command::Undo },
+    CommandInfo { name: "/repetir", aliases: &["/retry"], about: "refazer a última tarefa", cmd: Command::Retry },
+    CommandInfo { name: "/copiar", aliases: &["/copy"], about: "copiar a última resposta", cmd: Command::Copy },
+    CommandInfo { name: "/exportar", aliases: &["/export"], about: "salvar a conversa em Markdown", cmd: Command::Export },
+    CommandInfo { name: "/enxugar", aliases: &["/shake"], about: "resumir resultados antigos e liberar contexto", cmd: Command::Shake },
     CommandInfo {
         name: "/limpar",
         aliases: &["/clear", "/novo", "/new"],

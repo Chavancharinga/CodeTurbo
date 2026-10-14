@@ -59,7 +59,7 @@ static STYLE_ATTR: LazyLock<Regex> = LazyLock::new(|| re(r#"(?i)\bstyle\s*=\s*"(
 static SCRIPT_BLOCK: LazyLock<Regex> = LazyLock::new(|| re(r"(?is)<script[^>]*>.*?</script>"));
 static ROOT_BLOCK: LazyLock<Regex> = LazyLock::new(|| re(r"(?s):root\s*\{[^}]*\}"));
 static RULE: LazyLock<Regex> = LazyLock::new(|| re(r"(?s)([^{}]+)\{([^{}]*)\}"));
-static DECL: LazyLock<Regex> = LazyLock::new(|| re(r"([a-zA-Z-]+)\s*:\s*([^;{}]+)(?:;|$)"));
+static DECL: LazyLock<Regex> = LazyLock::new(|| re(r"(-?-?[a-zA-Z][a-zA-Z0-9-]*)\s*:\s*([^;{}]+)(?:;|$)"));
 static HEX: LazyLock<Regex> = LazyLock::new(|| re(r"#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b"));
 static RGB_FN: LazyLock<Regex> = LazyLock::new(|| re(r"rgba?\(\s*(\d{1,3})[\s,]+(\d{1,3})[\s,]+(\d{1,3})"));
 static VAR: LazyLock<Regex> = LazyLock::new(|| re(r"var\(\s*(--[a-z0-9-]+)"));
@@ -176,6 +176,17 @@ const CLICHES: [&str; 14] = [
 
 fn is_emoji(c: char) -> bool {
     matches!(c as u32, 0x1F300..=0x1FAFF | 0x2600..=0x27BF | 0x1F000..=0x1F2FF | 0x2B50 | 0x2B06 | 0x2194..=0x21AA)
+}
+
+/// Every `(property, value)` declared in the file's styles, property in
+/// lower case (custom properties included).
+pub fn declarations(path: &str, text: &str) -> Vec<(String, String)> {
+    css_regions(path, text)
+        .iter()
+        .flat_map(|r| {
+            DECL.captures_iter(&r.css).map(|d| (d[1].to_ascii_lowercase(), d[2].trim().to_string())).collect::<Vec<_>>()
+        })
+        .collect()
 }
 
 /// The colors a project already uses, most used first (near-identical

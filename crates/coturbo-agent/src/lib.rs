@@ -293,6 +293,26 @@ impl<'a> Agent<'a> {
         Ok(restored)
     }
 
+    /// Shrinks old tool results to one line each, keeping the last
+    /// `keep` messages whole. Returns how many results were shortened.
+    pub fn shake(&mut self, keep: usize) -> usize {
+        let cut = self.history.len().saturating_sub(keep);
+        let mut n = 0;
+        for m in &mut self.history[..cut] {
+            for b in &mut m.content {
+                if let ContentBlock::ToolResult { content, .. } = b
+                    && content.len() > 400
+                {
+                    let first = content.lines().next().unwrap_or("").chars().take(160).collect::<String>();
+                    let lines = content.lines().count();
+                    *content = format!("{first}\n[output elided to save context: {lines} lines; read again if needed]");
+                    n += 1;
+                }
+            }
+        }
+        n
+    }
+
     /// Tasks that can still be undone.
     pub fn undo_depth(&self) -> usize {
         self.checkpoints.len()
@@ -483,6 +503,9 @@ impl<'a> Agent<'a> {
             }
             report.turns += 1;
             let window = self.config.context_window as u64;
+            if window > 0 && self.last_prompt * 10 >= window * 6 && self.last_prompt * 10 < window * 8 && self.shake(4) > 0 {
+                host.on_event(Event::Notice("contexto acima de 60%: resultados antigos de ferramentas foram resumidos"));
+            }
             if window > 0 && self.last_prompt * 10 >= window * 8 && self.history.len() > 2 {
                 self.compact_midway(&task, &report);
                 host.on_event(Event::Notice("contexto acima de 80%: a conversa foi resumida para continuar"));

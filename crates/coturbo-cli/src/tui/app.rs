@@ -333,6 +333,19 @@ impl App {
                     self.restore_input();
                 }
             }
+            Out::Export(path) => {
+                let text: String = self
+                    .transcript
+                    .lines()
+                    .iter()
+                    .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>() + "\n")
+                    .collect();
+                let note = match path.parent().map(std::fs::create_dir_all).transpose().and_then(|_| std::fs::write(&path, text)) {
+                    Ok(()) => format!("  → conversa salva em {}", path.display()),
+                    Err(e) => format!("  ! não foi possível salvar: {e}"),
+                };
+                self.transcript.push(Line::styled(note, dim()));
+            }
             Out::Clear => {
                 self.transcript.clear();
                 self.scroll = 0;

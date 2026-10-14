@@ -181,35 +181,29 @@ impl Tools {
         use coturbo_design::{compiler, contract};
         let given: Vec<String> =
             input["brand_colors"].as_array().into_iter().flatten().filter_map(|v| v.as_str().map(str::to_string)).collect();
-        let brand = if input["new_palette"].as_bool() == Some(true) {
-            Vec::new()
-        } else if !given.is_empty() {
-            given
-        } else {
-            // A redesign keeps the colors the project already uses.
-            let files: Vec<(String, String)> = ignore::WalkBuilder::new(&self.root)
-                .build()
-                .filter_map(Result::ok)
-                .filter(|e| e.file_type().is_some_and(|t| t.is_file()))
-                .map(|e| self.display(e.path()))
-                .filter(|rel| coturbo_design::fiscal::is_ui_file(rel))
-                .take(40)
-                .filter_map(|rel| Some((rel.clone(), std::fs::read_to_string(self.root.join(&rel)).ok()?)))
-                .collect();
-            coturbo_design::fiscal::brand_colors(&files)
-        };
+        let fresh = input["new_palette"].as_bool() == Some(true);
+        // A redesign starts from the design system the project already has.
+        let existing = if fresh { Default::default() } else { coturbo_design::extract::scan(&self.root) };
+        let brand = if fresh { Vec::new() } else if !given.is_empty() { given } else { existing.brand() };
         let brief = compiler::Brief {
             subject: arg(input, "subject")?.to_string(),
             audience: arg(input, "audience")?.to_string(),
             tone: arg(input, "tone")?.to_string(),
             signature: arg(input, "signature")?.to_string(),
             brand,
+            fonts: existing.fonts.iter().take(2).cloned().collect(),
+            radii: existing.radii.clone(),
         };
         let tokens = compiler::compile(&brief);
         let path = self.root.join(contract::FILE);
         std::fs::write(&path, contract::markdown(&tokens)).map_err(|e| format!("{}: {e}", path.display()))?;
-        let kept = if brief.brand.is_empty() {
+        let kept = if existing.is_empty() && brief.brand.is_empty() {
             String::new()
+        } else if !existing.is_empty() {
+            format!(
+                " This project already has a design system, kept and organized (do not replace it):\n{}\n",
+                coturbo_design::extract::summary(&existing)
+            )
         } else {
             format!(
                 " Brand colors kept and organized: {} (primary = main brand color for fills, primary-ink = the same hue safe for text, \

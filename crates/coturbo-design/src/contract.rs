@@ -79,7 +79,8 @@ pub fn markdown(t: &Tokens) -> String {
         b.tone,
         t.tone.name(),
         b.signature,
-        if b.brand.is_empty() { "nenhuma (paleta nova)".to_string() } else { b.brand.join(", ") },
+        if b.brand.is_empty() { "nenhuma (paleta nova)".to_string() } else { b.brand.join(", ") }
+            + &if b.fonts.is_empty() { String::new() } else { format!("\n- Fontes do projeto preservadas: {}", b.fonts.join(", ")) },
         t.layout,
         crate::kit::blueprint(t).iter().enumerate().map(|(i, s)| format!("{}. {s}", i + 1)).collect::<Vec<_>>().join("\n"),
         font_link(t),

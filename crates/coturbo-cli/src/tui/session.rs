@@ -66,6 +66,9 @@ struct Session {
     /// Sent before anything the user types (the task given at launch).
     pending: Option<String>,
     out: std::sync::mpsc::Sender<Out>,
+    /// The last task sent and the model's last answer, for /repetir and /copiar.
+    last_task: Option<String>,
+    last_answer: Option<String>,
     /// Usage of the agents replaced during the session (provider/model changes).
     spent: Usage,
     closing: Arc<AtomicBool>,
@@ -77,6 +80,28 @@ fn dim() -> Style {
 
 fn usage_of(agent: &Option<Agent<'_>>) -> Usage {
     agent.as_ref().map(Agent::session_usage).unwrap_or_default()
+}
+
+/// Puts `text` on the system clipboard.
+fn copy_to_clipboard(text: &str) -> Result<(), String> {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let (program, args, bytes): (&str, &[&str], Vec<u8>) = if cfg!(windows) {
+        // clip.exe reads UTF-16 with a byte order mark.
+        let mut b = vec![0xFF, 0xFE];
+        b.extend(text.encode_utf16().flat_map(u16::to_le_bytes));
+        ("clip", &[], b)
+    } else if cfg!(target_os = "macos") {
+        ("pbcopy", &[], text.as_bytes().to_vec())
+    } else if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+        ("wl-copy", &[], text.as_bytes().to_vec())
+    } else {
+        ("xclip", &["-selection", "clipboard"], text.as_bytes().to_vec())
+    };
+    let mut child = Command::new(program).args(args).stdin(Stdio::piped()).spawn().map_err(|e| format!("{program}: {e}"))?;
+    child.stdin.take().ok_or("sem entrada")?.write_all(&bytes).map_err(|e| e.to_string())?;
+    child.wait().map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 /// Opens the interface and runs it until the user quits.
@@ -123,6 +148,8 @@ pub async fn drive(launch: Launch, ch: Channels) -> Result<Usage, String> {
         plan: launch.plan,
         verbose: launch.verbose,
         pending: launch.prompt.filter(|p| !p.trim().is_empty()),
+        last_task: None,
+        last_answer: None,
         out,
         spent: Usage::default(),
         closing,
@@ -344,6 +371,38 @@ impl Session {
                             self.info(format!("Sessão: {}", status_line(&total, self.pricer().cost(&total))));
                             false
                         }
+                        Command::Retry => {
+                            match self.last_task.clone() {
+                                Some(task) => {
+                                    self.send(Out::Lines(super::app::task_lines(&task)));
+                                    self.task(agent.as_mut(), &task, cancel).await;
+                                }
+                                None => self.warn("nenhuma tarefa para repetir"),
+                            }
+                            false
+                        }
+                        Command::Copy => {
+                            match &self.last_answer {
+                                Some(text) => match copy_to_clipboard(text) {
+                                    Ok(()) => self.info("Última resposta copiada."),
+                                    Err(e) => self.warn(format!("não foi possível copiar: {e}")),
+                                },
+                                None => self.warn("nenhuma resposta para copiar ainda"),
+                            }
+                            false
+                        }
+                        Command::Export => {
+                            let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+                            self.send(Out::Export(self.root.join(".codeturbo/sessoes").join(format!("conversa-{secs}.md"))));
+                            false
+                        }
+                        Command::Shake => {
+                            match agent.as_mut().map(|a| a.shake(2)) {
+                                Some(0) | None => self.info("Nada para enxugar."),
+                                Some(n) => self.info(format!("{n} resultado(s) antigo(s) resumido(s): menos tokens na próxima mensagem.")),
+                            }
+                            false
+                        }
                         Command::Undo => {
                             match agent.as_mut().map(Agent::undo) {
                                 Some(Ok(files)) => {
@@ -387,6 +446,7 @@ impl Session {
             self.warn("nenhum provedor pronto. Use /provedor para escolher um ou /chave para informar a chave de API.");
             return;
         };
+        self.last_task = Some(text.to_string());
         while cancel.try_recv().is_ok() {}
         let mut base = self.spent;
         base += agent.session_usage();
@@ -411,6 +471,9 @@ impl Session {
                         status_line(&report.usage, cost)
                     )),
                 ]));
+                if !report.final_text.trim().is_empty() {
+                    self.last_answer = Some(report.final_text.clone());
+                }
                 agent.compact();
             }
             Some(Err(e)) => self.warn(format!("erro: {e}")),

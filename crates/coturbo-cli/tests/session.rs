@@ -213,6 +213,16 @@ async fn a_session_runs_tasks_switches_models_and_quits() {
     let done: Vec<String> = seen.lock().unwrap().lines.iter().filter(|l| l.contains("concluído")).cloned().collect();
     assert_eq!(done.len(), 2, "{done:?}");
     assert!(done[1].contains("s · tarefa tokens"), "shows how long it took: {}", done[1]);
+    let before = chats.load(Ordering::SeqCst);
+    tx.send(In::Submit("/repetir".into())).unwrap();
+    for _ in 0..200 {
+        if chats.load(Ordering::SeqCst) > before {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert_eq!(chats.load(Ordering::SeqCst), before + 1, "/repetir runs the last task again");
+    wait_for(&seen, "› de novo").await;
     tx.send(In::Submit("/uso".into())).unwrap();
     wait_for(&seen, "Sessão: tokens").await;
     tx.send(In::Submit("/inexistente".into())).unwrap();

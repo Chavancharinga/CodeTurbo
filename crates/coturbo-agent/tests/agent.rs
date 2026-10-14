@@ -820,3 +820,25 @@ async fn a_nearly_full_context_is_summarized_mid_task() {
     let text = format!("{:?}", second.messages[0]);
     assert!(text.contains("compacted") && text.contains("read_file src/lib.rs") && text.contains("leia o código"), "{text}");
 }
+
+#[tokio::test]
+async fn old_tool_results_are_shrunk_before_the_context_fills() {
+    let dir = project();
+    let long: String = (0..200).map(|i| format!("linha {i} de um arquivo grande\n")).collect();
+    std::fs::write(dir.path().join("big.txt"), &long).unwrap();
+    let tools = Tools::new(dir.path(), Mode::Naive);
+    let mid = Usage { input: 650, cache_write: 0, cache_read: 0, output: 5 }; // 65% of 1000
+    let mock = Mock::new(vec![
+        resp(vec![tool("t1", "read_file", json!({"path": "big.txt"}))], "tool_use", usage(10, 5)),
+        resp(vec![tool("t2", "read_file", json!({"path": "src/lib.rs"}))], "tool_use", mid),
+        resp(vec![tool("t3", "list_files", json!({}))], "tool_use", mid),
+        resp(vec![text("pronto")], "end_turn", usage(10, 5)),
+    ]);
+    let mut agent = Agent::new(&mock, &tools, config());
+    agent.run_task("leia", &mut NoopHost).await.unwrap();
+    let last = mock.requests().last().unwrap().clone();
+    let dump = format!("{:?}", last.messages);
+    assert!(dump.contains("output elided to save context: 200 lines"), "the big read was shrunk");
+    assert!(!dump.contains("linha 150 de um arquivo"), "its content is gone");
+    assert_eq!(agent.shake(0), 0, "already small");
+}
