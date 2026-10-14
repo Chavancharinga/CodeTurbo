@@ -82,16 +82,29 @@ Abra um terminal na pasta do seu projeto e execute:
 codeturbo
 ```
 
-Para usar um modelo local pelo Ollama, sem chave de API:
+A interface ocupa o terminal: o logotipo permanece no topo, a conversa ao
+centro e o campo de texto na parte inferior. Na primeira execução, o
+CodeTurbo solicita o provedor e o modelo; as escolhas ficam salvas para as
+próximas sessões.
 
-```sh
-codeturbo --provider ollama --model qwen2.5:7b
-```
+| Comando      | Função                                                        |
+| ------------ | ------------------------------------------------------------- |
+| `/provedor`  | escolher o provedor: Anthropic, OpenAI, OpenRouter ou Ollama   |
+| `/modelo`    | escolher o modelo entre os disponíveis no provedor             |
+| `/chave`     | informar a chave de API do provedor                            |
+| `/aprovacao` | definir quando o CodeTurbo pede confirmação                    |
+| `/plano`     | ativar o modo plano, somente leitura até a aprovação do plano  |
+| `/uso`       | consultar tokens e custo da sessão                             |
+| `/limpar`    | iniciar uma nova conversa                                      |
+| `/atualizar` | instalar a versão mais recente                                 |
+| `/ajuda`     | listar comandos e atalhos                                      |
+| `/sair`      | encerrar                                                       |
 
-Para usar os provedores em nuvem, defina a chave correspondente na variável de
-ambiente `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` ou `OPENROUTER_API_KEY`.
+Modelos locais pelo Ollama dispensam chave de API. Para os provedores em
+nuvem, a chave pode ser informada com `/chave` ou pelas variáveis de ambiente
+`ANTHROPIC_API_KEY`, `OPENAI_API_KEY` e `OPENROUTER_API_KEY`.
 
-Para executar uma única tarefa e encerrar:
+Para executar uma única tarefa sem a interface:
 
 ```sh
 codeturbo run "adicione validação de e-mail ao formulário de cadastro"
@@ -114,9 +127,8 @@ variável de ambiente `CODETURBO_NO_UPDATE_CHECK`.
 
 ## Situação do projeto
 
-Em desenvolvimento ativo. Próximas etapas: interface de tela cheia com
-configuração interna, ampliação dos provedores, medição comparativa do consumo
-de tokens e motor de design integrado.
+Em desenvolvimento ativo. Próximas etapas: ampliação dos provedores, medição
+comparativa do consumo de tokens e motor de design integrado.
 
 ## Licença
 

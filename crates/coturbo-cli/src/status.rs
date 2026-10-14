@@ -1,7 +1,7 @@
 //! Terminal output: the token/cost status line and the terminal host.
 
 use coturbo_agent::plan::{PlanChoice, PlanReview};
-use coturbo_agent::{ApprovalRequest, Decision, Event, Host};
+use coturbo_agent::{ApprovalRequest, Decision, Event, Host, Stop, TaskReport};
 use coturbo_verify::Finding;
 use coturbo_providers::{BoxFuture, Usage};
 use coturbo_tools::ToolOutput;
@@ -31,6 +31,23 @@ pub fn status_line(u: &Usage, cost: Option<f64>) -> String {
         s.push_str(&format!(" · ${c:.4}"));
     }
     s
+}
+
+/// How a task ended, with the verification result.
+pub fn stop_note(report: &TaskReport) -> String {
+    let turns = report.turns;
+    let rounds = if turns == 1 { "1 rodada".to_string() } else { format!("{turns} rodadas") };
+    let stop = match report.stop {
+        Stop::Done => format!("concluído em {rounds}"),
+        Stop::MaxTurns => format!("interrompido: limite de rodadas atingido ({turns})"),
+        Stop::Refused => "interrompido: o modelo recusou".into(),
+        Stop::PlanSaved => "plano salvo, nada foi implementado".into(),
+    };
+    match report.verified {
+        Some(true) => format!("{stop} · \x1b[32m✓ verificado\x1b[0m"),
+        Some(false) => format!("{stop} · \x1b[31m✗ NÃO verificado\x1b[0m"),
+        None => stop,
+    }
 }
 
 /// One-line, length-capped view of a tool call for the progress log.

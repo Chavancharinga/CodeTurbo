@@ -1,19 +1,19 @@
 use clap::{Args, Parser, Subcommand};
-use coturbo_agent::{Agent, AgentConfig, Stop, TaskReport, approval::ApprovalConfig};
-use coturbo_cli::{
-    bench,
-    config::{self, Config, Pricer, mode_name, parse_mode},
-    status::{TermHost, status_line},
-};
-use coturbo_tools::{Mode, Tools};
-use coturbo_cli::{splash, update};
+use coturbo_agent::{Agent, AgentConfig, Stop, approval::ApprovalConfig};
+use coturbo_cli::config::{self, Config, Pricer, agent_config, make_tools, mode_name, parse_mode};
+use coturbo_cli::status::{TermHost, status_line, stop_note};
+use coturbo_cli::tui::session::{self, Launch};
+use coturbo_cli::{bench, settings, splash, update};
+use coturbo_tools::Mode;
 use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 #[derive(Parser)]
-#[command(name = "codeturbo", version, about = "Agente de código que entrega código verificado gastando menos tokens. Sem subcomando, abre a interface.")]
+#[command(name = "codeturbo", version, about = "Agente de código que entrega código verificado gastando menos tokens. Sem subcomando, abre a interface.", disable_help_subcommand = true)]
 struct Cli {
+    /// Tarefa enviada assim que a interface abre.
+    prompt: Option<String>,
     #[command(flatten)]
     opts: Opts,
     #[command(subcommand)]
@@ -114,38 +114,13 @@ fn apply(mut c: Config, o: &Opts) -> Config {
     c
 }
 
-fn make_tools(root: &std::path::Path, mode: Mode, cfg: &Config) -> Tools {
-    let tools = Tools::new(root, mode).with_native_checks(cfg.diagnostics_on_write);
-    match cfg.lsp_config() {
-        Some(lsp) => {
-            let root = tools.root().to_path_buf();
-            tools.with_lsp(std::sync::Arc::new(coturbo_verify::lsp::LspManager::new(&root, lsp)))
-        }
-        None => tools,
-    }
-}
-
-fn agent_config(c: &Config) -> Result<AgentConfig, String> {
-    Ok(AgentConfig {
-        model: c.model.clone(),
-        max_turns: c.max_turns,
-        max_tokens: c.max_tokens,
-        effort: c.effort.clone(),
-        approval: c.approval_config()?,
-        plan_model: c.plan_model.clone(),
-        context_window: c.context_window,
-        gate: c.gate_config(),
-        max_fix_rounds: c.max_fix_rounds,
-    })
-}
-
 #[tokio::main]
 async fn main() -> ExitCode {
     let cli = Cli::parse();
     match real_main(cli).await {
         Ok(code) => code,
         Err(e) => {
-            eprintln!("error: {e}");
+            eprintln!("erro: {e}");
             ExitCode::FAILURE
         }
     }
@@ -187,28 +162,21 @@ async fn real_main(cli: Cli) -> Result<ExitCode, String> {
     let wants_check = cfg.update_check
         && std::env::var_os("CODETURBO_NO_UPDATE_CHECK").is_none()
         && matches!(cli.cmd, None | Some(Cmd::Run { .. }));
-    let check = wants_check.then(|| tokio::spawn(update::check_now(dir.clone())));
-    // The REPL opens with the snail, before anything that can fail on a
-    // missing key, so the intro always shows.
-    let animated = cli.cmd.is_none() && splash::can_animate(std::io::stderr().is_terminal());
-    if animated {
-        splash::play(&mut std::io::stderr(), true, &std::sync::atomic::AtomicBool::new(true));
-    }
-    // In the REPL the notice goes right under the intro; `run` shows it at the end.
-    let mut check = check;
-    let mut notice_lines = 0;
-    if cli.cmd.is_none()
-        && let Some(msg) = update_notice(check.take()).await
-    {
-        eprintln!("\x1b[33m{msg}\x1b[0m");
-        notice_lines = 1;
-    }
-    let provider = config::make_provider(&cfg)?;
-    let pricer = Pricer { table: prices, model: cfg.model.clone(), provider: cfg.provider.clone() };
+    let mut check = wants_check.then(|| tokio::spawn(update::check_now(dir.clone())));
     let root = match &cli.opts.root {
         Some(r) => r.clone(),
         None => std::env::current_dir().map_err(|e| e.to_string())?,
     };
+    if cli.cmd.is_none() {
+        if !(std::io::stdin().is_terminal() && std::io::stdout().is_terminal()) {
+            return Err("a interface precisa de um terminal; para uma tarefa sem interface use: codeturbo run \"...\"".into());
+        }
+        let (plan, verbose, prompt) = (cli.opts.plan, cli.opts.verbose, cli.prompt);
+        return session::run(Launch { cfg, prices, dir, root, mode, plan, verbose, prompt, update: check }).await;
+    }
+    let creds = settings::Credentials::load(dir.as_deref());
+    let provider = config::make_provider(&cfg, settings::api_key(&cfg.provider, &creds))?;
+    let pricer = Pricer { table: prices, model: cfg.model.clone(), provider: cfg.provider.clone() };
     let mut host = TermHost {
         verbose: cli.opts.verbose,
         pricer: Some(pricer.clone()),
@@ -224,7 +192,7 @@ async fn real_main(cli: Cli) -> Result<ExitCode, String> {
             cfg.verify = project.verify.or(cfg.verify);
             cfg.run = project.run.or(cfg.run);
         } else {
-            eprintln!("  ! ignoring .codeturbo.toml commands (not trusted)");
+            eprintln!("  ! comandos do .codeturbo.toml ignorados (não autorizados)");
         }
     }
 
@@ -250,7 +218,7 @@ async fn real_main(cli: Cli) -> Result<ExitCode, String> {
                 tasks.retain(|t| t.id.contains(f.as_str()));
             }
             if tasks.is_empty() {
-                return Err("no tasks to run".into());
+                return Err("nenhuma tarefa para executar".into());
             }
             // Bench runs unattended in throwaway copies of the fixture.
             let acfg = AgentConfig { approval: ApprovalConfig::yolo(), ..agent_config(&cfg)? };
@@ -283,110 +251,9 @@ async fn real_main(cli: Cli) -> Result<ExitCode, String> {
             std::fs::write(&jp, json).map_err(|e| format!("{}: {e}", jp.display()))?;
             std::fs::write(&mp, &md).map_err(|e| format!("{}: {e}", mp.display()))?;
             println!("{md}");
-            eprintln!("wrote {} and {}", jp.display(), mp.display());
+            eprintln!("gravados {} e {}", jp.display(), mp.display());
             Ok(ExitCode::SUCCESS)
         }
-        Some(Cmd::Splash | Cmd::Update) => unreachable!("handled before the provider is built"),
-        None => {
-            let session = Session { plan: cli.opts.plan, lines_under_intro: notice_lines };
-            repl(provider.as_ref(), &root, mode, &cfg, &pricer, &mut host, session).await
-        }
+        Some(Cmd::Splash | Cmd::Update) | None => unreachable!("handled before the provider is built"),
     }
-}
-
-fn stop_note(report: &TaskReport) -> String {
-    let turns = report.turns;
-    let stop = match report.stop {
-        Stop::Done => format!("done in {turns} turns"),
-        Stop::MaxTurns => format!("stopped: hit max_turns ({turns})"),
-        Stop::Refused => "stopped: the model refused".into(),
-        Stop::PlanSaved => "plan saved, not implemented".into(),
-    };
-    match report.verified {
-        Some(true) => format!("{stop} · \x1b[32m✓ verified\x1b[0m"),
-        Some(false) => format!("{stop} · \x1b[31m✗ NOT verified\x1b[0m"),
-        None => stop,
-    }
-}
-
-/// REPL options decided before it starts.
-struct Session {
-    plan: bool,
-    /// Lines printed between the intro and the REPL header (update notice).
-    lines_under_intro: usize,
-}
-
-async fn repl(
-    provider: &dyn coturbo_providers::Provider,
-    root: &std::path::Path,
-    mode: Mode,
-    cfg: &Config,
-    pricer: &Pricer,
-    host: &mut TermHost,
-    session: Session,
-) -> Result<ExitCode, String> {
-    use rustyline::error::ReadlineError;
-    let tools = make_tools(root, mode, cfg);
-    let mut agent = Agent::new(provider, &tools, agent_config(cfg)?);
-    agent.set_plan_mode(session.plan);
-    // The intro already played (in `real_main`) under this same condition.
-    let animated = splash::can_animate(std::io::stderr().is_terminal());
-    let mut rl = rustyline::DefaultEditor::new().map_err(|e| e.to_string())?;
-    eprintln!(
-        "codeturbo · {} · {} · tools {} · approval {} · /plan, /usage, /exit",
-        cfg.provider,
-        cfg.model,
-        mode_name(mode),
-        cfg.approval_mode
-    );
-    // The snail keeps running above the prompt until the first task.
-    // From the prompt: header (1) + any lines printed under the intro +
-    // tagline (1) + logo rows.
-    let mut live = animated.then(|| splash::LiveLogo::start(2 + session.lines_under_intro + splash::ROWS));
-    loop {
-        let prompt = if agent.plan_mode() { "plan › " } else { "› " };
-        let read = rl.readline(prompt);
-        if let Some(mut l) = live.take() {
-            l.stop();
-        }
-        let line = match read {
-            Ok(l) => l,
-            Err(ReadlineError::Interrupted) => continue,
-            Err(ReadlineError::Eof) => break,
-            Err(e) => return Err(e.to_string()),
-        };
-        let line = line.trim();
-        match line {
-            "" => continue,
-            "/exit" | "/quit" => break,
-            "/plan" => {
-                agent.set_plan_mode(!agent.plan_mode());
-                eprintln!("plan mode {}", if agent.plan_mode() { "on: read-only until you approve a plan" } else { "off" });
-                continue;
-            }
-            "/usage" => {
-                let u = agent.session_usage();
-                eprintln!("session: {}", status_line(&u, pricer.cost(&u)));
-                continue;
-            }
-            _ => {}
-        }
-        let _ = rl.add_history_entry(line);
-        match agent.run_task(line, host).await {
-            Ok(report) => {
-                println!();
-                let s = agent.session_usage();
-                eprintln!(
-                    "{} · task {} · session {}",
-                    stop_note(&report),
-                    status_line(&report.usage, pricer.cost(&report.usage)),
-                    status_line(&s, pricer.cost(&s)),
-                );
-            }
-            Err(e) => eprintln!("\nerror: {e}"),
-        }
-        // Each task ends with the history reset to a short summary.
-        agent.compact();
-    }
-    Ok(ExitCode::SUCCESS)
 }

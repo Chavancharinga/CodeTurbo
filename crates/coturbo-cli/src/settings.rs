@@ -1,0 +1,115 @@
+//! Choices made in the interface that outlive the session: provider, model
+//! and approval mode go to `config.toml` (edited in place, comments kept),
+//! API keys to `credentials.toml` next to it.
+
+use std::collections::BTreeMap;
+use std::path::Path;
+
+/// A provider the interface offers.
+pub struct ProviderInfo {
+    pub id: &'static str,
+    pub label: &'static str,
+    /// Environment variable holding its API key; `None` needs no key.
+    pub key_var: Option<&'static str>,
+}
+
+pub const PROVIDERS: [ProviderInfo; 4] = [
+    ProviderInfo { id: "anthropic", label: "Anthropic (Claude)", key_var: Some("ANTHROPIC_API_KEY") },
+    ProviderInfo { id: "openai", label: "OpenAI", key_var: Some("OPENAI_API_KEY") },
+    ProviderInfo { id: "openrouter", label: "OpenRouter (centenas de modelos)", key_var: Some("OPENROUTER_API_KEY") },
+    ProviderInfo { id: "ollama", label: "Ollama (modelos locais, sem chave)", key_var: None },
+];
+
+pub fn provider(id: &str) -> Option<&'static ProviderInfo> {
+    PROVIDERS.iter().find(|p| p.id == id)
+}
+
+fn read_or_empty(path: &Path) -> Result<String, String> {
+    match std::fs::read_to_string(path) {
+        Ok(s) => Ok(s),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(e) => Err(format!("{}: {e}", path.display())),
+    }
+}
+
+/// Sets (or, with `None`, removes) top-level keys of `config.toml`, leaving
+/// everything else in the file as it was.
+pub fn save_config(dir: &Path, values: &[(&str, Option<&str>)]) -> Result<(), String> {
+    let path = dir.join("config.toml");
+    let mut doc: toml_edit::DocumentMut =
+        read_or_empty(&path)?.parse().map_err(|e| format!("{}: {e}", path.display()))?;
+    for &(key, value) in values {
+        match value {
+            Some(v) => doc[key] = toml_edit::value(v),
+            None => {
+                doc.remove(key);
+            }
+        }
+    }
+    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    std::fs::write(&path, doc.to_string()).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// API keys typed into the interface, by provider id.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct Credentials {
+    keys: BTreeMap<String, String>,
+}
+
+const CREDENTIALS: &str = "credentials.toml";
+
+impl Credentials {
+    /// Stored keys; a missing or unreadable file means none.
+    pub fn load(dir: Option<&Path>) -> Self {
+        let Some(text) = dir.and_then(|d| std::fs::read_to_string(d.join(CREDENTIALS)).ok()) else {
+            return Self::default();
+        };
+        let keys = text
+            .parse::<toml_edit::DocumentMut>()
+            .ok()
+            .and_then(|doc| {
+                let table = doc.get("keys")?.as_table()?;
+                Some(table.iter().filter_map(|(k, v)| Some((k.to_string(), v.as_str()?.to_string()))).collect())
+            })
+            .unwrap_or_default();
+        Self { keys }
+    }
+
+    pub fn get(&self, provider: &str) -> Option<&str> {
+        self.keys.get(provider).map(String::as_str)
+    }
+
+    pub fn set(&mut self, provider: &str, key: &str) {
+        self.keys.insert(provider.to_string(), key.trim().to_string());
+    }
+
+    /// Writes the keys to `credentials.toml`, readable only by the user
+    /// where the platform allows it.
+    pub fn save(&self, dir: &Path) -> Result<(), String> {
+        let mut doc = toml_edit::DocumentMut::new();
+        let mut table = toml_edit::Table::new();
+        for (p, k) in &self.keys {
+            table[p.as_str()] = toml_edit::value(k.as_str());
+        }
+        doc["keys"] = toml_edit::Item::Table(table);
+        let path = dir.join(CREDENTIALS);
+        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        std::fs::write(&path, doc.to_string()).map_err(|e| format!("{}: {e}", path.display()))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+        }
+        Ok(())
+    }
+}
+
+/// The API key for `provider`: its environment variable first, then the
+/// key stored from the interface.
+pub fn api_key(provider: &str, creds: &Credentials) -> Option<String> {
+    let from_env = self::provider(provider)
+        .and_then(|p| p.key_var)
+        .and_then(|var| std::env::var(var).ok())
+        .filter(|k| !k.trim().is_empty());
+    from_env.or_else(|| creds.get(provider).map(str::to_string))
+}

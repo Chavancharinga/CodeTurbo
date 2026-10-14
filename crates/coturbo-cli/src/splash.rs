@@ -11,9 +11,11 @@ use std::time::Duration;
 type Rgb = (u8, u8, u8);
 
 /// Brand colors: one blue, one soft white.
-const BLUE: Rgb = (47, 123, 255);
-const SOFT: Rgb = (225, 232, 245);
+pub const BLUE: Rgb = (47, 123, 255);
+pub const SOFT: Rgb = (225, 232, 245);
 const TRAIL_FAR: Rgb = (14, 32, 80);
+/// Resting color of the spinner label.
+const LABEL: Rgb = (110, 125, 150);
 
 /// One snail design: its pixels and the numbers that drive its animation.
 /// The same animation code draws every design.
@@ -158,8 +160,8 @@ const GAP: usize = 3;
 /// Trail length behind the shell.
 const TRAIL_LEN: usize = 18;
 const FRAMES: usize = 40;
-const FRAME: Duration = Duration::from_millis(50);
-const TAGLINE: &str = "rápido · econômico · verificado";
+/// Time between animation frames.
+pub const FRAME: Duration = Duration::from_millis(50);
 
 fn word_width() -> usize {
     NAME.len() * 6 - 1
@@ -348,18 +350,14 @@ pub fn logo_width() -> usize {
     word_width() + GAP + SNAIL.width
 }
 
-/// Frame `i` for a terminal `width` cells wide: the logo rows, then the
-/// tagline under the word once it is fully revealed.
+/// Frame `i` for a terminal `width` cells wide: the logo rows.
 pub fn frame(i: usize, width: usize) -> Vec<String> {
     frame_with(SNAIL, i, width)
 }
 
 /// [`frame`] for a given design.
 pub fn frame_with(s: &Snail, i: usize, width: usize) -> Vec<String> {
-    let reveal = (i / 2).min(NAME.len());
-    let mut out = half_blocks(&canvas(s, i, track_for(s, width), reveal));
-    out.push(if reveal == NAME.len() { format!("\x1b[2m{TAGLINE}\x1b[0m") } else { String::new() });
-    out
+    half_blocks(&canvas(s, i, track_for(s, width), (i / 2).min(NAME.len())))
 }
 
 /// Pixels of frame `i` (`None` is background), as drawn in a terminal
@@ -379,7 +377,7 @@ pub fn frames() -> usize {
 
 /// Without a terminal: one plain line, no escape codes.
 pub fn plain() -> String {
-    format!("CodeTurbo — {TAGLINE}")
+    NAME.to_string()
 }
 
 fn term_width() -> usize {
@@ -493,17 +491,26 @@ fn redraw(out: &mut dyn Write, lines: &[String], drawn: &mut usize) {
     let _ = out.flush();
 }
 
-/// One-line running snail shown while the model is thinking.
+/// One-line indicator shown while the model works, frame `i`: a wave of
+/// dots flowing into the snail, and a light sweeping across the label.
 pub fn spinner_line(i: usize, label: &str) -> String {
-    const LEN: usize = 10;
+    const WAVE: usize = 12;
+    const LEVELS: [char; 4] = ['⣀', '⣤', '⣶', '⣿'];
     let mut s = String::from("  ");
-    for x in 0..LEN {
-        let lit = (x + LEN - i % LEN) % LEN < 2;
-        let t = (x as f32 + 1.0) / LEN as f32;
-        let c = if lit { SOFT } else { lerp(TRAIL_FAR, BLUE, t * t) };
-        s.push_str(&format!("{}─", fg(c)));
+    for x in 0..WAVE {
+        let phase = (x as f32 - i as f32 * 0.9) * 0.55;
+        let level = ((phase.sin() + 1.0) / 2.0 * 3.0).round() as usize;
+        let t = (x as f32 + 1.0) / WAVE as f32;
+        s.push_str(&format!("{}{}", fg(lerp(TRAIL_FAR, BLUE, t * t)), LEVELS[level.min(3)]));
     }
-    s.push_str(&format!("{}@\x1b[0m \x1b[2m{label}\x1b[0m", fg(BLUE)));
+    s.push_str(&format!(" {}@\x1b[0m ", fg(BLUE)));
+    let n = label.chars().count() as isize;
+    let light = (i as isize % (n + 8)) - 4;
+    for (k, c) in label.chars().enumerate() {
+        let glow = (1.0 - (k as isize - light).unsigned_abs() as f32 / 4.0).max(0.0);
+        s.push_str(&format!("{}{c}", fg(lerp(LABEL, SOFT, glow))));
+    }
+    s.push_str("\x1b[0m");
     s
 }
 

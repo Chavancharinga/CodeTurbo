@@ -91,7 +91,7 @@ pub fn render_diff(diff: &str, width: usize, color: bool) -> Vec<String> {
         });
     }
     if hidden > 0 {
-        let more = format!("      … {hidden} more diff lines");
+        let more = format!("      … mais {hidden} linhas de diff");
         out.push(if color { format!("\x1b[2m{more}\x1b[0m") } else { more });
     }
     out
@@ -122,6 +122,12 @@ pub fn limits_summary(headers: &[(String, String)]) -> Option<String> {
                 .replace("remaining", "")
                 .trim_matches('-')
                 .replace("--", "-");
+            let label = match label.as_str() {
+                "requests" => "requisições".to_string(),
+                "input-tokens" => "tokens de entrada".to_string(),
+                "output-tokens" => "tokens de saída".to_string(),
+                _ => label,
+            };
             let num = |s: &str| s.parse::<u64>().map(human).unwrap_or_else(|_| s.to_string());
             Some((label, format!("{}/{}", num(v), num(limit))))
         })
@@ -147,13 +153,13 @@ pub fn turn_line(turn: &Usage, secs: f64, window: u32, cost: Option<f64>, limits
     }
     if window > 0 {
         let pct = turn.prompt_total() as f64 * 100.0 / window as f64;
-        s.push_str(&format!(" · ctx {pct:.0}% of {}", human(window as u64)));
+        s.push_str(&format!(" · contexto {pct:.0}% de {}", human(window as u64)));
     }
     if let Some(c) = cost {
         s.push_str(&format!(" · ${c:.4}"));
     }
     if let Some(l) = limits {
-        s.push_str(&format!(" · limit {l}"));
+        s.push_str(&format!(" · limites {l}"));
     }
     s
 }

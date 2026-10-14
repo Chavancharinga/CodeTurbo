@@ -718,3 +718,47 @@ async fn empty_replies_are_retried_without_touching_history() {
     let r = agent.run_task("x", &mut NoopHost).await.unwrap();
     assert_eq!((r.stop, r.turns), (Stop::Done, 3));
 }
+
+/// Like `Mock`, but a scripted response whose stop reason is `stall` never
+/// arrives: the request hangs until its future is dropped.
+struct Stalling(Mock);
+
+impl Provider for Stalling {
+    fn complete<'a>(
+        &'a self,
+        req: &'a Request,
+        on_text: &'a mut TextSink<'_>,
+    ) -> BoxFuture<'a, Result<Response, ProviderError>> {
+        Box::pin(async move {
+            let stalls = self.0.script.lock().unwrap().last().is_some_and(|r| r.stop_reason == "stall");
+            if stalls {
+                self.0.script.lock().unwrap().pop();
+                self.0.seen.lock().unwrap().push(req.clone());
+                std::future::pending::<()>().await;
+            }
+            self.0.complete(req, on_text).await
+        })
+    }
+}
+
+#[tokio::test]
+async fn an_interrupted_task_leaves_a_valid_history() {
+    let dir = project();
+    let tools = Tools::new(dir.path(), Mode::Naive);
+    let mock = Stalling(Mock::new(vec![
+        resp(vec![tool("t1", "read_file", json!({"path": "src/lib.rs"}))], "tool_use", usage(10, 5)),
+        resp(vec![], "stall", usage(0, 0)),
+        resp(vec![text("done")], "end_turn", usage(10, 5)),
+    ]));
+    let mut agent = Agent::new(&mock, &tools, config());
+    let first = tokio::time::timeout(std::time::Duration::from_millis(200), agent.run_task("read it", &mut NoopHost)).await;
+    assert!(first.is_err(), "the stalled request never answers");
+    agent.interrupted();
+    let r = agent.run_task("say done", &mut NoopHost).await.unwrap();
+    assert_eq!(r.stop, Stop::Done);
+    let reqs = mock.0.requests();
+    let last = reqs.last().unwrap();
+    assert_eq!(last.messages.len(), 1, "only the new prompt: the interrupted exchange is gone");
+    // Between tasks there is nothing to restore.
+    agent.interrupted();
+}

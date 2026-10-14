@@ -1,9 +1,11 @@
 //! User configuration (`config.toml` + optional `pricing.toml` in the config
-//! dir) and the provider factory. API keys come only from the environment.
+//! dir), the provider factory and the agent setup built from them. API keys
+//! come from the environment or from keys saved in the interface.
 
+use coturbo_agent::AgentConfig;
 use coturbo_agent::approval::{ApprovalConfig, ApprovalMode};
 use coturbo_providers::{PriceTable, Provider, Usage, anthropic::Anthropic, openai::OpenAiCompat};
-use coturbo_tools::Mode;
+use coturbo_tools::{Mode, Tools};
 use coturbo_verify::GateConfig;
 use coturbo_verify::lsp::{LspConfig, ServerConfig};
 use serde::Deserialize;
@@ -192,7 +194,7 @@ pub fn parse_mode(s: &str) -> Result<Mode, String> {
     match s {
         "naive" => Ok(Mode::Naive),
         "ast" => Ok(Mode::Ast),
-        _ => Err(format!("unknown tool set `{s}` (expected naive or ast)")),
+        _ => Err(format!("conjunto de ferramentas desconhecido: `{s}` (use naive ou ast)")),
     }
 }
 
@@ -203,23 +205,54 @@ pub fn mode_name(m: Mode) -> &'static str {
     }
 }
 
-pub fn make_provider(cfg: &Config) -> Result<Box<dyn Provider>, String> {
-    let env_key = |var: &'static str| std::env::var(var).map_err(|_| format!("missing credential: set {var}"));
+/// The provider `cfg` names, with `key` as its API key (see
+/// [`crate::settings::api_key`]).
+pub fn make_provider(cfg: &Config, key: Option<String>) -> Result<Box<dyn Provider>, String> {
+    let need = |var: &str| {
+        key.clone().ok_or_else(|| format!("falta a chave de API: use /chave na interface ou defina {var}"))
+    };
     Ok(match cfg.provider.as_str() {
-        "anthropic" => match &cfg.base_url {
-            Some(url) => Box::new(Anthropic::new(env_key("ANTHROPIC_API_KEY")?, Some(url.clone()))),
-            None => Box::new(Anthropic::from_env().map_err(|e| e.to_string())?),
-        },
+        "anthropic" => {
+            let base = cfg.base_url.clone().or_else(|| std::env::var("ANTHROPIC_BASE_URL").ok());
+            Box::new(Anthropic::new(need("ANTHROPIC_API_KEY")?, base))
+        }
         "openai" => match &cfg.base_url {
-            Some(url) => Box::new(OpenAiCompat::new(url.clone(), std::env::var("OPENAI_API_KEY").ok())),
-            None => Box::new(OpenAiCompat::openai().map_err(|e| e.to_string())?),
+            // A compatible server may not need a key.
+            Some(url) => Box::new(OpenAiCompat::new(url.clone(), key.clone())),
+            None => Box::new(OpenAiCompat::new("https://api.openai.com/v1", Some(need("OPENAI_API_KEY")?))),
         },
-        "openrouter" => Box::new(OpenAiCompat::openrouter().map_err(|e| e.to_string())?),
+        "openrouter" => Box::new(OpenAiCompat::new("https://openrouter.ai/api/v1", Some(need("OPENROUTER_API_KEY")?))),
         "ollama" => match &cfg.base_url {
             Some(url) => Box::new(OpenAiCompat::new(url.clone(), None)),
             None => Box::new(OpenAiCompat::ollama()),
         },
-        p => return Err(format!("unknown provider `{p}` (anthropic, openai, openrouter, ollama)")),
+        p => return Err(format!("provedor desconhecido: `{p}` (anthropic, openai, openrouter, ollama)")),
+    })
+}
+
+/// The tools for `root`, with the diagnostics and language servers `cfg` enables.
+pub fn make_tools(root: &Path, mode: Mode, cfg: &Config) -> Tools {
+    let tools = Tools::new(root, mode).with_native_checks(cfg.diagnostics_on_write);
+    match cfg.lsp_config() {
+        Some(lsp) => {
+            let root = tools.root().to_path_buf();
+            tools.with_lsp(std::sync::Arc::new(coturbo_verify::lsp::LspManager::new(&root, lsp)))
+        }
+        None => tools,
+    }
+}
+
+pub fn agent_config(c: &Config) -> Result<AgentConfig, String> {
+    Ok(AgentConfig {
+        model: c.model.clone(),
+        max_turns: c.max_turns,
+        max_tokens: c.max_tokens,
+        effort: c.effort.clone(),
+        approval: c.approval_config()?,
+        plan_model: c.plan_model.clone(),
+        context_window: c.context_window,
+        gate: c.gate_config(),
+        max_fix_rounds: c.max_fix_rounds,
     })
 }
 

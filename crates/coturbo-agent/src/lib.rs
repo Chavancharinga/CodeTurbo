@@ -159,7 +159,7 @@ const EMPTY_RETRIES: u32 = 2;
 
 fn system_prompt(mode: Mode) -> String {
     let mut s = String::from(
-        "You are CoTurbo, a coding agent working in the user's project. \
+        "You are CodeTurbo, a coding agent working in the user's project. \
          Use the tools to inspect and change files; paths are relative to the project root. \
          Make the smallest change that fully solves the task, then verify it. \
          When done, reply with a short summary of what changed.",
@@ -198,6 +198,9 @@ pub struct Agent<'a> {
     snapshot: Snapshot,
     /// Anti-cheat findings already decided in this task (true = accepted).
     decided: HashMap<(String, String), bool>,
+    /// History length, pending summary and plan mode before the running
+    /// task, to put back if it is interrupted.
+    started: Option<(usize, Option<String>, bool)>,
 }
 
 /// Project files (not CoTurbo's own plan files) changed in the task.
@@ -221,6 +224,7 @@ impl<'a> Agent<'a> {
             last_prompt: 0,
             snapshot: Snapshot::default(),
             decided: HashMap::new(),
+            started: None,
         }
     }
 
@@ -266,14 +270,24 @@ impl<'a> Agent<'a> {
     /// Runs one task. On a provider error the history is restored to what it
     /// was before the task, so the next task starts from a valid state.
     pub async fn run_task(&mut self, prompt: &str, host: &mut dyn Host) -> Result<TaskReport, ProviderError> {
-        let (len, summary, plan_mode) = (self.history.len(), self.pending_summary.clone(), self.plan_mode);
+        self.started = Some((self.history.len(), self.pending_summary.clone(), self.plan_mode));
         let r = self.run_inner(prompt, host).await;
         if r.is_err() {
+            self.interrupted();
+        }
+        self.started = None;
+        r
+    }
+
+    /// Puts the history back as it was before a task whose future was
+    /// dropped midway (the user interrupted it), so the next task starts
+    /// from a valid conversation. Does nothing between tasks.
+    pub fn interrupted(&mut self) {
+        if let Some((len, summary, plan_mode)) = self.started.take() {
             self.history.truncate(len);
             self.pending_summary = summary;
             self.plan_mode = plan_mode;
         }
-        r
     }
 
     async fn run_inner(&mut self, prompt: &str, host: &mut dyn Host) -> Result<TaskReport, ProviderError> {
@@ -393,7 +407,7 @@ impl<'a> Agent<'a> {
             let empty = calls.is_empty() && report.final_text.trim().is_empty() && !truncated && resp.stop_reason != "refusal";
             if empty && empty_retries < EMPTY_RETRIES {
                 empty_retries += 1;
-                host.on_event(Event::Notice("the model returned an empty reply; asking again"));
+                host.on_event(Event::Notice("o modelo respondeu vazio; pedindo de novo"));
                 continue;
             }
             self.history.push(Message { role: Role::Assistant, content: resp.content });
@@ -497,7 +511,7 @@ impl<'a> Agent<'a> {
         let mut choice = host.review_plan(&review).await;
         if choice == PlanChoice::KeepContext && !review.keep_context_allowed() {
             choice = PlanChoice::Compact;
-            host.on_event(Event::Notice("context is over 95% full: compacting before implementing"));
+            host.on_event(Event::Notice("contexto acima de 95%: compactando antes de implementar"));
         }
         match choice {
             PlanChoice::Refine(feedback) => (ToolOutput::ok(plan::refine_message(&feedback)), None),

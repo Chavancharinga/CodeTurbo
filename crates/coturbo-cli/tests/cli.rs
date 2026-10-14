@@ -74,9 +74,12 @@ fn modes_and_providers_are_validated() {
     assert_eq!(parse_mode("naive"), Ok(Mode::Naive));
     assert!(parse_mode("fast").is_err());
     let c = Config { provider: "nope".into(), ..Config::default() };
-    assert!(config::make_provider(&c).err().unwrap().contains("unknown provider"));
+    assert!(config::make_provider(&c, None).err().unwrap().contains("provedor desconhecido"));
     let c = Config { provider: "ollama".into(), ..Config::default() };
-    assert!(config::make_provider(&c).is_ok());
+    assert!(config::make_provider(&c, None).is_ok(), "Ollama needs no key");
+    let c = Config { provider: "anthropic".into(), ..Config::default() };
+    assert!(config::make_provider(&c, None).err().unwrap().contains("/chave"), "says how to give the key");
+    assert!(config::make_provider(&c, Some("sk-test".into())).is_ok());
 }
 
 #[test]
@@ -259,22 +262,20 @@ fn splash_frames_keep_their_shape_and_reveal_the_name() {
     };
     let width = 120;
     let last = splash::frame(splash::frames() - 1, width);
-    assert_eq!(last.len(), splash::ROWS + 1);
+    assert_eq!(last.len(), splash::ROWS);
     let w = strip(&last[0]).chars().count();
     assert!(w <= width && w >= splash::logo_width(), "{w}");
     for i in 0..splash::frames() {
         let f = splash::frame(i, width);
         assert!(f[..splash::ROWS].iter().all(|l| strip(l).chars().count() == w), "frame {i} misaligned");
     }
-    assert!(strip(&last[splash::ROWS]).trim() == "rápido · econômico · verificado");
-    assert!(strip(&splash::frame(0, width)[splash::ROWS]).is_empty(), "tagline waits for the full name");
     // Narrow terminal: the trail shrinks away, the logo stays intact.
     let narrow = splash::frame(0, splash::logo_width() + 2);
     assert_eq!(strip(&narrow[0]).chars().count(), splash::logo_width());
 
     let mut buf = Vec::new();
     splash::play(&mut buf, false, &std::sync::atomic::AtomicBool::new(true));
-    assert_eq!(String::from_utf8(buf).unwrap(), "CodeTurbo — rápido · econômico · verificado\n");
+    assert_eq!(String::from_utf8(buf).unwrap(), "CodeTurbo\n");
     assert!(strip(&splash::spinner_line(3, "verifying")).ends_with("@ verifying"));
 }
 
@@ -344,7 +345,7 @@ fn diffs_show_line_numbers_signs_and_colors() {
     let long: String = (0..100).map(|i| format!("+line {i}\n")).collect();
     let rows = render_diff(&format!("@@ -0,0 +1,100 @@\n{long}"), 60, false);
     assert_eq!(rows.len(), 81);
-    assert_eq!(rows[80], "      … 20 more diff lines");
+    assert_eq!(rows[80], "      … mais 20 linhas de diff");
 }
 
 #[test]
@@ -358,7 +359,7 @@ fn turn_line_shows_speed_context_cost_and_limits() {
         ("anthropic-ratelimit-tokens-reset".to_string(), "2026-10-14T12:00:00Z".to_string()),
     ];
     let limits = limits_summary(&headers).unwrap();
-    assert_eq!(limits, "tokens 78.0k/80.0k · requests 49/50");
+    assert_eq!(limits, "tokens 78.0k/80.0k · requisições 49/50");
     let openai = vec![
         ("x-ratelimit-limit-tokens".to_string(), "30000".to_string()),
         ("x-ratelimit-remaining-tokens".to_string(), "29000".to_string()),
@@ -368,7 +369,7 @@ fn turn_line_shows_speed_context_cost_and_limits() {
 
     let u = Usage { input: 1_000, cache_write: 0, cache_read: 9_000, output: 400 };
     let line = turn_line(&u, 10.0, 200_000, Some(0.0123), Some(&limits));
-    assert_eq!(line, "↑1.0k ⟳9.0k ↓400 · 40 tok/s · ctx 5% of 200.0k · $0.0123 · limit tokens 78.0k/80.0k · requests 49/50");
+    assert_eq!(line, "↑1.0k ⟳9.0k ↓400 · 40 tok/s · contexto 5% de 200.0k · $0.0123 · limites tokens 78.0k/80.0k · requisições 49/50");
 }
 
 /// The track (trail, dust and snail) of frames 40..48, one full loop after
