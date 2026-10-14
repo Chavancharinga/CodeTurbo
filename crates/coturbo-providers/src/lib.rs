@@ -2,6 +2,7 @@
 //! Messages API and OpenAI-compatible endpoints (OpenAI, OpenRouter, Ollama).
 
 pub mod anthropic;
+pub mod cli;
 mod http;
 pub mod openai;
 mod pricing;
@@ -102,6 +103,8 @@ pub enum ProviderError {
     Network(#[from] reqwest::Error),
     #[error("missing credential: set {0}")]
     MissingKey(&'static str),
+    #[error("{0}")]
+    Other(String),
 }
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;

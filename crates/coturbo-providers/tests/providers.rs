@@ -227,3 +227,23 @@ fn screenshots_reach_both_apis() {
     assert_eq!(msgs[n - 1]["role"], "user");
     assert_eq!(msgs[n - 1]["content"][1]["image_url"]["url"], "data:image/png;base64,iVBORw0K");
 }
+
+#[test]
+fn the_text_tool_protocol_round_trips() {
+    use coturbo_providers::cli::{parse_reply, protocol_prompt, protocol_system};
+    let reply = "Vou ler.\n<tool_call>{\"name\": \"read_file\", \"input\": {\"path\": \"a.rs\"}}</tool_call>\n<tool_call>{\"name\": \"grep\", \"input\": {\"pattern\": \"fn\"}}</tool_call>";
+    let blocks = parse_reply(reply, 3);
+    assert!(matches!(&blocks[0], ContentBlock::Text { text } if text == "Vou ler."));
+    assert!(matches!(&blocks[1], ContentBlock::ToolUse { id, name, input } if id == "cli-3-1" && name == "read_file" && input["path"] == "a.rs"));
+    assert!(matches!(&blocks[2], ContentBlock::ToolUse { name, .. } if name == "grep"));
+    let bad = parse_reply("<tool_call>{nope</tool_call>", 0);
+    assert!(matches!(&bad[0], ContentBlock::ToolUse { input, .. } if input.get(coturbo_providers::INVALID_JSON_KEY).is_some()), "{bad:?}");
+    assert!(matches!(&parse_reply("pronto, terminei", 0)[0], ContentBlock::Text { .. }));
+
+    let req = request();
+    let sys = protocol_system(&req);
+    assert!(sys.starts_with("You are CoTurbo.") && sys.contains("\"read_symbol\"") && sys.contains("<tool_call>"));
+    let prompt = protocol_prompt(&req);
+    assert!(prompt.contains("[user]\nolá") && prompt.contains("<tool_call>{\"input\":{\"path\":\"a.rs\"},\"name\":\"read_symbol\"}</tool_call>"), "{prompt}");
+    assert!(prompt.ends_with("[assistant]\n"));
+}

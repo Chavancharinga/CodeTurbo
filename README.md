@@ -93,7 +93,7 @@ próximas sessões.
 
 | Comando      | Função                                                        |
 | ------------ | ------------------------------------------------------------- |
-| `/provedor`  | escolher o provedor: Anthropic, OpenAI, OpenRouter ou Ollama   |
+| `/provedor`  | escolher o provedor: API, Ollama ou o seu plano (Claude/Codex) |
 | `/modelo`    | escolher o modelo entre os disponíveis no provedor             |
 | `/chave`     | informar a chave de API do provedor                            |
 | `/aprovacao` | definir quando o CodeTurbo pede confirmação                    |
@@ -108,6 +108,12 @@ próximas sessões.
 | `/atualizar` | instalar a versão mais recente                                 |
 | `/ajuda`     | listar comandos e atalhos                                      |
 | `/sair`      | encerrar                                                       |
+
+Para usar a sua assinatura (plano Claude ou plano ChatGPT) sem chave de API,
+escolha em `/provedor` a opção Claude Code ou Codex: o CodeTurbo conversa com a
+ferramenta oficial já instalada e logada na sua máquina, que usa o seu plano
+como os termos de cada empresa permitem, enquanto as ferramentas, o motor de
+design e a verificação continuam sendo os do CodeTurbo.
 
 Modelos locais pelo Ollama dispensam chave de API. Para os provedores em
 nuvem, a chave pode ser informada com `/chave` ou pelas variáveis de ambiente

@@ -63,6 +63,9 @@ pub async fn list(provider: &str, key: Option<&str>, base_url: Option<&str>) -> 
         }
         "openrouter" => client.get("https://openrouter.ai/api/v1/models"),
         "ollama" => client.get(format!("{}/api/tags", ollama_root(base_url))),
+        // The official tools take their own model names.
+        "claude-code" => return Ok(["padrao", "opus", "sonnet", "haiku"].map(String::from).to_vec()),
+        "codex" => return Ok(["padrao", "gpt-5-codex", "gpt-5"].map(String::from).to_vec()),
         p => return Err(format!("provedor desconhecido: {p}")),
     };
     let resp = req.send().await.map_err(|e| {

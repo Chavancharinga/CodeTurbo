@@ -13,11 +13,13 @@ pub struct ProviderInfo {
     pub key_var: Option<&'static str>,
 }
 
-pub const PROVIDERS: [ProviderInfo; 4] = [
+pub const PROVIDERS: [ProviderInfo; 6] = [
     ProviderInfo { id: "anthropic", label: "Anthropic (Claude)", key_var: Some("ANTHROPIC_API_KEY") },
     ProviderInfo { id: "openai", label: "OpenAI", key_var: Some("OPENAI_API_KEY") },
     ProviderInfo { id: "openrouter", label: "OpenRouter (centenas de modelos)", key_var: Some("OPENROUTER_API_KEY") },
     ProviderInfo { id: "ollama", label: "Ollama (modelos locais, sem chave)", key_var: None },
+    ProviderInfo { id: "claude-code", label: "Claude Code (seu plano Claude, pelo app oficial)", key_var: None },
+    ProviderInfo { id: "codex", label: "Codex (seu plano ChatGPT, pelo app oficial)", key_var: None },
 ];
 
 pub fn provider(id: &str) -> Option<&'static ProviderInfo> {

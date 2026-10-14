@@ -229,7 +229,18 @@ pub fn make_provider(cfg: &Config, key: Option<String>) -> Result<Box<dyn Provid
             Some(url) => Box::new(OpenAiCompat::new(url.clone(), None)),
             None => Box::new(OpenAiCompat::ollama()),
         },
-        p => return Err(format!("provedor desconhecido: `{p}` (anthropic, openai, openrouter, ollama)")),
+        "claude-code" | "codex" => {
+            use coturbo_providers::cli::{CliProvider, Tool, installed};
+            let tool = if cfg.provider == "codex" { Tool::Codex } else { Tool::ClaudeCode };
+            if !installed(tool) {
+                return Err(format!(
+                    "o programa `{}` não está instalado; instale a ferramenta oficial e faça login nela para usar o seu plano",
+                    tool.program()
+                ));
+            }
+            Box::new(CliProvider::new(tool))
+        }
+        p => return Err(format!("provedor desconhecido: `{p}` (anthropic, openai, openrouter, ollama, claude-code, codex)")),
     })
 }
 
@@ -265,6 +276,8 @@ pub fn sees_images(provider: &str, model: &str) -> bool {
     let m = model.to_lowercase();
     let any = |keys: &[&str]| keys.iter().any(|k| m.contains(k));
     match provider {
+        // The text protocol carries no images.
+        "claude-code" | "codex" => false,
         "anthropic" => true,
         "openai" => any(&["gpt-4o", "gpt-4.1", "gpt-5", "o3", "o4"]),
         _ => any(&[
