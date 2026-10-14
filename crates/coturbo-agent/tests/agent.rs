@@ -762,3 +762,19 @@ async fn an_interrupted_task_leaves_a_valid_history() {
     // Between tasks there is nothing to restore.
     agent.interrupted();
 }
+
+#[tokio::test]
+async fn project_instructions_reach_every_request() {
+    let dir = project();
+    std::fs::write(dir.path().join("AGENTS.md"), "Use tabs. Never touch legacy/.").unwrap();
+    std::fs::write(dir.path().join("CODETURBO.md"), "Comentários em português.").unwrap();
+    let tools = Tools::new(dir.path(), Mode::Naive);
+    let mock = Mock::new(vec![resp(vec![text("ok")], "end_turn", usage(10, 5))]);
+    let mut agent = Agent::new(&mock, &tools, config());
+    agent.run_task("oi", &mut NoopHost).await.unwrap();
+    let sys = &mock.requests()[0].system;
+    assert!(sys.contains("from CODETURBO.md") && sys.contains("Comentários em português."), "{sys}");
+    assert!(sys.contains("from AGENTS.md") && sys.contains("Never touch legacy/."), "{sys}");
+    assert!(sys.find("CODETURBO.md").unwrap() < sys.find("AGENTS.md").unwrap(), "CodeTurbo's own file first");
+    assert!(coturbo_agent::project_memory(&dir.path().join("nada")).is_empty());
+}

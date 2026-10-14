@@ -163,6 +163,33 @@ const SUMMARY_TEXT_MAX: usize = 1500;
 /// Empty replies retried before the task is taken as finished.
 const EMPTY_RETRIES: u32 = 2;
 
+/// Files with the project's standing instructions, read in this order.
+pub const MEMORY_FILES: [&str; 3] = ["CODETURBO.md", "AGENTS.md", "CLAUDE.md"];
+/// Longest memory file kept, in bytes.
+const MEMORY_MAX: usize = 12_000;
+
+/// The project's instruction files, appended to the system prompt so every
+/// session follows its conventions. Part of the cached prefix: read once.
+pub fn project_memory(root: &std::path::Path) -> String {
+    let mut out = String::new();
+    for name in MEMORY_FILES {
+        let Ok(text) = std::fs::read_to_string(root.join(name)) else { continue };
+        let text = text.trim();
+        if text.is_empty() {
+            continue;
+        }
+        let mut cut = text.len().min(MEMORY_MAX);
+        while !text.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        out.push_str(&format!("
+
+Project instructions from {name} (follow them):
+{}", &text[..cut]));
+    }
+    out
+}
+
 fn system_prompt(mode: Mode) -> String {
     let mut s = String::from(
         "You are CodeTurbo, a coding agent working in the user's project. \
@@ -227,7 +254,7 @@ impl<'a> Agent<'a> {
             provider,
             tools,
             config,
-            system: system_prompt(tools.mode()),
+            system: system_prompt(tools.mode()) + &project_memory(tools.root()),
             history: Vec::new(),
             pending_summary: None,
             last: None,

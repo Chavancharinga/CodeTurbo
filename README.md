@@ -104,6 +104,11 @@ Modelos locais pelo Ollama dispensam chave de API. Para os provedores em
 nuvem, a chave pode ser informada com `/chave` ou pelas variáveis de ambiente
 `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` e `OPENROUTER_API_KEY`.
 
+Convenções do projeto, como estilo de código, pastas que não devem ser
+alteradas e comandos usuais, podem ser escritas em `CODETURBO.md` na raiz do
+projeto. O CodeTurbo as segue em toda sessão e também lê `AGENTS.md` e
+`CLAUDE.md`, quando existirem.
+
 Para executar uma única tarefa sem a interface:
 
 ```sh
