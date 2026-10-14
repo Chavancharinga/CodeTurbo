@@ -68,8 +68,12 @@ pub fn markdown(t: &Tokens) -> String {
          Evitar: sequência herói, recursos, depoimentos, preços, perguntas e contato; \
          grade de cartões idênticos com ícone, título e texto; ícones de emoji; \
          gradiente de duas cores; tudo centralizado; um único raio e uma única sombra em tudo.\n\n\
+         ## Plano de composição\n\n{}\n\n\
          ## Fontes\n\n{}\n\n\
-         ## Tokens\n\n```css\n{}\n```\n",
+         ## Tokens\n\n```css\n{}\n```\n\n\
+         ## Kit base\n\nJá cumpre a verificação: margens, tipografia fluida, foco, movimento reduzido e grade responsiva. \
+         Use as classes .container, .section, .grid, .cluster, .btn, .panel e .tag e construa por cima.\n\n```css\n{}\n```\n\n\
+         ## Ornamentos do projeto\n\nDesenhados para este projeto (cor via `color`). Motivo:\n\n```html\n{}\n```\n\nDivisor de seção:\n\n```html\n{}\n```\n",
         b.subject,
         b.audience,
         b.tone,
@@ -77,8 +81,12 @@ pub fn markdown(t: &Tokens) -> String {
         b.signature,
         if b.brand.is_empty() { "nenhuma (paleta nova)".to_string() } else { b.brand.join(", ") },
         t.layout,
+        crate::kit::blueprint(t).iter().enumerate().map(|(i, s)| format!("{}. {s}", i + 1)).collect::<Vec<_>>().join("\n"),
         font_link(t),
-        css(t)
+        css(t),
+        crate::kit::base_css(t),
+        crate::kit::ornament_svg(t),
+        crate::kit::divider_svg(t)
     )
 }
 

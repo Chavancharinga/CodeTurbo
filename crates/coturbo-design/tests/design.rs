@@ -247,3 +247,72 @@ fn brand_colors_are_found_in_existing_files() {
     assert_eq!(found[0], "#ffd60a", "most used first, near shades merged: {found:?}");
     assert!(found.contains(&"#111111".to_string()) && found.contains(&"#ffffff".to_string()));
 }
+
+mod kit {
+    use super::*;
+    use coturbo_design::kit::{base_css, blueprint, divider_svg, ornament_svg};
+
+    fn tones() -> [&'static str; 5] {
+        ["editorial", "divertido", "técnico", "acolhedor", "moderno"]
+    }
+
+    #[test]
+    fn the_base_kit_already_passes_the_inspector() {
+        for tone in tones() {
+            let t = compile(&brief(tone));
+            let c = Contract::parse(&contract::markdown(&t));
+            let css = format!("{}\n{}", contract::css(&t), base_css(&t));
+            let f = fiscal::check("kit.css", &css, Some(&c));
+            assert!(f.iter().all(|x| !x.blocking()), "{tone}: {f:?}");
+        }
+    }
+
+    #[test]
+    fn every_project_gets_its_own_plan_and_ornaments() {
+        let a = compile(&brief("acolhedor"));
+        let mut other = brief("acolhedor");
+        other.subject = "estúdio de cerâmica artesanal".into();
+        let b = compile(&other);
+        assert_eq!(blueprint(&a), blueprint(&a), "same project, same plan");
+        assert_ne!(blueprint(&a), blueprint(&b), "another project, another plan");
+        assert_ne!(ornament_svg(&a), ornament_svg(&b));
+        assert_ne!(divider_svg(&a), divider_svg(&b));
+        let plan = blueprint(&a);
+        assert_eq!(plan.len(), 6, "opening, four sections, closing");
+        let unique: std::collections::HashSet<_> = plan.iter().collect();
+        assert_eq!(unique.len(), 6, "no section twice");
+        for t in tones() {
+            let tk = compile(&brief(t));
+            for svg in [ornament_svg(&tk), divider_svg(&tk)] {
+                assert!(svg.starts_with("<svg") && svg.ends_with("</svg>") && svg.contains("aria-hidden"), "{svg}");
+                assert!(svg.len() < 4000, "small enough to inline: {}", svg.len());
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_page_built_from_the_kit_renders_clean() {
+        let t = compile(&brief("editorial e sóbrio"));
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("DESIGN.md"), contract::markdown(&t)).unwrap();
+        let page = format!(
+            r#"<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Poupa+</title>
+<style>{}
+{}
+.hero {{ display: grid; gap: var(--space-8); grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); align-items: center; }}
+</style></head><body>
+<header class="container cluster" style="justify-content: space-between; padding-block: var(--space-4)"><strong>Poupa+</strong><a class="btn btn--secondary" href="/entrar">Entrar</a></header>
+<main>
+<section class="section"><div class="container hero"><div><h1>Quanto falta para a sua meta</h1><p class="muted">Organize gastos e veja o progresso de cada objetivo.</p>
+<div class="cluster"><a class="btn btn--primary" href="/conta">Abrir conta</a><a class="btn btn--secondary" href="/como">Como funciona</a></div></div>
+<div class="panel"><p>Viagem: 64% guardado</p><p class="muted">Faltam R$ 1.200</p></div></div></section>
+<section class="section section--surface"><div class="container"><h2>Três passos</h2><div class="grid"><div class="stack"><h3>01 · Conecte</h3><p>Importe o extrato.</p></div><div class="stack"><h3>02 · Separe</h3><p>Defina metas por mês.</p></div><div class="stack"><h3>03 · Acompanhe</h3><p>Receba o resumo semanal.</p></div></div></div></section>
+</main><footer class="container section"><p class="muted">Poupa+ 2026</p></footer></body></html>"#,
+            contract::css(&t),
+            base_css(&t)
+        );
+        std::fs::write(dir.path().join("index.html"), page).unwrap();
+        let r = coturbo_design::review(dir.path(), &["index.html".into()]).await.unwrap();
+        assert!(r.ok, "{}", r.summary);
+    }
+}

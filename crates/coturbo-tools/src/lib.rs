@@ -221,13 +221,22 @@ impl Tools {
             "wrote {} (tone: {}).{kept} Use only these tokens: every color, font, size, space, radius and shadow through var(--…); \
              the design check rejects anything else and generic patterns (default fonts/palettes, emoji icons, identical card grids, \
              template section order, one radius everywhere, centered body text).\n\
-             Layout: {}.\nSignature element to build around: {}.\nFonts:\n{}\n{}",
+             Layout: {}.\nSignature element to build around: {}.\n\
+             Composition plan for this project (follow it, in this order; it is unique to this project):\n{}\n\
+             Fonts:\n{}\nTokens:\n{}\n\
+             Base kit (already passes the design check; include it and build on its classes):\n{}\n\
+             Project ornament (inline SVG, colored by `color`):\n{}\nSection divider:\n{}\n\
+             No stock imagery: draw product screens and illustrations in HTML/CSS or SVG.",
             contract::FILE,
             tokens.tone.name(),
             tokens.layout,
             brief.signature,
+            coturbo_design::kit::blueprint(&tokens).iter().enumerate().map(|(i, s)| format!("{}. {s}", i + 1)).collect::<Vec<_>>().join("\n"),
             contract::font_link(&tokens),
-            contract::css(&tokens)
+            contract::css(&tokens),
+            coturbo_design::kit::base_css(&tokens),
+            coturbo_design::kit::ornament_svg(&tokens),
+            coturbo_design::kit::divider_svg(&tokens)
         )))
     }
 

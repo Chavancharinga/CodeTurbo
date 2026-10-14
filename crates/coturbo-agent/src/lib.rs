@@ -722,6 +722,9 @@ impl<'a> Agent<'a> {
         let steps = gate::detect(&root, &cfg);
         let report = gate::run_gate(&root, &steps, &cfg).await;
         let ok = if report.nothing_ran() { None } else { Some(report.ok()) };
+        if edited.iter().any(|f| coturbo_design::fiscal::is_ui_file(f)) {
+            host.on_event(Event::Waiting("design"));
+        }
         match coturbo_design::review(&root, edited).await {
             // Interface files changed: the design review counts like a gate step.
             Some(design) => {

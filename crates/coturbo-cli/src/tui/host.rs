@@ -40,7 +40,26 @@ pub fn busy_label(waiting: &str) -> String {
     match waiting {
         "thinking" => "pensando".into(),
         "verifying" => "verificando: compilação, análise e testes".into(),
+        "design" => "verificando o design no navegador (computador e celular)".into(),
         other => other.into(),
+    }
+}
+
+/// What a tool call is doing, in the user's words.
+pub fn action_label(name: &str, input: &serde_json::Value) -> String {
+    let a = arg(input);
+    match name {
+        "read_file" | "read_symbol" => format!("lendo {a}"),
+        "write_file" => format!("escrevendo {a}"),
+        "edit_file" | "replace_symbol" | "insert_symbol" => format!("editando {a}"),
+        "list_files" => "listando arquivos".into(),
+        "grep" => format!("buscando \"{a}\""),
+        "bash" => format!("rodando `{a}`"),
+        "workspace_diagnostics" => "checando o projeto inteiro".into(),
+        "design_brief" => "definindo o design do projeto".into(),
+        "design_review" => format!("abrindo {a} no navegador"),
+        "propose_plan" => "preparando o plano".into(),
+        other => format!("executando {other} {a}").trim().to_string(),
     }
 }
 
@@ -113,7 +132,7 @@ impl Host for TuiHost {
             Event::Limits(headers) => self.limits = view::limits_summary(headers),
             Event::ToolStart { name, input } => {
                 self.composing_path = None;
-                self.busy(format!("executando {name} {}", arg(input)));
+                self.busy(action_label(name, input));
             }
             Event::ToolEnd { name, input, output, diff } => {
                 self.last_step = Some(format!("{name} {}", arg(input)).trim().to_string());
