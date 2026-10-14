@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/codeturbo.gif" alt="CodeTurbo: o logo com um caracol correndo" width="618">
+  <img src="docs/codeturbo.svg" alt="CodeTurbo: o logo com um caracol correndo" width="618">
 </p>
 
 <p align="center"><b>Agente de código em Rust</b> · fast · frugal · verified</p>
@@ -63,4 +63,4 @@ economia de tokens e o motor de design embutido.
 
 ## Licença
 
-MIT ou Apache-2.0, à sua escolha.
+[MIT](LICENSE).
