@@ -11,7 +11,7 @@ rust-version = "1.94"
 [workspace.dependencies]
 ra_ap_syntax = "0.0"
 thiserror = "2"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "process", "fs", "io-util"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "process", "fs", "io-util", "sync", "io-std"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
 futures-util = "0.3"
 serde = { version = "1", features = ["derive"] }

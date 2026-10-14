@@ -13,6 +13,7 @@ path = "src/main.rs"
 coturbo-agent = { path = "../coturbo-agent" }
 coturbo-providers = { path = "../coturbo-providers" }
 coturbo-tools = { path = "../coturbo-tools" }
+coturbo-verify = { path = "../coturbo-verify" }
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -20,3 +21,4 @@ toml.workspace = true
 clap = { version = "4", features = ["derive"] }
 rustyline = { version = "17", default-features = false }
 tempfile = "3"
+terminal_size = "0.4"

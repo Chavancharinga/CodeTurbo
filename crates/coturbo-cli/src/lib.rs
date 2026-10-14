@@ -3,4 +3,6 @@
 
 pub mod bench;
 pub mod config;
+pub mod splash;
 pub mod status;
+pub mod view;

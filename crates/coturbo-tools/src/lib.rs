@@ -2,13 +2,14 @@
 //! agents offer (whole-file reads, search/replace edits, raw build output);
 //! `Ast` adds symbol-level reads/edits and compact compiler diagnostics.
 
-mod cargo;
 mod fsops;
 mod shell;
 
 use coturbo_providers::ToolSpec;
 use serde_json::{Value, json};
+use coturbo_verify::lsp::LspManager;
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
@@ -31,11 +32,46 @@ impl ToolOutput {
     }
 }
 
+/// Capability tier of a tool call, least to most privileged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Tier {
+    Read,
+    Write,
+    Exec,
+}
+
+/// Tools that change files; `preview` can show their diff before they run.
+pub const EDIT_TOOLS: &[&str] = &["write_file", "edit_file", "replace_symbol", "insert_symbol"];
+
+/// Fixed tier per tool. Unknown tools (MCP, third-party) are `Exec`.
+pub fn tier(name: &str) -> Tier {
+    match name {
+        "read_file" | "read_symbol" | "list_files" | "grep" | "workspace_diagnostics" | "propose_plan" => Tier::Read,
+        n if EDIT_TOOLS.contains(&n) => Tier::Write,
+        _ => Tier::Exec,
+    }
+}
+
+const PREVIEW_MAX_LINES: usize = 200;
+
+fn native_note(rel: &str, diags: &[coturbo_verify::Diag]) -> String {
+    use coturbo_verify::diag::{Level, count, render_list};
+    if diags.is_empty() {
+        return format!("check {rel}: clean");
+    }
+    let (e, w) = (count(diags, Level::Error), count(diags, Level::Warning));
+    format!("check {rel}: {e} error(s), {w} warning(s)\n{}", render_list(diags, 20))
+}
+
 type Res = Result<ToolOutput, String>;
 
 pub struct Tools {
     root: PathBuf,
     mode: Mode,
+    /// Language-server diagnostics (and formatting) on write; optional.
+    lsp: Option<Arc<LspManager>>,
+    /// Built-in Rust/JS/TS/CSS/JSON/TOML checks after every edit.
+    native_checks: bool,
 }
 
 /// Rust files longer than this are returned as a skeleton by `read_file` in Ast mode.
@@ -60,7 +96,24 @@ fn arg<'a>(input: &'a Value, key: &str) -> Result<&'a str, String> {
 impl Tools {
     pub fn new(root: &Path, mode: Mode) -> Self {
         let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
-        Self { root, mode }
+        Self { root, mode, lsp: None, native_checks: false }
+    }
+
+    /// Enables the built-in checks after every edit (no external tools).
+    pub fn with_native_checks(mut self, on: bool) -> Self {
+        self.native_checks = on;
+        self
+    }
+
+    /// Enables diagnostics and formatting after every edit.
+    pub fn with_lsp(mut self, lsp: Arc<LspManager>) -> Self {
+        self.lsp = Some(lsp);
+        self
+    }
+
+    /// Whether `.rs` files written by `write_file`/`edit_file` are rustfmt'd.
+    pub(crate) fn format_rust(&self) -> bool {
+        self.lsp.as_ref().is_some_and(|l| l.format_on_write())
     }
 
     pub fn root(&self) -> &Path {
@@ -84,6 +137,7 @@ impl Tools {
             spec("list_files", "List files (respects .gitignore).", obj(json!({"path": s("relative dir, default .")}), &[])),
             spec("grep", "Regex search; returns path:line: text.", obj(json!({"pattern": s("regex"), "path": s("relative dir or file, default .")}), &["pattern"])),
             spec("bash", "Run a shell command in the project root.", obj(json!({"command": s("command")}), &["command"])),
+            spec("propose_plan", "Plan mode only: submit .coturbo/plans/<slug>-plan.md for the user's approval.", obj(json!({"slug": s("plan slug")}), &["slug"])),
         ];
         if self.mode == Mode::Ast {
             let sym = s("symbol path, e.g. `Point::new` or `utils::parse`");
@@ -91,7 +145,7 @@ impl Tools {
                 spec("read_symbol", "Read one item (fn, struct, impl method, ...) of a .rs file.", obj(json!({"path": s("relative .rs path"), "symbol": sym.clone()}), &["path", "symbol"])),
                 spec("replace_symbol", "Replace one item of a .rs file with new code (doc comments included); file is rustfmt'd.", obj(json!({"path": s("relative .rs path"), "symbol": sym.clone(), "code": s("complete new item")}), &["path", "symbol", "code"])),
                 spec("insert_symbol", "Insert a new item right after an existing one in a .rs file; file is rustfmt'd.", obj(json!({"path": s("relative .rs path"), "after": sym, "code": s("complete new item")}), &["path", "after", "code"])),
-                spec("cargo_check", "Type-check the crate; returns only errors as path:line:col with the source line.", obj(json!({}), &[])),
+                spec("workspace_diagnostics", "Type-check the whole project (every language found: cargo check, tsc, go build, pyright); returns errors and warnings as path:line:col with the source line.", obj(json!({}), &[])),
             ]);
         }
         v.sort_by(|a, b| a.name.cmp(&b.name));
@@ -128,9 +182,34 @@ impl Tools {
         p.strip_prefix(&self.root).unwrap_or(p).to_string_lossy().replace('\\', "/")
     }
 
+    /// Unified diff an edit tool would apply, without writing. `None` for
+    /// non-edit tools; an error message if the edit itself would fail.
+    pub fn preview(&self, name: &str, input: &Value) -> Option<Result<String, String>> {
+        if !EDIT_TOOLS.contains(&name) {
+            return None;
+        }
+        Some(self.plan_edit(name, input).map(|(path, old, new)| {
+            let rel = self.display(&path);
+            let diff = similar::TextDiff::from_lines(&old, &new)
+                .unified_diff()
+                .context_radius(3)
+                .header(&format!("a/{rel}"), &format!("b/{rel}"))
+                .to_string();
+            let total = diff.lines().count();
+            if total <= PREVIEW_MAX_LINES {
+                return diff;
+            }
+            let mut out: String = diff.lines().take(PREVIEW_MAX_LINES).map(|l| format!("{l}
+")).collect();
+            out.push_str(&format!("[{} more diff lines]
+", total - PREVIEW_MAX_LINES));
+            out
+        }))
+    }
+
     /// Runs a tool. Failures come back as `is_error` outputs, never panics.
     pub async fn call(&self, name: &str, input: &Value) -> ToolOutput {
-        let ast_only = matches!(name, "read_symbol" | "replace_symbol" | "insert_symbol" | "cargo_check");
+        let ast_only = matches!(name, "read_symbol" | "replace_symbol" | "insert_symbol" | "workspace_diagnostics");
         if ast_only && self.mode != Mode::Ast {
             return ToolOutput::err(format!("unknown tool: {name}"));
         }
@@ -144,9 +223,47 @@ impl Tools {
             "read_symbol" => self.read_symbol(input),
             "replace_symbol" => self.replace_symbol(input),
             "insert_symbol" => self.insert_symbol(input),
-            "cargo_check" => cargo::check(&self.root).await,
+            "workspace_diagnostics" => {
+                let (text, clean) = coturbo_verify::workspace::render(&coturbo_verify::workspace::check(&self.root).await);
+                Ok(if clean { ToolOutput::ok(text) } else { ToolOutput::err(text) })
+            }
+            "propose_plan" => Err("plan mode is not active".into()),
             _ => Err(format!("unknown tool: {name}")),
         };
-        r.unwrap_or_else(ToolOutput::err)
+        let mut out = r.unwrap_or_else(ToolOutput::err);
+        if self.native_checks
+            && !out.is_error
+            && EDIT_TOOLS.contains(&name)
+            && let Some(p) = input["path"].as_str()
+            && let Ok(abs) = self.resolve(p)
+            && let Ok(text) = std::fs::read_to_string(&abs)
+        {
+            let rel = self.display(&abs);
+            if let Some(diags) = coturbo_verify::native::check(&rel, &text) {
+                out.content.push('\n');
+                out.content.push_str(&native_note(&rel, &diags));
+            }
+        }
+        if let Some(lsp) = &self.lsp {
+            if !out.is_error
+                && EDIT_TOOLS.contains(&name)
+                && let Some(p) = input["path"].as_str()
+                && let Ok(abs) = self.resolve(p)
+            {
+                let notes = lsp.after_write(&self.display(&abs)).await;
+                if notes.formatted {
+                    out.content.push_str(" (formatted)");
+                }
+                if !notes.text.is_empty() {
+                    out.content.push('\n');
+                    out.content.push_str(&notes.text);
+                }
+            }
+            for late in lsp.drain_late() {
+                out.content.push('\n');
+                out.content.push_str(&late);
+            }
+        }
+        out
     }
 }

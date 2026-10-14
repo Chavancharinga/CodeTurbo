@@ -1,4 +1,4 @@
-use coturbo_providers::{
+use coturbo_providers::{Delta, 
     ContentBlock, Message, PriceTable, Request, Role, ToolSpec, Usage, anthropic, openai,
     sse::SseParser,
 };
@@ -65,11 +65,15 @@ fn sse_parser_handles_arbitrary_chunking() {
 fn anthropic_stream_accumulates_text_thinking_tool_and_usage() {
     let mut acc = anthropic::StreamAcc::default();
     let mut streamed = String::new();
+    let mut thinking = String::new();
     for (_, data) in feed(include_str!("fixtures/anthropic_tool.sse"), 11) {
-        if let Some(t) = acc.on_data(&data).unwrap() {
-            streamed.push_str(&t);
+        match acc.on_data(&data).unwrap() {
+            Some(Delta::Text(t)) => streamed.push_str(&t),
+            Some(Delta::Thinking(t)) => thinking.push_str(&t),
+            _ => {}
         }
     }
+    assert_eq!(thinking, "", "the fixture's thinking is omitted (empty)");
     let resp = acc.finish();
     assert_eq!(streamed, "Vou ler o símbolo.");
     assert_eq!(resp.stop_reason, "tool_use");
@@ -112,7 +116,10 @@ fn anthropic_body_caches_prefix_and_echoes_thinking() {
     assert_eq!(asst[0], json!({"type":"thinking","thinking":"","signature":"s1"}));
     assert_eq!(asst[1]["type"], "tool_use");
     assert_eq!(body["messages"][2]["content"][0]["type"], "tool_result");
-    assert!(body.get("thinking").is_none());
+    assert_eq!(body["thinking"], json!({"type": "adaptive", "display": "summarized"}));
+    let mut old = request();
+    old.model = "claude-haiku-4-5".into();
+    assert!(anthropic::build_body(&old, false).get("thinking").is_none(), "older models keep their defaults");
 }
 
 #[test]
@@ -120,7 +127,7 @@ fn openai_stream_accumulates_tool_calls_and_cached_usage() {
     let mut acc = openai::StreamAcc::default();
     let mut streamed = String::new();
     for (_, data) in feed(include_str!("fixtures/openai_tool.sse"), 9) {
-        if let Some(t) = acc.on_data(&data).unwrap() {
+        if let Some(Delta::Text(t)) = acc.on_data(&data).unwrap() {
             streamed.push_str(&t);
         }
     }
@@ -182,4 +189,19 @@ fn pricing_computes_cost_and_unknown_models() {
     total += u;
     total += u;
     assert_eq!(total.output, 2_000_000);
+}
+
+#[test]
+fn thinking_deltas_are_streamed_separately() {
+    let mut acc = anthropic::StreamAcc::default();
+    acc.on_data(r#"{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"","signature":""}}"#).unwrap();
+    let d = acc.on_data(r#"{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"Checking the tests."}}"#).unwrap();
+    assert_eq!(d, Some(Delta::Thinking("Checking the tests.".into())));
+    let resp = acc.finish();
+    assert_eq!(resp.content[0], ContentBlock::Opaque(json!({"type":"thinking","thinking":"Checking the tests.","signature":""})));
+
+    let mut acc = openai::StreamAcc::default();
+    let d = acc.on_data(r#"{"choices":[{"index":0,"delta":{"reasoning_content":"hmm"}}]}"#).unwrap();
+    assert_eq!(d, Some(Delta::Thinking("hmm".into())));
+    assert!(acc.finish().content.is_empty(), "reasoning is not part of the answer");
 }

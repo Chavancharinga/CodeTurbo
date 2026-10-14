@@ -1,7 +1,8 @@
-use coturbo_agent::{AgentConfig, Stop};
+use coturbo_agent::approval::ApprovalConfig;
+use coturbo_agent::{AgentConfig, Decision, Stop};
 use coturbo_cli::bench::{self, BenchRun, Task};
 use coturbo_cli::config::{self, Config, Pricer, parse_mode};
-use coturbo_cli::status::{human, status_line, tool_line};
+use coturbo_cli::status::{color_diff, human, parse_answer, status_line, tool_line};
 use coturbo_providers::{
     BoxFuture, ContentBlock, PriceTable, Provider, ProviderError, Request, Response, TextSink, Usage,
 };
@@ -33,7 +34,7 @@ fn usage(input: u64, output: u64) -> Usage {
 }
 
 fn agent_cfg() -> AgentConfig {
-    AgentConfig { model: "m".into(), max_turns: 5, max_tokens: 1000, effort: None }
+    AgentConfig { model: "m".into(), max_turns: 5, max_tokens: 1000, effort: None, approval: ApprovalConfig::yolo(), plan_model: None, context_window: 1000, gate: None, max_fix_rounds: 3 }
 }
 
 #[test]
@@ -179,6 +180,7 @@ fn run(task: &str, mode: Mode, tokens: u64, cost: Option<f64>, passed: bool) -> 
         usage: usage(tokens, 0),
         cost,
         passed,
+        verified: Some(passed),
         error: None,
         seconds: 1.0,
     }
@@ -205,4 +207,194 @@ fn markdown_reports_savings() {
 fn unpriced_runs_have_no_total_cost() {
     let runs = vec![run("t1", Mode::Ast, 10, Some(0.1), true), run("t2", Mode::Ast, 10, None, true)];
     assert_eq!(bench::totals(&runs, Mode::Ast).cost, None);
+}
+
+#[test]
+fn approval_answers_parse() {
+    assert_eq!(parse_answer("o"), Some(Decision::Once));
+    assert_eq!(parse_answer(""), Some(Decision::Once));
+    assert_eq!(parse_answer("S\n"), Some(Decision::Session));
+    assert_eq!(parse_answer("d"), Some(Decision::Deny(None)));
+    assert_eq!(parse_answer("d  use cargo nextest  "), Some(Decision::Deny(Some("use cargo nextest".into()))));
+    assert_eq!(parse_answer("maybe"), None);
+}
+
+#[test]
+fn diff_coloring_keeps_headers_plain() {
+    let c = color_diff("--- a/x\n+++ b/x\n@@ -1 +1 @@\n-old\n+new\n ctx\n");
+    assert!(c.starts_with("--- a/x\n+++ b/x\n"));
+    assert!(c.contains("\x1b[31m-old\x1b[0m") && c.contains("\x1b[32m+new\x1b[0m"));
+}
+
+#[test]
+fn approval_config_comes_from_config_toml() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("config.toml"),
+        "approval_mode = \"always-ask\"\n[approval]\nbash = \"deny\"\n\"bash:cargo test*\" = \"allow\"\n",
+    )
+    .unwrap();
+    let (c, _) = config::load(Some(dir.path())).unwrap();
+    let a = c.approval_config().unwrap();
+    assert_eq!(a.mode, coturbo_agent::approval::ApprovalMode::AlwaysAsk);
+    let bad = Config { approval_mode: "sometimes".into(), ..Config::default() };
+    assert!(bad.approval_config().is_err());
+}
+
+#[test]
+fn splash_frames_keep_their_shape_and_reveal_the_name() {
+    use coturbo_cli::splash;
+    let strip = |s: &str| {
+        let mut out = String::new();
+        let mut esc = false;
+        for c in s.chars() {
+            match (esc, c) {
+                (false, '\x1b') => esc = true,
+                (true, 'm') => esc = false,
+                (true, _) => {}
+                (false, c) => out.push(c),
+            }
+        }
+        out
+    };
+    let width = 120;
+    let last = splash::frame(splash::frames() - 1, width);
+    assert_eq!(last.len(), splash::ROWS + 1);
+    let w = strip(&last[0]).chars().count();
+    assert!(w <= width && w >= splash::logo_width(), "{w}");
+    for i in 0..splash::frames() {
+        let f = splash::frame(i, width);
+        assert!(f[..splash::ROWS].iter().all(|l| strip(l).chars().count() == w), "frame {i} misaligned");
+    }
+    assert!(strip(&last[splash::ROWS]).trim() == "fast · frugal · verified");
+    assert!(strip(&splash::frame(0, width)[splash::ROWS]).is_empty(), "tagline waits for the full name");
+    // Narrow terminal: the trail shrinks away, the logo stays intact.
+    let narrow = splash::frame(0, splash::logo_width() + 2);
+    assert_eq!(strip(&narrow[0]).chars().count(), splash::logo_width());
+
+    let mut buf = Vec::new();
+    splash::play(&mut buf, false, &std::sync::atomic::AtomicBool::new(true));
+    assert_eq!(String::from_utf8(buf).unwrap(), "codeturbo — fast · frugal · verified\n");
+    assert!(strip(&splash::spinner_line(3, "verifying")).ends_with("@ verifying"));
+}
+
+#[test]
+fn plan_menu_parses_and_respects_full_context() {
+    use coturbo_agent::plan::PlanChoice;
+    use coturbo_cli::status::{PlanMenu, parse_plan_choice};
+    assert_eq!(parse_plan_choice("1", true), Some(PlanMenu::Choice(PlanChoice::Execute)));
+    assert_eq!(parse_plan_choice("2\n", true), Some(PlanMenu::Choice(PlanChoice::Compact)));
+    assert_eq!(parse_plan_choice("3", true), Some(PlanMenu::Choice(PlanChoice::KeepContext)));
+    assert_eq!(parse_plan_choice("3", false), None);
+    assert_eq!(parse_plan_choice("4", true), Some(PlanMenu::Refine));
+    assert_eq!(parse_plan_choice("5", true), Some(PlanMenu::Choice(PlanChoice::SaveQuit)));
+    assert_eq!(parse_plan_choice("e", true), Some(PlanMenu::Edit));
+    assert_eq!(parse_plan_choice("9", true), None);
+}
+
+#[test]
+fn lsp_servers_are_configurable() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("config.toml"),
+        "[lsp.servers.rust-analyzer]\ncommand = \"/opt/ra\"\nroot_markers = [\"Cargo.toml\"]\nextensions = [\"rs\"]\n\
+         [lsp.servers.pyright]\ncommand = \"pyright-langserver\"\nargs = [\"--stdio\"]\nroot_markers = [\"pyproject.toml\"]\nextensions = [\"py\"]\n",
+    )
+    .unwrap();
+    let (c, _) = config::load(Some(dir.path())).unwrap();
+    let lsp = c.lsp_config().unwrap();
+    let names: Vec<(&str, &str)> = lsp.servers.iter().map(|s| (s.name.as_str(), s.command.as_str())).collect();
+    assert_eq!(
+        names,
+        [("rust-analyzer", "/opt/ra"), ("typescript-language-server", "typescript-language-server"), ("pyright", "pyright-langserver")]
+    );
+    let off = Config { diagnostics_on_write: false, ..Config::default() };
+    let cfg = off.lsp_config().unwrap();
+    assert!(cfg.servers.is_empty() && cfg.format_on_write, "format-only");
+    let none = Config { diagnostics_on_write: false, format_on_write: false, ..Config::default() };
+    assert!(none.lsp_config().is_none());
+    assert!(Config::default().gate_config().is_some());
+    assert!(Config { final_gate: false, ..Config::default() }.gate_config().is_none());
+}
+
+#[test]
+fn diffs_show_line_numbers_signs_and_colors() {
+    use coturbo_cli::view::{diff_stat, render_diff};
+    let diff = "--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -273,4 +273,4 @@\n     assert!(x);\n-    let d = first(\"a\");\n+    let d = first(\"b\");\n     ok();\n@@ -300,2 +300,3 @@\n a\n+b\n c\n";
+    let plain = render_diff(diff, 60, false);
+    assert_eq!(
+        plain,
+        [
+            "  273       assert!(x);",
+            "  274 -     let d = first(\"a\");",
+            "  274 +     let d = first(\"b\");",
+            "  275       ok();",
+            "      ⋮",
+            "  300   a",
+            "  301 + b",
+            "  302   c",
+        ]
+    );
+    assert_eq!(diff_stat(diff), (2, 1));
+    let color = render_diff(diff, 60, true);
+    assert!(color[1].starts_with("\x1b[48;2;70;18;24m"), "removed line has a red background");
+    assert!(color[2].starts_with("\x1b[48;2;16;58;32m"), "added line has a green background");
+    assert!(color[0].starts_with("\x1b[2m"), "context is dimmed");
+
+    let long: String = (0..100).map(|i| format!("+line {i}\n")).collect();
+    let rows = render_diff(&format!("@@ -0,0 +1,100 @@\n{long}"), 60, false);
+    assert_eq!(rows.len(), 81);
+    assert_eq!(rows[80], "      … 20 more diff lines");
+}
+
+#[test]
+fn turn_line_shows_speed_context_cost_and_limits() {
+    use coturbo_cli::view::{limits_summary, turn_line};
+    let headers = vec![
+        ("anthropic-ratelimit-requests-limit".to_string(), "50".to_string()),
+        ("anthropic-ratelimit-requests-remaining".to_string(), "49".to_string()),
+        ("anthropic-ratelimit-tokens-limit".to_string(), "80000".to_string()),
+        ("anthropic-ratelimit-tokens-remaining".to_string(), "78000".to_string()),
+        ("anthropic-ratelimit-tokens-reset".to_string(), "2026-10-14T12:00:00Z".to_string()),
+    ];
+    let limits = limits_summary(&headers).unwrap();
+    assert_eq!(limits, "tokens 78.0k/80.0k · requests 49/50");
+    let openai = vec![
+        ("x-ratelimit-limit-tokens".to_string(), "30000".to_string()),
+        ("x-ratelimit-remaining-tokens".to_string(), "29000".to_string()),
+    ];
+    assert_eq!(limits_summary(&openai).unwrap(), "tokens 29.0k/30.0k");
+    assert!(limits_summary(&[]).is_none());
+
+    let u = Usage { input: 1_000, cache_write: 0, cache_read: 9_000, output: 400 };
+    let line = turn_line(&u, 10.0, 200_000, Some(0.0123), Some(&limits));
+    assert_eq!(line, "↑1.0k ⟳9.0k ↓400 · 40 tok/s · ctx 5% of 200.0k · $0.0123 · limit tokens 78.0k/80.0k · requests 49/50");
+}
+
+/// Frames 40..48 (one full loop after the intro) of a design at width 120,
+/// in the same layout as the pinned fixtures.
+fn loop_frames(s: &coturbo_cli::splash::Snail) -> String {
+    let mut out = String::new();
+    for i in 40..48 {
+        for line in coturbo_cli::splash::frame_with(s, i, 120) {
+            out.push_str(&line);
+            out.push('\n');
+        }
+        out.push_str("=====\n");
+    }
+    out
+}
+
+#[test]
+fn approved_large_snail_animation_is_pinned() {
+    // The approved full-size animation, saved before the small design. If
+    // this fails, the large snail changed: restore it, don't re-pin it.
+    let pinned = include_str!("fixtures/snail_large_frames.txt").replace("\r\n", "\n");
+    assert!(loop_frames(&coturbo_cli::splash::SNAIL_LARGE) == pinned, "the approved large snail animation changed");
+}
+
+#[test]
+fn small_snail_animation_is_pinned() {
+    let pinned = include_str!("fixtures/snail_small_frames.txt").replace("\r\n", "\n");
+    assert!(loop_frames(&coturbo_cli::splash::SNAIL_SMALL) == pinned, "the small snail animation changed");
 }

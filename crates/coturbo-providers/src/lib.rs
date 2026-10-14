@@ -102,10 +102,21 @@ pub enum ProviderError {
 }
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
-pub type TextSink<'a> = dyn FnMut(&str) + Send + 'a;
+
+/// What a provider streams to the UI while a response is generated.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Delta {
+    Text(String),
+    /// Readable reasoning (a summary on current Claude models).
+    Thinking(String),
+    /// Rate-limit response headers (`*ratelimit*`), sent once per request.
+    Limits(Vec<(String, String)>),
+}
+
+pub type TextSink<'a> = dyn FnMut(Delta) + Send + 'a;
 
 pub trait Provider: Send + Sync {
-    /// Streams one completion; text deltas go to `on_text` as they arrive.
+    /// Streams one completion; deltas go to `on_text` as they arrive.
     fn complete<'a>(
         &'a self,
         req: &'a Request,

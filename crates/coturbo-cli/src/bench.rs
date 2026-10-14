@@ -2,7 +2,7 @@
 //! fixture; `verify` decides pass/fail. Results go to JSON + a Markdown table.
 
 use crate::config::mode_name;
-use coturbo_agent::{Agent, AgentConfig, NoopObserver, Stop};
+use coturbo_agent::{Agent, AgentConfig, NoopHost, Stop};
 use coturbo_providers::{Provider, Usage};
 use coturbo_tools::{Mode, Tools};
 use serde::Deserialize;
@@ -45,6 +45,8 @@ pub struct BenchRun {
     pub usage: Usage,
     pub cost: Option<f64>,
     pub passed: bool,
+    /// The agent's own final gate result.
+    pub verified: Option<bool>,
     /// Provider error or verify output tail when the run failed.
     pub error: Option<String>,
     pub seconds: f64,
@@ -85,6 +87,7 @@ pub async fn run_one(
         usage: Usage::default(),
         cost: None,
         passed: false,
+        verified: None,
         error: None,
         seconds: 0.0,
     };
@@ -101,9 +104,10 @@ pub async fn run_one(
     }
     let tools = Tools::new(dir.path(), mode);
     let mut agent = Agent::new(provider, &tools, config.clone());
-    match agent.run_task(&task.prompt, &mut NoopObserver).await {
+    match agent.run_task(&task.prompt, &mut NoopHost).await {
         Ok(report) => {
             run.stop = Some(report.stop);
+            run.verified = report.verified;
             run.turns = report.turns;
             run.usage = report.usage;
             let out = tools.call("bash", &json!({ "command": task.verify })).await;
@@ -128,6 +132,7 @@ fn stop_name(s: Option<Stop>) -> &'static str {
         Some(Stop::Done) => "done",
         Some(Stop::MaxTurns) => "max_turns",
         Some(Stop::Refused) => "refused",
+        Some(Stop::PlanSaved) => "plan_saved",
         None => "error",
     }
 }
@@ -148,6 +153,7 @@ pub fn to_json(model: &str, runs: &[BenchRun]) -> Value {
             },
             "cost": r.cost,
             "passed": r.passed,
+            "verified": r.verified,
             "error": r.error,
             "seconds": r.seconds,
         })).collect::<Vec<_>>(),
@@ -183,15 +189,20 @@ fn money(c: Option<f64>) -> String {
 pub fn markdown(model: &str, runs: &[BenchRun]) -> String {
     let mut s = format!(
         "# CoTurbo bench — {model}\n\n\
-         | task | mode | passed | turns | ↑in | ⟳cache | ↓out | cost | s |\n\
-         |---|---|---|---|---|---|---|---|---|\n"
+         | task | mode | passed | verified | turns | ↑in | ⟳cache | ↓out | cost | s |\n\
+         |---|---|---|---|---|---|---|---|---|---|\n"
     );
     for r in runs {
         s.push_str(&format!(
-            "| {} | {} | {} | {} | {} | {} | {} | {} | {:.0} |\n",
+            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {:.0} |\n",
             r.task,
             mode_name(r.mode),
             if r.passed { "✓" } else { "✗" },
+            match r.verified {
+                Some(true) => "✓",
+                Some(false) => "✗",
+                None => "—",
+            },
             r.turns,
             r.usage.input + r.usage.cache_write,
             r.usage.cache_read,

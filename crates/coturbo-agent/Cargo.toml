@@ -8,6 +8,7 @@ rust-version.workspace = true
 [dependencies]
 coturbo-providers = { path = "../coturbo-providers" }
 coturbo-tools = { path = "../coturbo-tools" }
+coturbo-verify = { path = "../coturbo-verify" }
 serde_json.workspace = true
 
 [dev-dependencies]

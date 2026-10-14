@@ -5,12 +5,18 @@
 //! the signed thinking blocks echoed back. Context is reclaimed only between
 //! tasks, by [`Agent::compact`], which swaps the whole history for a summary.
 
+pub mod approval;
+pub mod plan;
+
+use approval::{ApprovalConfig, SessionGrants, Verdict};
 use coturbo_providers::{
-    ContentBlock, INVALID_JSON_KEY, Message, Provider, ProviderError, Request, Role, Usage,
+    BoxFuture, ContentBlock, Delta, INVALID_JSON_KEY, Message, Provider, ProviderError, Request, Role, Usage,
 };
-use coturbo_tools::{Mode, ToolOutput, Tools};
+use coturbo_tools::{EDIT_TOOLS, Mode, Tier, ToolOutput, Tools};
+use coturbo_verify::{Finding, GateConfig, Snapshot, gate};
+use plan::{PlanChoice, PlanReview};
 use serde_json::Value;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
 #[derive(Debug, Clone)]
 pub struct AgentConfig {
@@ -18,6 +24,31 @@ pub struct AgentConfig {
     pub max_turns: u32,
     pub max_tokens: u32,
     pub effort: Option<String>,
+    pub approval: ApprovalConfig,
+    /// Model used while plan mode is on (defaults to `model`).
+    pub plan_model: Option<String>,
+    /// Context window in tokens, for the plan review's 95% rule.
+    pub context_window: u32,
+    /// Final build/lint/test gate; `None` turns it off.
+    pub gate: Option<GateConfig>,
+    /// Gate failures sent back to the model before giving up.
+    pub max_fix_rounds: u32,
+}
+
+impl AgentConfig {
+    pub fn new(model: impl Into<String>) -> Self {
+        Self {
+            model: model.into(),
+            max_turns: 40,
+            max_tokens: 16_000,
+            effort: None,
+            approval: ApprovalConfig::default(),
+            plan_model: None,
+            context_window: 200_000,
+            gate: Some(GateConfig::default()),
+            max_fix_rounds: 3,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,6 +57,8 @@ pub enum Stop {
     Done,
     MaxTurns,
     Refused,
+    /// The plan was saved without implementing it.
+    PlanSaved,
 }
 
 #[derive(Debug, Clone)]
@@ -36,19 +69,90 @@ pub struct TaskReport {
     pub final_text: String,
     /// Relative paths changed by successful edit tools.
     pub edited: BTreeSet<String>,
+    /// `Some(true)`: the final gate passed. `Some(false)`: code was edited
+    /// but never passed it. `None`: no code edits, gate off, or nothing to run.
+    pub verified: Option<bool>,
 }
 
-/// Progress callbacks for a UI. All methods default to no-ops.
-pub trait Observer: Send {
-    fn on_text(&mut self, _delta: &str) {}
-    fn on_tool(&mut self, _name: &str, _input: &Value, _output: &ToolOutput) {}
-    fn on_turn(&mut self, _turn_usage: &Usage, _task_usage: &Usage) {}
+impl TaskReport {
+    fn empty() -> Self {
+        Self {
+            stop: Stop::Done,
+            turns: 0,
+            usage: Usage::default(),
+            final_text: String::new(),
+            edited: BTreeSet::new(),
+            verified: None,
+        }
+    }
 }
 
-pub struct NoopObserver;
-impl Observer for NoopObserver {}
+/// Something the UI may want to show.
+#[derive(Debug, Clone, Copy)]
+pub enum Event<'a> {
+    /// Work started that produces no output for a while: `thinking` (waiting
+    /// for the model) or `verifying` (running the final gate).
+    Waiting(&'a str),
+    Text(&'a str),
+    /// Readable reasoning streamed before the answer.
+    Thinking(&'a str),
+    /// Rate-limit headers of the last response.
+    Limits(&'a [(String, String)]),
+    ToolStart { name: &'a str, input: &'a Value },
+    /// `diff` is the unified diff a successful edit applied.
+    ToolEnd { name: &'a str, input: &'a Value, output: &'a ToolOutput, diff: Option<&'a str> },
+    /// One model response: its usage, the task total so far, how long it
+    /// took, and the model's context window.
+    Turn { turn: &'a Usage, task: &'a Usage, secs: f64, window: u32 },
+    /// The final gate ran; `summary` is exactly what the model is told.
+    Gate { ok: bool, summary: &'a str },
+    Notice(&'a str),
+}
 
-const EDIT_TOOLS: &[&str] = &["write_file", "edit_file", "replace_symbol", "insert_symbol"];
+/// A tool call waiting for the user's decision.
+#[derive(Debug, Clone)]
+pub struct ApprovalRequest {
+    pub tool: String,
+    pub tier: Tier,
+    pub input: Value,
+    /// Diff for edit tools.
+    pub preview: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Decision {
+    Once,
+    /// Approve this tool (or, for `bash`, this command's first word) until exit.
+    Session,
+    /// Optional reason, passed back to the model.
+    Deny(Option<String>),
+}
+
+/// The UI side of the agent: REPL, TUI, `run` or bench all implement this.
+pub trait Host: Send {
+    fn on_event(&mut self, _ev: Event<'_>) {}
+
+    /// Asked only for calls the approval policy marks `Prompt`.
+    fn approve<'a>(&'a mut self, _req: &'a ApprovalRequest) -> BoxFuture<'a, Decision> {
+        Box::pin(async { Decision::Deny(Some("no interactive approver; use --auto-approve".into())) })
+    }
+
+    /// Asked when the model proposes a plan. Without a user, nothing is executed.
+    fn review_plan<'a>(&'a mut self, _plan: &'a PlanReview) -> BoxFuture<'a, PlanChoice> {
+        Box::pin(async { PlanChoice::SaveQuit })
+    }
+
+    /// Asked when an edit looks like gaming the checks (deleted test,
+    /// `#[ignore]`, lint suppression, ...). `true` accepts it as legitimate.
+    fn confirm_cheat<'a>(&'a mut self, _finding: &'a Finding) -> BoxFuture<'a, bool> {
+        Box::pin(async { false })
+    }
+}
+
+/// Shows nothing, denies every prompt and saves every plan unexecuted.
+pub struct NoopHost;
+impl Host for NoopHost {}
+
 const SUMMARY_TEXT_MAX: usize = 1500;
 
 fn system_prompt(mode: Mode) -> String {
@@ -62,10 +166,17 @@ fn system_prompt(mode: Mode) -> String {
         s.push_str(
             " For Rust: start from read_file (large files come back as skeletons), read only the \
              symbols you need with read_symbol, edit with replace_symbol/insert_symbol, and check \
-             with cargo_check instead of building through bash.",
+             with workspace_diagnostics instead of building through bash.",
         );
     }
     s
+}
+
+/// How a `propose_plan` call ends the current phase.
+enum Handoff {
+    /// Start a new phase from the plan, after compacting or clearing history.
+    Run { compact: bool, prompt: String },
+    Saved,
 }
 
 pub struct Agent<'a> {
@@ -77,6 +188,19 @@ pub struct Agent<'a> {
     pending_summary: Option<String>,
     last: Option<(String, TaskReport)>,
     session: Usage,
+    grants: SessionGrants,
+    plan_mode: bool,
+    /// Prompt tokens of the last request, for the context-window share.
+    last_prompt: u64,
+    /// Edited files as they were before the task, for the anti-cheat check.
+    snapshot: Snapshot,
+    /// Anti-cheat findings already decided in this task (true = accepted).
+    decided: HashMap<(String, String), bool>,
+}
+
+/// Project files (not CoTurbo's own plan files) changed in the task.
+fn code_edits(edited: &BTreeSet<String>) -> bool {
+    edited.iter().any(|p| !p.starts_with(".coturbo/"))
 }
 
 impl<'a> Agent<'a> {
@@ -90,11 +214,25 @@ impl<'a> Agent<'a> {
             pending_summary: None,
             last: None,
             session: Usage::default(),
+            grants: SessionGrants::default(),
+            plan_mode: false,
+            last_prompt: 0,
+            snapshot: Snapshot::default(),
+            decided: HashMap::new(),
         }
     }
 
     pub fn session_usage(&self) -> Usage {
         self.session
+    }
+
+    pub fn plan_mode(&self) -> bool {
+        self.plan_mode
+    }
+
+    /// Turns plan mode on or off for the next task.
+    pub fn set_plan_mode(&mut self, on: bool) {
+        self.plan_mode = on;
     }
 
     /// Replaces the whole history with a deterministic summary of the last
@@ -123,42 +261,112 @@ impl<'a> Agent<'a> {
         self.history.clear();
     }
 
-    pub async fn run_task(
+    /// Runs one task. On a provider error the history is restored to what it
+    /// was before the task, so the next task starts from a valid state.
+    pub async fn run_task(&mut self, prompt: &str, host: &mut dyn Host) -> Result<TaskReport, ProviderError> {
+        let (len, summary, plan_mode) = (self.history.len(), self.pending_summary.clone(), self.plan_mode);
+        let r = self.run_inner(prompt, host).await;
+        if r.is_err() {
+            self.history.truncate(len);
+            self.pending_summary = summary;
+            self.plan_mode = plan_mode;
+        }
+        r
+    }
+
+    async fn run_inner(&mut self, prompt: &str, host: &mut dyn Host) -> Result<TaskReport, ProviderError> {
+        let mut total = TaskReport::empty();
+        let mut next = prompt.to_string();
+        self.snapshot.clear();
+        self.decided.clear();
+        loop {
+            let (report, handoff) = self.run_phase(&next, host).await?;
+            total.stop = report.stop;
+            total.turns += report.turns;
+            total.usage += report.usage;
+            total.final_text.clone_from(&report.final_text);
+            total.edited.extend(report.edited.iter().cloned());
+            total.verified = report.verified;
+            match handoff {
+                Some(Handoff::Run { compact, prompt: plan_prompt }) => {
+                    if compact {
+                        self.last = Some((next, report));
+                        self.compact();
+                    } else {
+                        self.history.clear();
+                        self.pending_summary = None;
+                    }
+                    next = plan_prompt;
+                }
+                Some(Handoff::Saved) => {
+                    total.stop = Stop::PlanSaved;
+                    break;
+                }
+                None => break,
+            }
+        }
+        if total.verified.is_none() && self.config.gate.is_some() && code_edits(&total.edited) && total.stop != Stop::Done {
+            // Stopped (turn limit, refusal) before the gate could pass.
+            total.verified = Some(false);
+        }
+        self.last = Some((prompt.to_string(), total.clone()));
+        Ok(total)
+    }
+
+    /// One conversation run until the model stops, or until an approved plan
+    /// hands off to a fresh phase.
+    async fn run_phase(
         &mut self,
         prompt: &str,
-        obs: &mut dyn Observer,
-    ) -> Result<TaskReport, ProviderError> {
+        host: &mut dyn Host,
+    ) -> Result<(TaskReport, Option<Handoff>), ProviderError> {
+        let prompt = if self.plan_mode { format!("{}{prompt}", plan::PLAN_NOTICE) } else { prompt.to_string() };
         let user_text = match self.pending_summary.take() {
             Some(s) => format!("{s}{prompt}"),
-            None => prompt.to_string(),
+            None => prompt,
         };
         self.history.push(Message { role: Role::User, content: vec![ContentBlock::Text { text: user_text }] });
 
         let specs = self.tools.specs();
-        let mut usage = Usage::default();
-        let mut edited = BTreeSet::new();
-        let mut turns = 0;
-        let mut final_text = String::new();
+        let mut report = TaskReport::empty();
+        let mut handoff = None;
+        let mut fix_rounds = 0;
 
-        let stop = loop {
-            if turns >= self.config.max_turns {
+        report.stop = loop {
+            if report.turns >= self.config.max_turns {
                 break Stop::MaxTurns;
             }
-            turns += 1;
+            report.turns += 1;
+            let model = match (&self.config.plan_model, self.plan_mode) {
+                (Some(m), true) => m.clone(),
+                _ => self.config.model.clone(),
+            };
             let req = Request {
-                model: self.config.model.clone(),
+                model,
                 system: self.system.clone(),
                 tools: specs.clone(),
                 messages: self.history.clone(),
                 max_tokens: self.config.max_tokens,
                 effort: self.config.effort.clone(),
             };
-            let resp = self.provider.complete(&req, &mut |t: &str| obs.on_text(t)).await?;
-            usage += resp.usage;
+            host.on_event(Event::Waiting("thinking"));
+            let started = std::time::Instant::now();
+            let resp = self
+                .provider
+                .complete(&req, &mut |d: Delta| match &d {
+                    Delta::Text(t) => host.on_event(Event::Text(t)),
+                    Delta::Thinking(t) => host.on_event(Event::Thinking(t)),
+                    Delta::Limits(l) => host.on_event(Event::Limits(l)),
+                })
+                .await?;
+            let secs = started.elapsed().as_secs_f64();
+            report.usage += resp.usage;
             self.session += resp.usage;
-            obs.on_turn(&resp.usage, &usage);
+            self.last_prompt = resp.usage.prompt_total();
+            let window = self.config.context_window;
+            host.on_event(Event::Turn { turn: &resp.usage, task: &report.usage, secs, window });
 
-            final_text = resp
+            report.final_text = resp
                 .content
                 .iter()
                 .filter_map(|b| match b {
@@ -190,33 +398,195 @@ impl<'a> Agent<'a> {
                     });
                     continue;
                 }
-                break Stop::Done;
+                if self.plan_mode || self.config.gate.is_none() || !code_edits(&report.edited) {
+                    break Stop::Done;
+                }
+                host.on_event(Event::Waiting("verifying"));
+                let (ok, summary) = self.verify(host).await;
+                host.on_event(Event::Gate { ok: ok.unwrap_or(true), summary: &summary });
+                match ok {
+                    None => break Stop::Done,
+                    Some(true) => {
+                        report.verified = Some(true);
+                        break Stop::Done;
+                    }
+                    Some(false) if fix_rounds >= self.config.max_fix_rounds => {
+                        report.verified = Some(false);
+                        break Stop::Done;
+                    }
+                    Some(false) => {
+                        fix_rounds += 1;
+                        report.verified = Some(false);
+                        self.history.push(Message { role: Role::User, content: vec![ContentBlock::Text { text: summary }] });
+                        continue;
+                    }
+                }
             }
 
             // Every tool_use gets exactly one result, in one user message.
             let mut results = Vec::with_capacity(calls.len());
             for (id, name, input) in calls {
+                let mut diff = None;
                 let out = if truncated {
                     ToolOutput::err("tool call was cut off by the output limit; not executed — retry with a smaller input")
                 } else if let Some(raw) = input.get(INVALID_JSON_KEY) {
                     ToolOutput::err(format!("invalid JSON input, not executed: {raw}"))
+                } else if handoff.is_some() {
+                    ToolOutput::err("not executed: the plan was already answered in this turn")
                 } else {
-                    self.tools.call(&name, &input).await
+                    host.on_event(Event::ToolStart { name: &name, input: &input });
+                    if name == "propose_plan" {
+                        let (out, h) = self.propose_plan(&input, host).await;
+                        handoff = h;
+                        out
+                    } else {
+                        let (out, d) = self.gated_call(&name, &input, host).await;
+                        diff = d;
+                        out
+                    }
                 };
                 if !out.is_error
                     && EDIT_TOOLS.contains(&name.as_str())
                     && let Some(p) = input["path"].as_str()
                 {
-                    edited.insert(p.replace('\\', "/"));
+                    report.edited.insert(p.replace('\\', "/"));
                 }
-                obs.on_tool(&name, &input, &out);
+                let diff = diff.filter(|_| !out.is_error);
+                host.on_event(Event::ToolEnd { name: &name, input: &input, output: &out, diff: diff.as_deref() });
                 results.push(ContentBlock::ToolResult { tool_use_id: id, content: out.content, is_error: out.is_error });
             }
             self.history.push(Message { role: Role::User, content: results });
+            if handoff.is_some() {
+                break Stop::Done;
+            }
         };
 
-        let report = TaskReport { stop, turns, usage, final_text, edited };
-        self.last = Some((prompt.to_string(), report.clone()));
-        Ok(report)
+        Ok((report, handoff))
+    }
+
+    /// Shows the proposed plan to the user and applies their choice.
+    async fn propose_plan(&mut self, input: &Value, host: &mut dyn Host) -> (ToolOutput, Option<Handoff>) {
+        if !self.plan_mode {
+            return (ToolOutput::err("plan mode is not active; carry on with the task"), None);
+        }
+        let slug = input["slug"].as_str().unwrap_or("");
+        let Some(path) = plan::plan_path(slug) else {
+            return (ToolOutput::err(format!("invalid slug `{slug}`: use letters, digits, `-` or `_`")), None);
+        };
+        let read = self.tools.resolve(&path).and_then(|p| std::fs::read_to_string(p).map_err(|e| e.to_string()));
+        let content = match read {
+            Ok(c) if !c.trim().is_empty() => c,
+            Ok(_) => return (ToolOutput::err(format!("{path} is empty; write the plan first")), None),
+            Err(e) => return (ToolOutput::err(format!("cannot read {path}: {e}; write the plan first")), None),
+        };
+        let window = u64::from(self.config.context_window.max(1));
+        let context_pct = (self.last_prompt.saturating_mul(100) / window).min(100) as u32;
+        let review = PlanReview { slug: slug.to_string(), path: path.clone(), content, context_pct };
+        let mut choice = host.review_plan(&review).await;
+        if choice == PlanChoice::KeepContext && !review.keep_context_allowed() {
+            choice = PlanChoice::Compact;
+            host.on_event(Event::Notice("context is over 95% full: compacting before implementing"));
+        }
+        match choice {
+            PlanChoice::Refine(feedback) => (ToolOutput::ok(plan::refine_message(&feedback)), None),
+            PlanChoice::SaveQuit => {
+                self.plan_mode = false;
+                (ToolOutput::ok(plan::saved_message(&path)), Some(Handoff::Saved))
+            }
+            PlanChoice::KeepContext => {
+                self.plan_mode = false;
+                (ToolOutput::ok(plan::APPROVED_KEEP), None)
+            }
+            PlanChoice::Execute | PlanChoice::Compact => {
+                self.plan_mode = false;
+                // The user may have edited the file during review: run what is on disk.
+                let content = self
+                    .tools
+                    .resolve(&path)
+                    .ok()
+                    .and_then(|p| std::fs::read_to_string(p).ok())
+                    .filter(|c| !c.trim().is_empty())
+                    .unwrap_or(review.content);
+                let prompt = plan::execute_prompt(&path, &content);
+                let compact = choice == PlanChoice::Compact;
+                (ToolOutput::ok(plan::APPROVED_HANDOFF), Some(Handoff::Run { compact, prompt }))
+            }
+        }
+    }
+
+    /// Anti-cheat review, then the build/lint/test gate. `None` when there
+    /// was nothing to run.
+    async fn verify(&mut self, host: &mut dyn Host) -> (Option<bool>, String) {
+        let root = self.tools.root().to_path_buf();
+        let yolo = self.config.approval.mode == approval::ApprovalMode::Yolo;
+        let mut rejected = Vec::new();
+        for f in self.snapshot.findings(&root) {
+            let key = (f.path.clone(), f.detail.clone());
+            let accepted = match self.decided.get(&key) {
+                Some(&d) => d,
+                // Unattended runs have nobody to vouch for the edit: refuse it.
+                None => {
+                    let d = !yolo && host.confirm_cheat(&f).await;
+                    self.decided.insert(key, d);
+                    d
+                }
+            };
+            if !accepted {
+                rejected.push(f.render());
+            }
+        }
+        if !rejected.is_empty() {
+            let list = rejected.iter().map(|r| format!("- {r}")).collect::<Vec<_>>().join("\n");
+            return (
+                Some(false),
+                format!(
+                    "✗ verification refused: these edits weaken the checks instead of fixing the code:\n{list}\n\
+                     Restore the tests/lints and fix the underlying problem."
+                ),
+            );
+        }
+        let cfg = self.config.gate.clone().unwrap_or_default();
+        let steps = gate::detect(&root, &cfg);
+        let report = gate::run_gate(&root, &steps, &cfg).await;
+        let ok = if report.nothing_ran() { None } else { Some(report.ok()) };
+        (ok, report.summary())
+    }
+
+    /// Applies the approval policy, asking the host when needed. Returns the
+    /// output and, for edit tools, the diff they apply.
+    async fn gated_call(&mut self, name: &str, input: &Value, host: &mut dyn Host) -> (ToolOutput, Option<String>) {
+        let tier = coturbo_tools::tier(name);
+        let verdict = approval::resolve(name, tier, input, &self.config.approval, &self.grants, self.plan_mode);
+        if let Verdict::Deny(why) = verdict {
+            return (ToolOutput::err(format!("denied: {why}")), None);
+        }
+        let preview = match self.tools.preview(name, input) {
+            // The edit would fail anyway: run it to report why, nothing is written.
+            Some(Err(_)) => return (self.tools.call(name, input).await, None),
+            Some(Ok(diff)) => Some(diff),
+            None => None,
+        };
+        if verdict == Verdict::Prompt {
+            let req = ApprovalRequest { tool: name.to_string(), tier, input: input.clone(), preview: preview.clone() };
+            match host.approve(&req).await {
+                Decision::Once => {}
+                Decision::Session => self.grants.grant(name, input),
+                Decision::Deny(reason) => {
+                    let msg = match reason {
+                        Some(r) if !r.trim().is_empty() => format!("denied by user: {}", r.trim()),
+                        _ => "denied by user".to_string(),
+                    };
+                    return (ToolOutput::err(msg), None);
+                }
+            }
+        }
+        if EDIT_TOOLS.contains(&name)
+            && let Some(p) = input["path"].as_str()
+            && let Ok(abs) = self.tools.resolve(p)
+            && let Ok(rel) = abs.strip_prefix(self.tools.root())
+        {
+            self.snapshot.record(self.tools.root(), &rel.to_string_lossy());
+        }
+        (self.tools.call(name, input).await, preview)
     }
 }

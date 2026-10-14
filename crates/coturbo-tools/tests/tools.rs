@@ -44,7 +44,7 @@ fn tool_sets_differ_and_are_sorted() {
     }
     assert!(naive.contains(&"edit_file".to_string()));
     assert!(!naive.contains(&"read_symbol".to_string()));
-    for t in ["read_symbol", "replace_symbol", "insert_symbol", "cargo_check", "edit_file"] {
+    for t in ["read_symbol", "replace_symbol", "insert_symbol", "workspace_diagnostics", "edit_file"] {
         assert!(ast.contains(&t.to_string()), "ast mode missing {t}");
     }
 }
@@ -148,17 +148,17 @@ async fn grep_and_list_respect_gitignore() {
 }
 
 #[tokio::test]
-async fn cargo_check_is_compact() {
+async fn workspace_diagnostics_is_compact() {
     let dir = crate_dir("pub fn add(a: i32, b: i32) -> i32 {\n    let s: String = a + b;\n    s\n}\n");
     let t = Tools::new(dir.path(), Mode::Ast);
-    let out = t.call("cargo_check", &json!({})).await;
+    let out = t.call("workspace_diagnostics", &json!({})).await;
     assert!(out.is_error);
     assert!(out.content.contains("src/lib.rs:2:"), "{}", out.content);
     assert!(out.content.contains("E0308"), "{}", out.content);
     assert!(out.content.len() < 1500, "too long: {}", out.content.len());
 
     fs::write(dir.path().join("src/lib.rs"), LIB).unwrap();
-    let out = t.call("cargo_check", &json!({})).await;
+    let out = t.call("workspace_diagnostics", &json!({})).await;
     assert!(!out.is_error, "{}", out.content);
     assert!(out.content.starts_with("ok"));
 }
@@ -180,4 +180,81 @@ async fn unknown_tool_and_bad_input_are_errors() {
     assert!(t.call("nope", &json!({})).await.is_error);
     assert!(t.call("read_file", &json!({})).await.is_error);
     assert!(t.call("read_symbol", &json!({"path": "src/lib.rs", "symbol": "add"})).await.is_error, "ast tool not in naive mode");
+}
+
+#[test]
+fn tiers_are_fixed_per_tool() {
+    use coturbo_tools::{Tier, tier};
+    assert_eq!(tier("read_file"), Tier::Read);
+    assert_eq!(tier("workspace_diagnostics"), Tier::Read);
+    assert_eq!(tier("edit_file"), Tier::Write);
+    assert_eq!(tier("replace_symbol"), Tier::Write);
+    assert_eq!(tier("bash"), Tier::Exec);
+    assert_eq!(tier("mcp__anything"), Tier::Exec);
+}
+
+#[test]
+fn preview_shows_diff_without_writing() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.txt"), "one\ntwo\nthree\n").unwrap();
+    let tools = Tools::new(dir.path(), Mode::Naive);
+    let diff = tools
+        .preview("edit_file", &serde_json::json!({"path": "a.txt", "old": "two", "new": "TWO"}))
+        .unwrap()
+        .unwrap();
+    assert!(diff.contains("-two") && diff.contains("+TWO"), "{diff}");
+    assert!(diff.contains("a/a.txt"));
+    assert_eq!(std::fs::read_to_string(dir.path().join("a.txt")).unwrap(), "one\ntwo\nthree\n");
+
+    let new = tools.preview("write_file", &serde_json::json!({"path": "b.txt", "content": "hi\n"})).unwrap().unwrap();
+    assert!(new.contains("+hi"));
+    assert!(!dir.path().join("b.txt").exists());
+
+    let bad = tools.preview("edit_file", &serde_json::json!({"path": "a.txt", "old": "zzz", "new": "x"})).unwrap();
+    assert!(bad.is_err());
+    assert!(tools.preview("bash", &serde_json::json!({"command": "ls"})).is_none());
+}
+
+fn lsp(root: &Path, servers: Vec<coturbo_verify::lsp::ServerConfig>) -> std::sync::Arc<coturbo_verify::lsp::LspManager> {
+    let cfg = coturbo_verify::lsp::LspConfig { servers, ..coturbo_verify::lsp::LspConfig::default() };
+    std::sync::Arc::new(coturbo_verify::lsp::LspManager::new(root, cfg))
+}
+
+#[tokio::test]
+async fn rustfmt_on_write_only_keeps_clean_files_clean() {
+    let dir = crate_dir(LIB);
+    let t = Tools::new(dir.path(), Mode::Naive).with_lsp(lsp(dir.path(), vec![]));
+    let out = t.call("edit_file", &json!({"path": "src/lib.rs", "old": "    a + b", "new": "    a+b"})).await;
+    assert!(!out.is_error, "{}", out.content);
+    assert_eq!(fs::read_to_string(dir.path().join("src/lib.rs")).unwrap(), LIB, "formatted back");
+
+    // A file that was never rustfmt-clean is not reformatted.
+    let messy = "pub fn add(a:i32,b:i32)->i32{a+b}\n";
+    fs::write(dir.path().join("src/lib.rs"), messy).unwrap();
+    t.call("edit_file", &json!({"path": "src/lib.rs", "old": "a+b", "new": "b+a"})).await;
+    assert_eq!(fs::read_to_string(dir.path().join("src/lib.rs")).unwrap(), "pub fn add(a:i32,b:i32)->i32{b+a}\n");
+
+    // Without LSP settings nothing is formatted.
+    let plain = Tools::new(dir.path(), Mode::Naive);
+    plain.call("write_file", &json!({"path": "src/new.rs", "content": "fn x(){}\n"})).await;
+    assert_eq!(fs::read_to_string(dir.path().join("src/new.rs")).unwrap(), "fn x(){}\n");
+}
+
+#[tokio::test]
+async fn missing_language_server_is_reported_once_in_edit_results() {
+    let dir = crate_dir(LIB);
+    let server = coturbo_verify::lsp::ServerConfig {
+        name: "ra".into(),
+        command: "definitely-not-rust-analyzer".into(),
+        args: vec![],
+        root_markers: vec!["Cargo.toml".into()],
+        extensions: vec!["rs".into()],
+    };
+    let t = Tools::new(dir.path(), Mode::Naive).with_lsp(lsp(dir.path(), vec![server]));
+    let first = t.call("write_file", &json!({"path": "src/a.rs", "content": "pub fn a() {}\n"})).await;
+    assert!(!first.is_error);
+    assert!(first.content.starts_with("wrote src/a.rs"), "{}", first.content);
+    assert!(first.content.contains("[lsp] ra not available"), "{}", first.content);
+    let second = t.call("write_file", &json!({"path": "src/b.rs", "content": "pub fn b() {}\n"})).await;
+    assert!(!second.content.contains("[lsp]"), "{}", second.content);
 }

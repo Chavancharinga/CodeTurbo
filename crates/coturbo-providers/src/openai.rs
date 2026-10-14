@@ -1,7 +1,7 @@
 //! OpenAI-compatible Chat Completions (OpenAI, OpenRouter, Ollama, ...).
 
 use crate::{
-    BoxFuture, ContentBlock, Provider, ProviderError, Request, Response, Role, TextSink, Usage,
+    BoxFuture, ContentBlock, Delta, Provider, ProviderError, Request, Response, Role, TextSink, Usage,
     http, parse_tool_input,
 };
 use serde_json::{Value, json};
@@ -113,8 +113,8 @@ pub struct StreamAcc {
 }
 
 impl StreamAcc {
-    /// Handles one SSE data payload. Returns a text delta to display, if any.
-    pub fn on_data(&mut self, data: &str) -> Result<Option<String>, ProviderError> {
+    /// Handles one SSE data payload. Returns a delta to display, if any.
+    pub fn on_data(&mut self, data: &str) -> Result<Option<Delta>, ProviderError> {
         if data.trim() == "[DONE]" {
             return Ok(None);
         }
@@ -154,10 +154,15 @@ impl StreamAcc {
                 c.args.push_str(a);
             }
         }
+        // Reasoning models (DeepSeek, OpenRouter, ...) stream it beside content.
+        let reasoning = d["reasoning_content"].as_str().or_else(|| d["reasoning"].as_str());
+        if let Some(r) = reasoning.filter(|r| !r.is_empty()) {
+            return Ok(Some(Delta::Thinking(r.to_string())));
+        }
         match d["content"].as_str() {
             Some(s) if !s.is_empty() => {
                 self.text.push_str(s);
-                Ok(Some(s.to_string()))
+                Ok(Some(Delta::Text(s.to_string())))
             }
             _ => Ok(None),
         }
@@ -193,7 +198,7 @@ impl Provider for OpenAiCompat {
             let body = build_body(req);
             let url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
             let mut acc = StreamAcc::default();
-            http::stream_sse(
+            let limits = http::stream_sse(
                 || {
                     let rb = self.client.post(&url).json(&body);
                     match &self.api_key {
@@ -205,13 +210,16 @@ impl Provider for OpenAiCompat {
                     if data.trim() == "[DONE]" {
                         return Ok(false);
                     }
-                    if let Some(t) = acc.on_data(data)? {
-                        on_text(&t);
+                    if let Some(d) = acc.on_data(data)? {
+                        on_text(d);
                     }
                     Ok(true)
                 },
             )
             .await?;
+            if !limits.is_empty() {
+                on_text(Delta::Limits(limits));
+            }
             Ok(acc.finish())
         })
     }

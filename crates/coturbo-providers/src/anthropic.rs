@@ -1,7 +1,7 @@
 //! Anthropic Messages API (`POST /v1/messages`, streaming).
 
 use crate::{
-    BoxFuture, ContentBlock, Message, Provider, ProviderError, Request, Response, Role, TextSink,
+    BoxFuture, Delta, ContentBlock, Message, Provider, ProviderError, Request, Response, Role, TextSink,
     Usage, http, parse_tool_input,
 };
 use serde_json::{Value, json};
@@ -32,6 +32,16 @@ impl Anthropic {
             .map_err(|_| ProviderError::MissingKey("ANTHROPIC_API_KEY"))?;
         Ok(Self::new(key, std::env::var("ANTHROPIC_BASE_URL").ok()))
     }
+}
+
+/// Models that take `thinking: {type: "adaptive"}`. Their reasoning is only
+/// returned as text when `display: "summarized"` is requested.
+fn adaptive_thinking(model: &str) -> bool {
+    const PREFIXES: &[&str] = &[
+        "claude-fable-5", "claude-mythos-5", "claude-opus-5", "claude-sonnet-5", "claude-haiku-5",
+        "claude-opus-4-6", "claude-opus-4-7", "claude-opus-4-8", "claude-sonnet-4-6",
+    ];
+    PREFIXES.iter().any(|p| model.starts_with(p))
 }
 
 fn uses_fallbacks(model: &str) -> bool {
@@ -88,6 +98,10 @@ pub fn build_body(req: &Request, fallbacks: bool) -> Value {
     if let Some(effort) = &req.effort {
         body["output_config"] = json!({"effort": effort});
     }
+    if adaptive_thinking(&req.model) {
+        // Same thinking either way; "summarized" makes it readable in the UI.
+        body["thinking"] = json!({"type": "adaptive", "display": "summarized"});
+    }
     if fallbacks {
         body["fallbacks"] = json!("default");
     }
@@ -115,8 +129,8 @@ fn u(v: &Value, key: &str) -> Option<u64> {
 }
 
 impl StreamAcc {
-    /// Handles one SSE data payload. Returns a text delta to display, if any.
-    pub fn on_data(&mut self, data: &str) -> Result<Option<String>, ProviderError> {
+    /// Handles one SSE data payload. Returns a delta to display, if any.
+    pub fn on_data(&mut self, data: &str) -> Result<Option<Delta>, ProviderError> {
         let ev: Value = serde_json::from_str(data)
             .map_err(|e| ProviderError::Stream(format!("bad event JSON: {e}")))?;
         match ev["type"].as_str().unwrap_or_default() {
@@ -151,7 +165,7 @@ impl StreamAcc {
                     Some(Block::Text(t)) => {
                         if let Some(s) = d["text"].as_str() {
                             t.push_str(s);
-                            return Ok(Some(s.to_string()));
+                            return Ok(Some(Delta::Text(s.to_string())));
                         }
                     }
                     Some(Block::Tool { json, .. }) => {
@@ -163,6 +177,9 @@ impl StreamAcc {
                                 let cur = v[key].as_str().unwrap_or("").to_string();
                                 v[key] = Value::String(cur + s);
                             }
+                        }
+                        if let Some(s) = d["thinking"].as_str().filter(|s| !s.is_empty()) {
+                            return Ok(Some(Delta::Thinking(s.to_string())));
                         }
                     }
                     None => {}
@@ -222,7 +239,7 @@ impl Provider for Anthropic {
             let body = build_body(req, fallbacks);
             let url = format!("{}/v1/messages", self.base_url.trim_end_matches('/'));
             let mut acc = StreamAcc::default();
-            http::stream_sse(
+            let limits = http::stream_sse(
                 || {
                     let mut rb = self
                         .client
@@ -236,13 +253,16 @@ impl Provider for Anthropic {
                     rb
                 },
                 |data| {
-                    if let Some(t) = acc.on_data(data)? {
-                        on_text(&t);
+                    if let Some(d) = acc.on_data(data)? {
+                        on_text(d);
                     }
                     Ok(true)
                 },
             )
             .await?;
+            if !limits.is_empty() {
+                on_text(Delta::Limits(limits));
+            }
             Ok(acc.finish())
         })
     }
