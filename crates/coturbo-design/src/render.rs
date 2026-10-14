@@ -308,3 +308,18 @@ pub async fn measure(browser: &Path, html: &Path, shot: &Path) -> Result<Page, S
     );
     Ok(Page { desktop: desktop?, laptop: laptop?, tablet: tablet?, mobile: mobile? })
 }
+
+/// The page at `url` after its scripts ran, as HTML.
+pub async fn dump_dom(browser: &Path, url: &str) -> Result<String, String> {
+    run(browser, DESKTOP, &["--virtual-time-budget=6000".into(), "--dump-dom".into(), url.to_string()]).await
+}
+
+/// A screenshot of `url` at `size`, saved to `shot`.
+pub async fn screenshot(browser: &Path, url: &str, shot: &Path, size: (u32, u32)) -> Result<(), String> {
+    let shot = std::path::absolute(shot).unwrap_or(shot.to_path_buf());
+    if let Some(dir) = shot.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    run(browser, size, &["--virtual-time-budget=6000".into(), format!("--screenshot={}", shot.display()), url.to_string()]).await?;
+    if shot.exists() { Ok(()) } else { Err("o navegador não salvou a captura".into()) }
+}

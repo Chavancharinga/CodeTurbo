@@ -1,0 +1,19 @@
+[package]
+name = "coturbo-rea"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+coturbo-design = { path = "../coturbo-design" }
+tokio.workspace = true
+serde_json.workspace = true
+reqwest.workspace = true
+regex = "1"
+ignore = "0.4"
+object = { version = "0.36", default-features = false, features = ["read", "std"] }
+
+[dev-dependencies]
+tempfile = "3"
+tokio.workspace = true

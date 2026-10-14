@@ -58,6 +58,7 @@ pub fn action_label(name: &str, input: &serde_json::Value) -> String {
         "workspace_diagnostics" => "checando o projeto inteiro".into(),
         "design_brief" => "definindo o design do projeto".into(),
         "design_review" => format!("abrindo {a} no navegador"),
+        "investigate" => format!("investigando {}", input["target"].as_str().unwrap_or("")),
         "propose_plan" => "preparando o plano".into(),
         other => format!("executando {other} {a}").trim().to_string(),
     }

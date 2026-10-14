@@ -303,7 +303,7 @@ dependencies = [
 
 [[package]]
 name = "coturbo-agent"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "coturbo-design",
  "coturbo-providers",
@@ -316,7 +316,7 @@ dependencies = [
 
 [[package]]
 name = "coturbo-ast"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "ra_ap_syntax",
  "thiserror",
@@ -324,7 +324,7 @@ dependencies = [
 
 [[package]]
 name = "coturbo-cli"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "clap",
  "coturbo-agent",
@@ -348,7 +348,7 @@ dependencies = [
 
 [[package]]
 name = "coturbo-design"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "ignore",
  "regex",
@@ -359,7 +359,7 @@ dependencies = [
 
 [[package]]
 name = "coturbo-providers"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "futures-util",
  "reqwest",
@@ -371,13 +371,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "coturbo-rea"
+version = "0.10.0"
+dependencies = [
+ "coturbo-design",
+ "ignore",
+ "object",
+ "regex",
+ "reqwest",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "coturbo-tools"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "base64 0.22.1",
  "coturbo-ast",
  "coturbo-design",
  "coturbo-providers",
+ "coturbo-rea",
  "coturbo-verify",
  "ignore",
  "regex",
@@ -389,7 +404,7 @@ dependencies = [
 
 [[package]]
 name = "coturbo-verify"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "futures-util",
  "lightningcss",
@@ -1472,6 +1487,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5c7398b9c8b70908f6371f47ed36737907c87c52af34c268fed0bf0ceb92ead9"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "object"
+version = "0.36.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62948e14d923ea95ea2c7c86c71013138b66525b86bdc08d2dcc262bdb497b87"
+dependencies = [
+ "memchr",
 ]
 
 [[package]]

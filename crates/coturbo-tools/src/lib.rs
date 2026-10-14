@@ -161,6 +161,11 @@ impl Tools {
                 "Render an HTML page in the browser and get its screenshot plus measurements, to critique the design as a user would see it. Use after building a page.",
                 obj(json!({"path": s("relative .html path")}), &["path"]),
             ),
+            spec(
+                "investigate",
+                "Reverse-engineer how existing software does something, from evidence (read-only): a website URL (rendered, with structure, technology, design system and screenshots), a local app folder, an Electron .asar, a JS bundle, or a native binary (exe/dll/so/dylib/wasm: imports, exports, strings). Use it to learn from a reference before building something similar.",
+                obj(json!({"target": s("URL, or path to a folder or file (absolute paths allowed)"), "question": s("what you want to understand, e.g. how search works")}), &["target"]),
+            ),
             spec("propose_plan", "Plan mode only: submit .codeturbo/plans/<slug>-plan.md for the user's approval.", obj(json!({"slug": s("plan slug")}), &["slug"])),
         ];
         if self.mode == Mode::Ast {
@@ -343,6 +348,22 @@ impl Tools {
             "propose_plan" => Err("plan mode is not active".into()),
             "design_brief" => self.design_brief(input),
             "design_review" => self.design_review(input).await,
+            "investigate" => {
+                let question = input["question"].as_str().unwrap_or("");
+                match coturbo_rea::investigate(&self.root, arg(input, "target").unwrap_or(""), question).await {
+                    Ok(report) => {
+                        let mut out = ToolOutput::ok(report.text);
+                        if let Some(shot) = report.images.first()
+                            && let Ok(png) = std::fs::read(shot)
+                        {
+                            use base64::Engine;
+                            out.images.push(("image/png".into(), base64::engine::general_purpose::STANDARD.encode(png)));
+                        }
+                        Ok(out)
+                    }
+                    Err(e) => Err(e),
+                }
+            }
             _ => Err(format!("unknown tool: {name}")),
         };
         let mut out = r.unwrap_or_else(ToolOutput::err);
