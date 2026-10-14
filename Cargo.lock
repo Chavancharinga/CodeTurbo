@@ -303,7 +303,7 @@ dependencies = [
 
 [[package]]
 name = "coturbo-agent"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "coturbo-providers",
  "coturbo-tools",
@@ -315,7 +315,7 @@ dependencies = [
 
 [[package]]
 name = "coturbo-ast"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ra_ap_syntax",
  "thiserror",
@@ -323,7 +323,7 @@ dependencies = [
 
 [[package]]
 name = "coturbo-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clap",
  "coturbo-agent",
@@ -347,7 +347,7 @@ dependencies = [
 
 [[package]]
 name = "coturbo-providers"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "futures-util",
  "reqwest",
@@ -360,7 +360,7 @@ dependencies = [
 
 [[package]]
 name = "coturbo-tools"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "coturbo-ast",
  "coturbo-providers",
@@ -375,7 +375,7 @@ dependencies = [
 
 [[package]]
 name = "coturbo-verify"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "futures-util",
  "lightningcss",
