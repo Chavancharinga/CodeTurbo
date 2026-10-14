@@ -22,3 +22,6 @@ clap = { version = "4", features = ["derive"] }
 rustyline = { version = "17", default-features = false }
 tempfile = "3"
 terminal_size = "0.4"
+
+[dev-dependencies]
+gif = "0.13"

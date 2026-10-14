@@ -134,9 +134,11 @@ const fn canvas_h(s: &Snail) -> usize {
 /// Text rows of the logo.
 pub const ROWS: usize = canvas_h(SNAIL) / 2;
 
-/// 5×7 lowercase pixel font.
+/// 5×7 pixel font: the letters of the name.
 fn glyph(c: char) -> [&'static str; 7] {
     match c {
+        'C' => [".###.", "#...#", "#....", "#....", "#....", "#...#", ".###."],
+        'T' => ["#####", "..#..", "..#..", "..#..", "..#..", "..#..", "..#.."],
         'c' => [".....", ".....", ".####", "#....", "#....", "#....", ".####"],
         'o' => [".....", ".....", ".###.", "#...#", "#...#", "#...#", ".###."],
         'd' => ["....#", "....#", ".####", "#...#", "#...#", "#...#", ".####"],
@@ -149,7 +151,7 @@ fn glyph(c: char) -> [&'static str; 7] {
     }
 }
 
-pub const NAME: &str = "codeturbo";
+pub const NAME: &str = "CodeTurbo";
 /// "code" in soft white, "turbo" in brand blue.
 const SPLIT: usize = 4;
 const GAP: usize = 3;
@@ -360,6 +362,16 @@ pub fn frame_with(s: &Snail, i: usize, width: usize) -> Vec<String> {
     out
 }
 
+/// Pixels of frame `i` (`None` is background), as drawn in a terminal
+/// `width` cells wide: for exporting the logo as an image.
+pub fn pixels(i: usize, width: usize) -> Vec<Vec<Option<(u8, u8, u8)>>> {
+    canvas(SNAIL, i, track_for(SNAIL, width), (i / 2).min(NAME.len()))
+}
+
+/// Frames in one seamless loop of the running snail once the name is shown
+/// (the wave, spiral, trail and dust all repeat after this many).
+pub const LOOP_FRAMES: usize = 40;
+
 /// Frames of the opening (name typing in) before the loop.
 pub fn frames() -> usize {
     FRAMES
@@ -408,7 +420,11 @@ fn track_col() -> usize {
 /// Only the track (trail, dust and snail) of frame `i`: once the name is on
 /// screen, this is all that changes.
 pub fn track_rows(i: usize, width: usize) -> Vec<String> {
-    let s = SNAIL;
+    track_rows_with(SNAIL, i, width)
+}
+
+/// [`track_rows`] for a given design.
+pub fn track_rows_with(s: &Snail, i: usize, width: usize) -> Vec<String> {
     let t0 = track_col();
     let px = canvas(s, i, track_for(s, width), NAME.len());
     let track: Vec<Vec<Option<Rgb>>> = px.into_iter().map(|row| row[t0..].to_vec()).collect();

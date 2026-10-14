@@ -371,12 +371,13 @@ fn turn_line_shows_speed_context_cost_and_limits() {
     assert_eq!(line, "↑1.0k ⟳9.0k ↓400 · 40 tok/s · ctx 5% of 200.0k · $0.0123 · limit tokens 78.0k/80.0k · requests 49/50");
 }
 
-/// Frames 40..48 (one full loop after the intro) of a design at width 120,
-/// in the same layout as the pinned fixtures.
+/// The track (trail, dust and snail) of frames 40..48, one full loop after
+/// the intro, at width 120: the snail animation alone, independent of the
+/// wordmark beside it.
 fn loop_frames(s: &coturbo_cli::splash::Snail) -> String {
     let mut out = String::new();
     for i in 40..48 {
-        for line in coturbo_cli::splash::frame_with(s, i, 120) {
+        for line in coturbo_cli::splash::track_rows_with(s, i, 120) {
             out.push_str(&line);
             out.push('\n');
         }
