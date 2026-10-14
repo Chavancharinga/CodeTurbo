@@ -110,7 +110,7 @@ pub fn apply_edits(text: &str, edits: &[Value]) -> String {
             (pos(&r["start"]), pos(&r["end"]), e["newText"].as_str().unwrap_or(""))
         })
         .collect();
-    spans.sort_by(|a, b| b.0.cmp(&a.0));
+    spans.sort_by_key(|a| std::cmp::Reverse(a.0));
     let mut out = text.to_string();
     for (s, e, new) in spans {
         if s <= e && e <= out.len() {
