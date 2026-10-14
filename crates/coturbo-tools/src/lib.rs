@@ -47,7 +47,7 @@ pub const EDIT_TOOLS: &[&str] = &["write_file", "edit_file", "replace_symbol", "
 pub fn tier(name: &str) -> Tier {
     match name {
         "read_file" | "read_symbol" | "list_files" | "grep" | "workspace_diagnostics" | "propose_plan" => Tier::Read,
-        n if EDIT_TOOLS.contains(&n) => Tier::Write,
+        n if EDIT_TOOLS.contains(&n) || n == "design_brief" => Tier::Write,
         _ => Tier::Exec,
     }
 }
@@ -138,6 +138,19 @@ impl Tools {
             spec("list_files", "List files (respects .gitignore).", obj(json!({"path": s("relative dir, default .")}), &[])),
             spec("grep", "Regex search; returns path:line: text.", obj(json!({"pattern": s("regex"), "path": s("relative dir or file, default .")}), &["pattern"])),
             spec("bash", "Run a shell command in the project root.", obj(json!({"command": s("command")}), &["command"])),
+            spec(
+                "design_brief",
+                "Call before writing any user interface (HTML, CSS, JSX, Vue, Svelte). Describe the design in a few words; returns the locked design tokens (written to DESIGN.md) that every style must use.",
+                obj(
+                    json!({
+                        "subject": s("what the product or page is about"),
+                        "audience": s("who it is for"),
+                        "tone": s("tone in a few words, e.g. editorial and calm, playful, technical"),
+                        "signature": s("the one distinctive visual element of this interface")
+                    }),
+                    &["subject", "audience", "tone", "signature"],
+                ),
+            ),
             spec("propose_plan", "Plan mode only: submit .codeturbo/plans/<slug>-plan.md for the user's approval.", obj(json!({"slug": s("plan slug")}), &["slug"])),
         ];
         if self.mode == Mode::Ast {
@@ -151,6 +164,32 @@ impl Tools {
         }
         v.sort_by(|a, b| a.name.cmp(&b.name));
         v
+    }
+
+    /// Compiles the brief into tokens and locks them in `DESIGN.md`.
+    fn design_brief(&self, input: &Value) -> Res {
+        use coturbo_design::{compiler, contract};
+        let brief = compiler::Brief {
+            subject: arg(input, "subject")?.to_string(),
+            audience: arg(input, "audience")?.to_string(),
+            tone: arg(input, "tone")?.to_string(),
+            signature: arg(input, "signature")?.to_string(),
+        };
+        let tokens = compiler::compile(&brief);
+        let path = self.root.join(contract::FILE);
+        std::fs::write(&path, contract::markdown(&tokens)).map_err(|e| format!("{}: {e}", path.display()))?;
+        Ok(ToolOutput::ok(format!(
+            "wrote {} (tone: {}). Use only these tokens: every color, font, size, space, radius and shadow through var(--…); \
+             the design check rejects anything else and generic patterns (default fonts/palettes, emoji icons, identical card grids, \
+             template section order, one radius everywhere, centered body text).\n\
+             Layout: {}.\nSignature element to build around: {}.\nFonts:\n{}\n{}",
+            contract::FILE,
+            tokens.tone.name(),
+            tokens.layout,
+            brief.signature,
+            contract::font_link(&tokens),
+            contract::css(&tokens)
+        )))
     }
 
     /// Resolves a model-supplied path, refusing anything outside the root.
@@ -229,6 +268,7 @@ impl Tools {
                 Ok(if clean { ToolOutput::ok(text) } else { ToolOutput::err(text) })
             }
             "propose_plan" => Err("plan mode is not active".into()),
+            "design_brief" => self.design_brief(input),
             _ => Err(format!("unknown tool: {name}")),
         };
         let mut out = r.unwrap_or_else(ToolOutput::err);
@@ -243,6 +283,12 @@ impl Tools {
             if let Some(diags) = coturbo_verify::native::check(&rel, &text) {
                 out.content.push('\n');
                 out.content.push_str(&native_note(&rel, &diags));
+            }
+            if coturbo_design::fiscal::is_ui_file(&rel) {
+                let contract = coturbo_design::contract::Contract::load(&self.root);
+                let findings = coturbo_design::fiscal::check(&rel, &text, contract.as_ref());
+                out.content.push('\n');
+                out.content.push_str(&coturbo_design::fiscal::render(&rel, &findings));
             }
         }
         if let Some(lsp) = &self.lsp {

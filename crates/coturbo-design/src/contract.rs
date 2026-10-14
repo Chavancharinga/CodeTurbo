@@ -1,0 +1,127 @@
+//! The design contract: the compiled tokens written to `DESIGN.md`, with
+//! the CSS custom properties the code must use, and read back for checks.
+
+use crate::color::{Rgb, hex, parse_hex};
+use crate::compiler::Tokens;
+use std::collections::BTreeMap;
+use std::path::Path;
+
+pub const FILE: &str = "DESIGN.md";
+
+fn font_stack(name: &str, display: bool, technical: bool) -> String {
+    let generic = if name.contains("Mono") {
+        "monospace"
+    } else if display && !technical && (name.contains("Serif") || ["Fraunces", "Newsreader", "Cormorant Garamond", "Libre Caslon Display", "Gloock"].contains(&name)) {
+        "serif"
+    } else {
+        "sans-serif"
+    };
+    format!("\"{name}\", {generic}")
+}
+
+/// The `:root { ... }` block with every token.
+pub fn css(t: &Tokens) -> String {
+    let technical = t.tone == crate::compiler::Tone::Technical;
+    let mut s = String::from(":root {\n");
+    for (n, c) in &t.colors {
+        s.push_str(&format!("  --color-{n}: {};\n", hex(*c)));
+    }
+    s.push_str(&format!("  --font-display: {};\n", font_stack(&t.font_display, true, technical)));
+    s.push_str(&format!("  --font-body: {};\n", font_stack(&t.font_body, false, technical)));
+    for (n, rem) in &t.type_scale {
+        s.push_str(&format!("  --text-{n}: {rem}rem;\n"));
+    }
+    for (i, px) in t.space.iter().enumerate() {
+        s.push_str(&format!("  --space-{}: {px}px;\n", i + 1));
+    }
+    for (n, px) in &t.radius {
+        s.push_str(&format!("  --radius-{n}: {px}px;\n"));
+    }
+    for (n, v) in &t.shadows {
+        s.push_str(&format!("  --shadow-{n}: {v};\n"));
+    }
+    s.push('}');
+    s
+}
+
+/// `<link>` tags loading the two fonts.
+pub fn font_link(t: &Tokens) -> String {
+    let fam = |f: &str| format!("family={}:wght@400;600;700", f.replace(' ', "+"));
+    format!(
+        "<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n<link href=\"https://fonts.googleapis.com/css2?{}&{}&display=swap\" rel=\"stylesheet\">",
+        fam(&t.font_display),
+        fam(&t.font_body)
+    )
+}
+
+/// The contract file.
+pub fn markdown(t: &Tokens) -> String {
+    let b = &t.brief;
+    format!(
+        "# Contrato de design\n\n\
+         Gerado pelo CodeTurbo. Todo código de interface usa somente estes tokens; \
+         a verificação recusa cores, raios e espaçamentos fora deles e os padrões \
+         genéricos de interface gerada por IA.\n\n\
+         ## Resumo\n\n\
+         - Assunto: {}\n- Público: {}\n- Tom: {} ({})\n- Elemento de assinatura: {}\n\n\
+         ## Composição\n\n{}.\n\n\
+         Evitar: sequência herói, recursos, depoimentos, preços, perguntas e contato; \
+         grade de cartões idênticos com ícone, título e texto; ícones de emoji; \
+         gradiente de duas cores; tudo centralizado; um único raio e uma única sombra em tudo.\n\n\
+         ## Fontes\n\n{}\n\n\
+         ## Tokens\n\n```css\n{}\n```\n",
+        b.subject,
+        b.audience,
+        b.tone,
+        t.tone.name(),
+        b.signature,
+        t.layout,
+        font_link(t),
+        css(t)
+    )
+}
+
+/// The contract as read back from `DESIGN.md`.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Contract {
+    pub vars: BTreeMap<String, String>,
+}
+
+impl Contract {
+    pub fn parse(text: &str) -> Contract {
+        let re = regex::Regex::new(r"(--[a-z0-9-]+)\s*:\s*([^;]+);").expect("valid regex");
+        let vars = re.captures_iter(text).map(|c| (c[1].to_string(), c[2].trim().to_string())).collect();
+        Contract { vars }
+    }
+
+    pub fn load(root: &Path) -> Option<Contract> {
+        let text = std::fs::read_to_string(root.join(FILE)).ok()?;
+        let c = Contract::parse(&text);
+        (!c.vars.is_empty()).then_some(c)
+    }
+
+    pub fn colors(&self) -> Vec<Rgb> {
+        self.vars.iter().filter(|(k, _)| k.starts_with("--color-")).filter_map(|(_, v)| parse_hex(v)).collect()
+    }
+
+    /// Pixel values of the tokens starting with `prefix`, smallest first.
+    fn px(&self, prefix: &str) -> Vec<u32> {
+        let mut v: Vec<u32> = self
+            .vars
+            .iter()
+            .filter(|(k, _)| k.starts_with(prefix))
+            .filter_map(|(_, v)| v.trim_end_matches("px").parse().ok())
+            .collect();
+        v.sort_unstable();
+        v.dedup();
+        v
+    }
+
+    pub fn space(&self) -> Vec<u32> {
+        self.px("--space-")
+    }
+
+    pub fn radii(&self) -> Vec<u32> {
+        self.px("--radius-")
+    }
+}

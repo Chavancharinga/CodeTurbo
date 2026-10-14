@@ -6,6 +6,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+coturbo-design = { path = "../coturbo-design" }
 coturbo-providers = { path = "../coturbo-providers" }
 coturbo-tools = { path = "../coturbo-tools" }
 coturbo-verify = { path = "../coturbo-verify" }

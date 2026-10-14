@@ -303,8 +303,9 @@ dependencies = [
 
 [[package]]
 name = "coturbo-agent"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
+ "coturbo-design",
  "coturbo-providers",
  "coturbo-tools",
  "coturbo-verify",
@@ -315,7 +316,7 @@ dependencies = [
 
 [[package]]
 name = "coturbo-ast"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "ra_ap_syntax",
  "thiserror",
@@ -323,7 +324,7 @@ dependencies = [
 
 [[package]]
 name = "coturbo-cli"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "clap",
  "coturbo-agent",
@@ -346,8 +347,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "coturbo-design"
+version = "0.3.0"
+dependencies = [
+ "regex",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "coturbo-providers"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "futures-util",
  "reqwest",
@@ -360,9 +371,10 @@ dependencies = [
 
 [[package]]
 name = "coturbo-tools"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "coturbo-ast",
+ "coturbo-design",
  "coturbo-providers",
  "coturbo-verify",
  "ignore",
@@ -375,7 +387,7 @@ dependencies = [
 
 [[package]]
 name = "coturbo-verify"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "futures-util",
  "lightningcss",

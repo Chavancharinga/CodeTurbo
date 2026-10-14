@@ -270,3 +270,27 @@ async fn html_written_on_one_line_is_formatted_and_checked() {
     assert!(written.lines().count() >= 5, "formatted: {written}");
     assert!(out.content.contains("check index.html:") && out.content.contains("doctype"), "{}", out.content);
 }
+
+#[tokio::test]
+async fn design_brief_locks_a_contract_and_edits_are_inspected() {
+    let dir = tempfile::tempdir().unwrap();
+    let t = Tools::new(dir.path(), Mode::Ast).with_native_checks(true);
+    assert_eq!(coturbo_tools::tier("design_brief"), coturbo_tools::Tier::Write);
+    let brief = json!({
+        "subject": "padaria de bairro",
+        "audience": "vizinhos que encomendam pão",
+        "tone": "acolhedor e simples",
+        "signature": "o horário da fornada em destaque, como um quadro de giz"
+    });
+    let out = t.call("design_brief", &brief).await;
+    assert!(!out.is_error, "{}", out.content);
+    assert!(out.content.contains(":root {") && out.content.contains("--color-primary"), "{}", out.content);
+    assert!(read(dir.path(), "DESIGN.md").contains("quadro de giz"));
+
+    let page = "<html><head><style>body { font-family: Inter; color: #6366f1; }</style></head><body><p>oi</p></body></html>";
+    let out = t.call("write_file", &json!({"path": "index.html", "content": page})).await;
+    assert!(out.content.contains("design index.html:"), "{}", out.content);
+    assert!(out.content.contains("fonte-padrao") && out.content.contains("cor-fora-do-contrato"), "{}", out.content);
+    let out = t.call("write_file", &json!({"path": "notes.txt", "content": "#6366f1"})).await;
+    assert!(!out.content.contains("design "), "only interface files are inspected");
+}

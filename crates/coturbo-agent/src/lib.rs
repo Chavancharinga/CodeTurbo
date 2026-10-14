@@ -163,7 +163,10 @@ fn system_prompt(mode: Mode) -> String {
          Use the tools to inspect and change files; paths are relative to the project root. \
          Make the smallest change that fully solves the task, then verify it. \
          When done, reply with a short summary of what changed. \
-         Reply in the language the user writes in. Write text files as UTF-8.",
+         Reply in the language the user writes in. Write text files as UTF-8. \
+         For any user interface work, call design_brief first and build only with the tokens it returns; \
+         the design check rejects generic patterns (default fonts and palettes, emoji icons, \
+         identical card grids, the template section order).",
     );
     if mode == Mode::Ast {
         s.push_str(
@@ -429,7 +432,8 @@ impl<'a> Agent<'a> {
                     break Stop::Done;
                 }
                 host.on_event(Event::Waiting("verifying"));
-                let (ok, summary) = self.verify(host).await;
+                let edited: Vec<String> = report.edited.iter().cloned().collect();
+                let (ok, summary) = self.verify(host, &edited).await;
                 host.on_event(Event::Gate { ok: ok.unwrap_or(true), summary: &summary });
                 match ok {
                     None => break Stop::Done,
@@ -543,7 +547,7 @@ impl<'a> Agent<'a> {
 
     /// Anti-cheat review, then the build/lint/test gate. `None` when there
     /// was nothing to run.
-    async fn verify(&mut self, host: &mut dyn Host) -> (Option<bool>, String) {
+    async fn verify(&mut self, host: &mut dyn Host, edited: &[String]) -> (Option<bool>, String) {
         let root = self.tools.root().to_path_buf();
         let yolo = self.config.approval.mode == approval::ApprovalMode::Yolo;
         let mut rejected = Vec::new();
@@ -576,7 +580,14 @@ impl<'a> Agent<'a> {
         let steps = gate::detect(&root, &cfg);
         let report = gate::run_gate(&root, &steps, &cfg).await;
         let ok = if report.nothing_ran() { None } else { Some(report.ok()) };
-        (ok, report.summary())
+        match coturbo_design::review(&root, edited).await {
+            // Interface files changed: the design review counts like a gate step.
+            Some(design) => {
+                let summary = if report.nothing_ran() { design.summary } else { format!("{}\n{}", report.summary(), design.summary) };
+                (Some(ok.unwrap_or(true) && design.ok), summary)
+            }
+            None => (ok, report.summary()),
+        }
     }
 
     /// Applies the approval policy, asking the host when needed. Returns the
