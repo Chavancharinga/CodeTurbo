@@ -76,10 +76,23 @@ impl Tools {
     /// writing anything. Shared by execution and by the approval preview.
     pub(crate) fn plan_edit(&self, name: &str, input: &Value) -> Result<(PathBuf, String, String), String> {
         let path = self.resolve(arg(input, "path")?)?;
-        let is_rs = path.extension().is_some_and(|e| e == "rs");
-        // Keep rustfmt-clean files clean; never reformat a file that was not.
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+        // Formatter for this kind of file, if any: rustfmt for Rust, the
+        // built-in HTML formatter for pages.
+        let format = |src: &str| -> Option<String> {
+            match ext.as_str() {
+                "rs" => Some(rustfmt(src)),
+                "html" | "htm" => coturbo_verify::html::format(src),
+                _ => None,
+            }
+        };
+        // Keep formatted files formatted and format new ones; never reformat
+        // a file that was not formatted before.
         let keep_formatted = |old: &str, new: String| {
-            if self.format_rust() && is_rs && (old.is_empty() || rustfmt(old) == old) { rustfmt(&new) } else { new }
+            if !self.format_on_write() || !(old.is_empty() || format(old).as_deref() == Some(old)) {
+                return new;
+            }
+            format(&new).unwrap_or(new)
         };
         if name == "write_file" {
             let content = arg(input, "content")?;

@@ -695,3 +695,26 @@ async fn edits_report_their_diff_and_turns_their_timing() {
     assert_eq!(rec.turns.len(), 2);
     assert!(rec.turns.iter().all(|(s, w)| *s >= 0.0 && *w == 1000));
 }
+
+#[tokio::test]
+async fn empty_replies_are_retried_without_touching_history() {
+    let dir = project();
+    let tools = Tools::new(dir.path(), Mode::Naive);
+    let mock = Mock::new(vec![
+        resp(vec![], "end_turn", usage(10, 50)),
+        resp(vec![tool("t1", "read_file", json!({"path": "src/lib.rs"}))], "tool_use", usage(10, 5)),
+        resp(vec![text("done")], "end_turn", usage(10, 2)),
+    ]);
+    let mut agent = Agent::new(&mock, &tools, config());
+    let r = agent.run_task("x", &mut NoopHost).await.unwrap();
+    assert_eq!(r.final_text, "done");
+    assert_eq!(r.turns, 3);
+    let reqs = mock.requests();
+    assert_eq!(reqs[0].messages, reqs[1].messages, "the empty reply left no trace");
+
+    // Gives up after the retries: the task ends instead of looping.
+    let mock = Mock::new(vec![resp(vec![], "end_turn", usage(1, 1)), resp(vec![], "end_turn", usage(1, 1)), resp(vec![], "end_turn", usage(1, 1))]);
+    let mut agent = Agent::new(&mock, &tools, config());
+    let r = agent.run_task("x", &mut NoopHost).await.unwrap();
+    assert_eq!((r.stop, r.turns), (Stop::Done, 3));
+}

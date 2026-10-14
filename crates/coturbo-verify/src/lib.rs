@@ -7,6 +7,7 @@ pub mod cheat;
 pub mod cmd;
 pub mod diag;
 pub mod gate;
+pub mod html;
 pub mod lsp;
 pub mod native;
 pub mod workspace;

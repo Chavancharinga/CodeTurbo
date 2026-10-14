@@ -1,6 +1,6 @@
 //! Diagnostics computed inside CoTurbo, in Rust, with no language server:
 //! Rust (rust-analyzer's parser), JS/TS/JSX/TSX (oxc parser + semantic
-//! checks), CSS (lightningcss), JSON and TOML. Instant and always available;
+//! checks), CSS (lightningcss), HTML (see [`crate::html`]), JSON and TOML. Instant and always available;
 //! an external language server, when installed, adds type-level checks.
 
 use crate::diag::{Diag, Level};
@@ -116,6 +116,7 @@ pub fn check(rel: &str, text: &str) -> Option<Vec<Diag>> {
         "css" => css(rel, text),
         "json" => json(rel, text),
         "toml" => toml_file(rel, text),
+        "html" | "htm" => crate::html::check(rel, text),
         _ => return None,
     })
 }

@@ -258,3 +258,15 @@ async fn missing_language_server_is_reported_once_in_edit_results() {
     let second = t.call("write_file", &json!({"path": "src/b.rs", "content": "pub fn b() {}\n"})).await;
     assert!(!second.content.contains("[lsp]"), "{}", second.content);
 }
+
+#[tokio::test]
+async fn html_written_on_one_line_is_formatted_and_checked() {
+    let dir = tempfile::tempdir().unwrap();
+    let t = Tools::new(dir.path(), Mode::Naive).with_native_checks(true).with_lsp(lsp(dir.path(), vec![]));
+    let page = "<html><body><h1>Hi</h1><p>text</p></body></html>";
+    let out = t.call("write_file", &json!({"path": "index.html", "content": page})).await;
+    assert!(!out.is_error, "{}", out.content);
+    let written = fs::read_to_string(dir.path().join("index.html")).unwrap();
+    assert!(written.lines().count() >= 5, "formatted: {written}");
+    assert!(out.content.contains("check index.html:") && out.content.contains("doctype"), "{}", out.content);
+}

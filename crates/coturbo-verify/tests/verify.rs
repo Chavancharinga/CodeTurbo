@@ -289,3 +289,53 @@ fn native_checks_cover_every_language_in_process() {
 
     assert!(check("README.md", "# hi").is_none());
 }
+
+const ONE_LINE_PAGE: &str = "<html><head><title>T</title></head><body><header><h1>Hi</h1><button id=\"go\">Go</button></header><section><div class=\"card\">A</div></section><style>header{display:flex;padding:2rem}</style><script>document.getElementById('go').addEventListener('click', () => {});</script></body></html>";
+
+#[test]
+fn html_pages_are_formatted_stably() {
+    use coturbo_verify::html::format;
+    let f = format(ONE_LINE_PAGE).expect("valid page formats");
+    assert!(f.lines().count() > 10, "{f}");
+    assert!(f.contains("\n    <header>\n"), "{f}");
+    assert!(f.contains("display: flex"), "embedded CSS is pretty-printed: {f}");
+    assert_eq!(format(&f).as_deref(), Some(f.as_str()), "formatting twice changes nothing");
+    // Commented CSS is left as written (the CSS printer would drop comments).
+    let commented = format("<style>/* keep */a{color:red}</style>").unwrap();
+    assert!(commented.contains("/* keep */a{color:red}"), "{commented}");
+    assert!(format("<div><p>broken</div>").is_none());
+}
+
+#[test]
+fn html_check_finds_syntax_embedded_and_page_problems() {
+    use coturbo_verify::diag::Level;
+    use coturbo_verify::html::check;
+    let good = "<!doctype html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\"></head>\n<body><img src=\"a.png\" alt=\"A\"></body>\n</html>\n";
+    assert!(check("i.html", good).is_empty(), "{:?}", check("i.html", good));
+
+    let bad = "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"w\"></head>\n<body><div><p>hi</div>\n<style>\n.b {{ }</style>\n<script>\nconst x = ;\n</script></body></html>";
+    let d = check("x.html", bad);
+    let syntax = d.iter().find(|d| d.level == Level::Error && d.line == 3).expect("unclosed <p>");
+    assert!(syntax.message.contains('p'), "{}", syntax.message);
+    assert!(d.iter().any(|d| d.line == 5 && d.path == "x.html"), "CSS problem at its line in the page: {d:?}");
+    assert!(d.iter().any(|d| d.level == Level::Error && d.line == 7), "JS error at its line in the page: {d:?}");
+
+    let bare = check("p.html", "<html><body><img src=\"a.png\"></body></html>");
+    let msgs: Vec<&str> = bare.iter().map(|d| d.message.as_str()).collect();
+    for want in ["doctype", "charset", "viewport", "lang", "alt"] {
+        assert!(msgs.iter().any(|m| m.contains(want)), "missing a {want} warning: {msgs:?}");
+    }
+    assert!(bare.iter().all(|d| d.level == Level::Warning));
+    assert!(coturbo_verify::native::check("p.html", "<p>x</p>").is_some(), "html is a native language");
+}
+
+#[test]
+fn long_source_lines_are_cut_around_the_column() {
+    use coturbo_verify::diag::{Diag, Level};
+    let line = format!("{}BAD{}", "a".repeat(500), "b".repeat(500));
+    let d = Diag { level: Level::Error, path: "x".into(), line: 1, col: 501, message: "m".into(), code: None, source: Some(line) };
+    let r = d.render();
+    let shown = r.lines().nth(1).unwrap();
+    assert!(shown.chars().count() <= 130, "{}", shown.len());
+    assert!(shown.contains("BAD") && shown.starts_with("    …") && shown.ends_with('…'), "{shown}");
+}

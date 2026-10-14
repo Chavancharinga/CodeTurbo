@@ -154,6 +154,8 @@ pub struct NoopHost;
 impl Host for NoopHost {}
 
 const SUMMARY_TEXT_MAX: usize = 1500;
+/// Empty replies retried before the task is taken as finished.
+const EMPTY_RETRIES: u32 = 2;
 
 fn system_prompt(mode: Mode) -> String {
     let mut s = String::from(
@@ -331,6 +333,7 @@ impl<'a> Agent<'a> {
         let mut report = TaskReport::empty();
         let mut handoff = None;
         let mut fix_rounds = 0;
+        let mut empty_retries = 0;
 
         report.stop = loop {
             if report.turns >= self.config.max_turns {
@@ -384,6 +387,15 @@ impl<'a> Agent<'a> {
                 })
                 .collect();
             let truncated = resp.stop_reason == "max_tokens";
+            // A reply with no text and no tool call (a local model whose
+            // malformed tool call was dropped by the server) is asked again,
+            // without touching the history.
+            let empty = calls.is_empty() && report.final_text.trim().is_empty() && !truncated && resp.stop_reason != "refusal";
+            if empty && empty_retries < EMPTY_RETRIES {
+                empty_retries += 1;
+                host.on_event(Event::Notice("the model returned an empty reply; asking again"));
+                continue;
+            }
             self.history.push(Message { role: Role::Assistant, content: resp.content });
 
             if resp.stop_reason == "refusal" {

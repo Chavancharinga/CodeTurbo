@@ -31,10 +31,30 @@ impl Diag {
         let code = self.code.as_ref().map(|c| format!("[{c}]")).unwrap_or_default();
         let mut s = format!("{level}{code} {}:{}:{}: {}", self.path, self.line, self.col, self.message);
         if let Some(src) = &self.source {
-            s.push_str(&format!("\n    {}", src.trim()));
+            s.push_str(&format!("\n    {}", excerpt(src, self.col as usize)));
         }
         s
     }
+}
+
+/// The source line, or on a long line (minified code, a page on one line)
+/// only the part around `col`, so one diagnostic never costs a whole file.
+fn excerpt(src: &str, col: usize) -> String {
+    const MAX: usize = 120;
+    let src = src.trim_end();
+    let chars: Vec<char> = src.chars().collect();
+    if chars.len() <= MAX {
+        return src.trim_start().to_string();
+    }
+    let start = col.saturating_sub(1).saturating_sub(MAX / 3).min(chars.len() - MAX);
+    let mut out: String = chars[start..start + MAX].iter().collect();
+    if start > 0 {
+        out.insert(0, '…');
+    }
+    if start + MAX < chars.len() {
+        out.push('…');
+    }
+    out
 }
 
 /// Parses `cargo … --message-format=json` output: errors and warnings with a

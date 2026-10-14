@@ -111,8 +111,9 @@ impl Tools {
         self
     }
 
-    /// Whether `.rs` files written by `write_file`/`edit_file` are rustfmt'd.
-    pub(crate) fn format_rust(&self) -> bool {
+    /// Whether files written by `write_file`/`edit_file` are formatted
+    /// (rustfmt for Rust, the built-in formatter for HTML).
+    pub(crate) fn format_on_write(&self) -> bool {
         self.lsp.as_ref().is_some_and(|l| l.format_on_write())
     }
 
