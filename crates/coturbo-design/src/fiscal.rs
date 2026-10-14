@@ -192,7 +192,7 @@ pub fn brand_colors(texts: &[(String, String)]) -> Vec<String> {
             }
         }
     }
-    counts.sort_by(|a, b| b.1.cmp(&a.1));
+    counts.sort_by_key(|c| std::cmp::Reverse(c.1));
     counts.into_iter().take(5).map(|(c, _)| crate::color::hex(c)).collect()
 }
 
