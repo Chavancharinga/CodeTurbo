@@ -27,6 +27,9 @@ pub enum ContentBlock {
     Text { text: String },
     ToolUse { id: String, name: String, input: Value },
     ToolResult { tool_use_id: String, content: String, is_error: bool },
+    /// An image the user side shows the model (e.g. a page screenshot),
+    /// base64-encoded.
+    Image { media_type: String, data: String },
     /// Provider-specific block (thinking, redacted thinking, ...) that must be
     /// echoed back byte-for-byte to the provider that produced it.
     Opaque(Value),

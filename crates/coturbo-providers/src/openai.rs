@@ -44,16 +44,25 @@ pub fn build_body(req: &Request) -> Value {
         match m.role {
             Role::User => {
                 let mut text = String::new();
+                let mut images = Vec::new();
                 for b in &m.content {
                     match b {
                         ContentBlock::ToolResult { tool_use_id, content, .. } => messages.push(
                             json!({"role": "tool", "tool_call_id": tool_use_id, "content": content}),
                         ),
                         ContentBlock::Text { text: t } => text.push_str(t),
+                        ContentBlock::Image { media_type, data } => images.push(json!({
+                            "type": "image_url", "image_url": {"url": format!("data:{media_type};base64,{data}")}
+                        })),
                         _ => {}
                     }
                 }
-                if !text.is_empty() {
+                if !images.is_empty() {
+                    // Tool messages carry text only: images follow as a user message.
+                    let mut content = vec![json!({"type": "text", "text": if text.is_empty() { "Imagem anexada." } else { text.as_str() }})];
+                    content.extend(images);
+                    messages.push(json!({"role": "user", "content": content}));
+                } else if !text.is_empty() {
                     messages.push(json!({"role": "user", "content": text}));
                 }
             }

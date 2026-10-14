@@ -185,3 +185,26 @@ fn repeated_accordion_items_are_not_cards() {
     let cards = page.replace("faq-item", "price-card");
     assert!(fiscal::check("p.html", &cards, None).iter().any(|f| f.rule == "cartoes-identicos"));
 }
+
+#[test]
+fn more_generic_tells_are_caught() {
+    let page = r##"<html><head><style>
+.nav { backdrop-filter: blur(12px); display: flex; gap: 8px; padding: 8px; margin: 0 auto; max-width: 1200px; width: 100%; }
+button { outline: none; }
+p { font-size: 12px; line-height: 1.1; text-align: justify; }
+.modal { z-index: 99999; }
+.grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px; padding: 48px; margin: 0 auto; max-width: 1100px; }
+.a { color: red !important; } .b { color: red !important; } .c { color: red !important; }
+.d { color: red !important; } .e { color: red !important; } .f { color: red !important; }
+</style></head><body><p>Lorem ipsum dolor. Leve seu negócio ao próximo nível.</p>
+<a href="#">a</a><a href="#">b</a><a href="#">c</a><img src="https://picsum.photos/200"></body></html>"##;
+    let rules: Vec<&str> = fiscal::check("p.html", page, None).iter().map(|f| f.rule).collect();
+    for r in [
+        "vidro-fosco", "outline-removido", "texto-pequeno", "entrelinha", "texto-justificado", "z-index", "important",
+        "sem-responsividade", "texto-de-preenchimento", "imagem-de-preenchimento", "links-vazios", "texto-cliche",
+    ] {
+        assert!(rules.contains(&r), "missing {r}: {rules:?}");
+    }
+    let fixed = page.replace(".grid {", "@media (max-width: 700px) { .grid { grid-template-columns: 1fr; } }\n.grid {");
+    assert!(!fiscal::check("p.html", &fixed, None).iter().any(|f| f.rule == "sem-responsividade"));
+}

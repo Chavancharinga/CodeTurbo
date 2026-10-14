@@ -41,6 +41,8 @@ pub struct Config {
     pub run: Option<String>,
     /// Gate failures sent back to the model before giving up.
     pub max_fix_rounds: u32,
+    /// Whether the model reads images; unset guesses from the model name.
+    pub vision: Option<bool>,
     /// Look for a newer CodeTurbo release (at most once a day).
     pub update_check: bool,
     /// Append language-server diagnostics to every edit result.
@@ -109,6 +111,7 @@ impl Default for Config {
             verify: None,
             run: None,
             max_fix_rounds: 3,
+            vision: None,
             update_check: true,
             diagnostics_on_write: true,
             format_on_write: true,
@@ -253,7 +256,22 @@ pub fn agent_config(c: &Config) -> Result<AgentConfig, String> {
         context_window: c.context_window,
         gate: c.gate_config(),
         max_fix_rounds: c.max_fix_rounds,
+        vision: c.vision.unwrap_or_else(|| sees_images(&c.provider, &c.model)),
     })
+}
+
+/// Whether a model reads images, from its provider and name.
+pub fn sees_images(provider: &str, model: &str) -> bool {
+    let m = model.to_lowercase();
+    let any = |keys: &[&str]| keys.iter().any(|k| m.contains(k));
+    match provider {
+        "anthropic" => true,
+        "openai" => any(&["gpt-4o", "gpt-4.1", "gpt-5", "o3", "o4"]),
+        _ => any(&[
+            "claude", "gpt-4o", "gpt-4.1", "gpt-5", "gemini", "gemma3", "gemma4", "gemma-3", "llava", "vision", "-vl", "vl:",
+            "minicpm-v", "moondream", "llama4", "llama-4", "pixtral", "mistral-small3",
+        ]),
+    }
 }
 
 /// Prices a run: by model id, falling back to the `ollama` entry for local models.

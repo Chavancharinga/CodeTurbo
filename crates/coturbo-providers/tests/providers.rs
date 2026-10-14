@@ -205,3 +205,25 @@ fn thinking_deltas_are_streamed_separately() {
     assert_eq!(d, Some(Delta::Thinking("hmm".into())));
     assert!(acc.finish().content.is_empty(), "reasoning is not part of the answer");
 }
+
+#[test]
+fn screenshots_reach_both_apis() {
+    let mut req = request();
+    req.messages.push(Message {
+        role: Role::User,
+        content: vec![
+            ContentBlock::ToolResult { tool_use_id: "t2".into(), content: "rendered".into(), is_error: false },
+            ContentBlock::Image { media_type: "image/png".into(), data: "iVBORw0K".into() },
+        ],
+    });
+    let a = anthropic::build_body(&req, false);
+    let last = a["messages"].as_array().unwrap().last().unwrap().clone();
+    assert_eq!(last["content"][0]["type"], "tool_result", "results first");
+    assert_eq!(last["content"][1], json!({"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw0K"}}));
+    let o = openai::build_body(&req);
+    let msgs = o["messages"].as_array().unwrap();
+    let n = msgs.len();
+    assert_eq!(msgs[n - 2]["role"], "tool");
+    assert_eq!(msgs[n - 1]["role"], "user");
+    assert_eq!(msgs[n - 1]["content"][1]["image_url"]["url"], "data:image/png;base64,iVBORw0K");
+}

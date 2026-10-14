@@ -57,6 +57,9 @@ fn block_json(b: &ContentBlock) -> Value {
         ContentBlock::ToolResult { tool_use_id, content, is_error } => json!({
             "type": "tool_result", "tool_use_id": tool_use_id, "content": content, "is_error": is_error
         }),
+        ContentBlock::Image { media_type, data } => json!({
+            "type": "image", "source": {"type": "base64", "media_type": media_type, "data": data}
+        }),
         ContentBlock::Opaque(v) => v.clone(),
     }
 }

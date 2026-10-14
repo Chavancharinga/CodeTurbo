@@ -33,6 +33,8 @@ pub struct AgentConfig {
     pub gate: Option<GateConfig>,
     /// Gate failures sent back to the model before giving up.
     pub max_fix_rounds: u32,
+    /// The model reads images (screenshots from `design_review`).
+    pub vision: bool,
 }
 
 impl AgentConfig {
@@ -47,6 +49,7 @@ impl AgentConfig {
             context_window: 200_000,
             gate: Some(GateConfig::default()),
             max_fix_rounds: 3,
+            vision: false,
         }
     }
 }
@@ -166,7 +169,7 @@ fn system_prompt(mode: Mode) -> String {
          Reply in the language the user writes in. Write text files as UTF-8. \
          For any user interface work, call design_brief first and build only with the tokens it returns; \
          the design check rejects generic patterns (default fonts and palettes, emoji icons, \
-         identical card grids, the template section order).",
+         identical card grids, the template section order). After building a page, call design_review          to see it rendered and fix whatever still looks generic.",
     );
     if mode == Mode::Ast {
         s.push_str(
@@ -456,6 +459,7 @@ impl<'a> Agent<'a> {
 
             // Every tool_use gets exactly one result, in one user message.
             let mut results = Vec::with_capacity(calls.len());
+            let mut images = Vec::new();
             for (id, name, input) in calls {
                 let mut diff = None;
                 let out = if truncated {
@@ -484,8 +488,16 @@ impl<'a> Agent<'a> {
                 }
                 let diff = diff.filter(|_| !out.is_error);
                 host.on_event(Event::ToolEnd { name: &name, input: &input, output: &out, diff: diff.as_deref() });
-                results.push(ContentBlock::ToolResult { tool_use_id: id, content: out.content, is_error: out.is_error });
+                let mut content = out.content;
+                if self.config.vision {
+                    images.extend(out.images.into_iter().map(|(media_type, data)| ContentBlock::Image { media_type, data }));
+                } else if !out.images.is_empty() {
+                    content.push_str("\n(this model cannot see images; the screenshot was saved for the user)");
+                }
+                results.push(ContentBlock::ToolResult { tool_use_id: id, content, is_error: out.is_error });
             }
+            // Images after every result: tool results must come first.
+            results.extend(images);
             self.history.push(Message { role: Role::User, content: results });
             if handoff.is_some() {
                 break Stop::Done;

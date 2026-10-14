@@ -166,6 +166,14 @@ fn template_order(markup: &str) -> Vec<&'static str> {
     best.into_iter().max_by_key(Vec::len).unwrap_or_default().into_iter().map(|i| TEMPLATE[i].0).collect()
 }
 
+const PLACEHOLDER_IMG: [&str; 6] = ["via.placeholder.com", "placehold.co", "placehold.it", "picsum.photos", "source.unsplash.com", "dummyimage.com"];
+
+/// Marketing phrases every generated page repeats.
+const CLICHES: [&str; 14] = [
+    "leve seu", "próximo nível", "revolucione", "transforme sua", "transforme seu", "solução completa", "tudo o que você precisa",
+    "take your", "next level", "unlock", "seamless", "supercharge", "elevate your", "all-in-one",
+];
+
 fn is_emoji(c: char) -> bool {
     matches!(c as u32, 0x1F300..=0x1FAFF | 0x2600..=0x27BF | 0x1F000..=0x1F2FF | 0x2B50 | 0x2B06 | 0x2194..=0x21AA)
 }
@@ -191,12 +199,19 @@ pub fn check(path: &str, text: &str, contract: Option<&Contract>) -> Vec<Finding
     let mut literals = 0;
     let (mut has_focus, mut has_motion, mut reduced) = (false, None, false);
     let (mut off_space, mut off_radius) = (Vec::new(), Vec::new());
+    let mut outline_none = None;
+    let mut important = 0;
+    let mut families: Vec<String> = Vec::new();
+    let mut layout = false;
+    let mut responsive = false;
 
     for r in &regions {
         let roots: Vec<_> = ROOT_BLOCK.find_iter(&r.css).map(|m| m.range()).collect();
         let in_root = |o: usize| roots.iter().any(|rg| rg.contains(&o));
         has_focus |= r.css.contains(":focus");
         reduced |= r.css.contains("prefers-reduced-motion");
+        important += r.css.matches("!important").count();
+        responsive |= r.css.contains("@media") || r.css.contains("clamp(") || r.css.contains("auto-fit") || r.css.contains("auto-fill") || r.css.contains("@container");
         for rule in RULE.captures_iter(&r.css) {
             let (sel, body) = (rule.get(1).expect("group"), rule.get(2).expect("group"));
             if in_root(body.start()) {
@@ -225,6 +240,9 @@ pub fn check(path: &str, text: &str, contract: Option<&Contract>) -> Vec<Finding
                     "font-family" | "font" => {
                         let resolved = VAR.captures(&value).and_then(|c| vars.get(&c[1]).cloned()).unwrap_or(value.clone());
                         let fam = first_family(&resolved);
+                        if !fam.is_empty() && !families.contains(&fam) {
+                            families.push(fam.clone());
+                        }
                         if DEFAULT_FONTS.contains(&fam.as_str()) {
                             add(Severity::P1, "fonte-padrao", dline, format!("fonte `{fam}` é a padrão de interfaces genéricas; use a fonte do contrato"));
                         }
@@ -257,6 +275,36 @@ pub fn check(path: &str, text: &str, contract: Option<&Contract>) -> Vec<Finding
                         }
                     }
                     "box-shadow" if value != "none" => shadows.push((value.clone(), dline)),
+                    "backdrop-filter" | "-webkit-backdrop-filter" if value.contains("blur") => {
+                        add(Severity::P1, "vidro-fosco", dline, "vidro fosco (backdrop-filter: blur): clichê de interface gerada por IA".into());
+                    }
+                    "outline" if (value == "none" || value == "0") && !selector.contains("focus-visible") => {
+                        outline_none.get_or_insert(dline);
+                    }
+                    "text-align" if value == "justify" => {
+                        add(Severity::P2, "texto-justificado", dline, "texto justificado cria buracos entre palavras na web".into());
+                    }
+                    "font-size" => {
+                        if let Some(px) = value.strip_suffix("px").and_then(|n| n.trim().parse::<f64>().ok())
+                            && px < 14.0
+                        {
+                            add(Severity::P2, "texto-pequeno", dline, format!("fonte de {px}px: abaixo de 14px fica difícil de ler"));
+                        }
+                    }
+                    "line-height" => {
+                        if let Ok(lh) = value.parse::<f64>()
+                            && lh < 1.3
+                            && ["body", "p", "li"].iter().any(|t| selector.split([',', ' ']).any(|s| s == *t))
+                        {
+                            add(Severity::P2, "entrelinha", dline, format!("entrelinha {lh} no texto corrido; use pelo menos 1.4"));
+                        }
+                    }
+                    "z-index" => {
+                        if value.parse::<i64>().is_ok_and(|z| z >= 9999) {
+                            add(Severity::P2, "z-index", dline, format!("z-index {value}: use uma escala pequena de camadas"));
+                        }
+                    }
+                    "display" if value.contains("grid") || value.contains("flex") => layout = true,
                     "text-align" if value == "center" => centered.push(dline),
                     "transition" | "animation" => {
                         has_motion.get_or_insert(dline);
@@ -290,6 +338,21 @@ pub fn check(path: &str, text: &str, contract: Option<&Contract>) -> Vec<Finding
         }
     }
 
+    if let Some(l) = outline_none
+        && !regions.iter().any(|r| r.css.contains(":focus-visible"))
+    {
+        add(Severity::P1, "outline-removido", l, "outline removido sem estilo de :focus-visible: quem usa teclado se perde".into());
+    }
+    if important > 5 {
+        add(Severity::P2, "important", 1, format!("{important} usos de !important: sinal de cascata desorganizada"));
+    }
+    let real: Vec<&String> = families.iter().filter(|f| !DEFAULT_FONTS.contains(&f.as_str()) && *f != "monospace" && *f != "serif").collect();
+    if real.len() > 3 {
+        add(Severity::P2, "fontes-demais", 1, format!("{} famílias de fonte; o contrato usa duas", real.len()));
+    }
+    if layout && !responsive && regions.iter().map(|r| r.css.len()).sum::<usize>() > 400 {
+        add(Severity::P1, "sem-responsividade", 1, "layout em grid/flex sem @media, clamp() ou auto-fit: quebra no celular".into());
+    }
     let uniform = |v: &[(String, usize)]| v.iter().map(|(s, _)| s.as_str()).collect::<std::collections::HashSet<_>>().len() == 1;
     if radii.len() >= 4 && uniform(&radii) {
         add(Severity::P1, "raio-unico", radii[0].1, format!("{} elementos com o mesmo raio `{}`: varie entre os raios do contrato", radii.len(), radii[0].0));
@@ -354,6 +417,21 @@ pub fn check(path: &str, text: &str, contract: Option<&Contract>) -> Vec<Finding
         repeated.sort_by_key(|(_, (_, l))| *l);
         for (class, (n, line)) in repeated.into_iter().take(2) {
             add(Severity::P1, "cartoes-identicos", line, format!("{n} blocos `{class}` idênticos: grade de cartões genérica; varie tamanho, conteúdo ou forma"));
+        }
+        let lower = m.to_lowercase();
+        if let Some(i) = lower.find("lorem ipsum") {
+            add(Severity::P1, "texto-de-preenchimento", line_of(text, i), "lorem ipsum: escreva o texto real".into());
+        }
+        if let Some(i) = PLACEHOLDER_IMG.iter().filter_map(|h| lower.find(h)).min() {
+            add(Severity::P2, "imagem-de-preenchimento", line_of(text, i), "imagem de serviço de preenchimento: use imagem real ou ilustração própria".into());
+        }
+        let empty_links = lower.matches("href=\"#\"").count();
+        if empty_links >= 3 {
+            add(Severity::P2, "links-vazios", 1, format!("{empty_links} links com href=\"#\" sem destino"));
+        }
+        let cliches: Vec<&str> = CLICHES.iter().copied().filter(|c| lower.contains(c)).collect();
+        if !cliches.is_empty() {
+            add(Severity::P2, "texto-cliche", 1, format!("frases de efeito genéricas: {}", cliches.iter().map(|c| format!("\"{c}\"")).collect::<Vec<_>>().join(", ")));
         }
         let order = template_order(&m);
         if order.len() >= 5 {

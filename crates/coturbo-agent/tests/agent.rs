@@ -68,7 +68,7 @@ fn project() -> tempfile::TempDir {
 }
 
 fn config() -> AgentConfig {
-    AgentConfig { model: "mock".into(), max_turns: 10, max_tokens: 1000, effort: None, approval: ApprovalConfig::yolo(), plan_model: None, context_window: 1000, gate: None, max_fix_rounds: 3 }
+    AgentConfig { model: "mock".into(), max_turns: 10, max_tokens: 1000, effort: None, approval: ApprovalConfig::yolo(), plan_model: None, context_window: 1000, gate: None, max_fix_rounds: 3, vision: false }
 }
 
 fn tool_results(req: &Request) -> Vec<(String, String, bool)> {

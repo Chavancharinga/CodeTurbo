@@ -21,14 +21,16 @@ pub enum Mode {
 pub struct ToolOutput {
     pub content: String,
     pub is_error: bool,
+    /// Images for the model, `(media type, base64 data)`.
+    pub images: Vec<(String, String)>,
 }
 
 impl ToolOutput {
     pub fn ok(content: impl Into<String>) -> Self {
-        Self { content: content.into(), is_error: false }
+        Self { content: content.into(), is_error: false, images: Vec::new() }
     }
     pub fn err(content: impl Into<String>) -> Self {
-        Self { content: content.into(), is_error: true }
+        Self { content: content.into(), is_error: true, images: Vec::new() }
     }
 }
 
@@ -48,6 +50,7 @@ pub fn tier(name: &str) -> Tier {
     match name {
         "read_file" | "read_symbol" | "list_files" | "grep" | "workspace_diagnostics" | "propose_plan" => Tier::Read,
         n if EDIT_TOOLS.contains(&n) || n == "design_brief" => Tier::Write,
+        "design_review" => Tier::Read,
         _ => Tier::Exec,
     }
 }
@@ -151,6 +154,11 @@ impl Tools {
                     &["subject", "audience", "tone", "signature"],
                 ),
             ),
+            spec(
+                "design_review",
+                "Render an HTML page in the browser and get its screenshot plus measurements, to critique the design as a user would see it. Use after building a page.",
+                obj(json!({"path": s("relative .html path")}), &["path"]),
+            ),
             spec("propose_plan", "Plan mode only: submit .codeturbo/plans/<slug>-plan.md for the user's approval.", obj(json!({"slug": s("plan slug")}), &["slug"])),
         ];
         if self.mode == Mode::Ast {
@@ -190,6 +198,34 @@ impl Tools {
             contract::font_link(&tokens),
             contract::css(&tokens)
         )))
+    }
+
+    /// Renders a page: what the rules and measurements say, and the screenshot.
+    async fn design_review(&self, input: &Value) -> Res {
+        use coturbo_design::{contract::Contract, fiscal, render};
+        let rel = arg(input, "path")?;
+        let abs = self.resolve(rel)?;
+        let text = std::fs::read_to_string(&abs).map_err(|e| format!("{rel}: {e}"))?;
+        let rel = self.display(&abs);
+        let mut findings = fiscal::check(&rel, &text, Contract::load(&self.root).as_ref());
+        let browser = render::find_browser().ok_or("nenhum navegador encontrado (Edge ou Chrome); defina CODETURBO_BROWSER")?;
+        let stem = abs.file_stem().map_or("page".into(), |s| s.to_string_lossy().into_owned());
+        let shot = self.root.join(".codeturbo/design").join(format!("{stem}.png"));
+        let metrics = render::measure(&browser, &abs, &shot).await?;
+        findings.extend(render::judge(&metrics));
+        let mut out = ToolOutput::ok(format!(
+            "{}\nmeasurements: {} rounded elements with {} radii, {} shadowed with {} shadows, {} of {} text blocks centered, {} rows of identical blocks.\n\
+             Screenshot attached ({}). Critique it honestly: would a designer call it generic? Is the signature element the first thing you see? \
+             Is there a clear hierarchy and rhythm? Fix what you find, keeping DESIGN.md.",
+            fiscal::render(&rel, &findings),
+            metrics.rounded, metrics.radii, metrics.shadowed, metrics.shadows, metrics.centered, metrics.text, metrics.rows,
+            self.display(&shot)
+        ));
+        if let Ok(png) = std::fs::read(&shot) {
+            use base64::Engine;
+            out.images.push(("image/png".into(), base64::engine::general_purpose::STANDARD.encode(png)));
+        }
+        Ok(out)
     }
 
     /// Resolves a model-supplied path, refusing anything outside the root.
@@ -269,6 +305,7 @@ impl Tools {
             }
             "propose_plan" => Err("plan mode is not active".into()),
             "design_brief" => self.design_brief(input),
+            "design_review" => self.design_review(input).await,
             _ => Err(format!("unknown tool: {name}")),
         };
         let mut out = r.unwrap_or_else(ToolOutput::err);

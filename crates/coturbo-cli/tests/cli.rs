@@ -34,7 +34,7 @@ fn usage(input: u64, output: u64) -> Usage {
 }
 
 fn agent_cfg() -> AgentConfig {
-    AgentConfig { model: "m".into(), max_turns: 5, max_tokens: 1000, effort: None, approval: ApprovalConfig::yolo(), plan_model: None, context_window: 1000, gate: None, max_fix_rounds: 3 }
+    AgentConfig { model: "m".into(), max_turns: 5, max_tokens: 1000, effort: None, approval: ApprovalConfig::yolo(), plan_model: None, context_window: 1000, gate: None, max_fix_rounds: 3, vision: false }
 }
 
 #[test]
@@ -491,4 +491,17 @@ async fn a_fresh_cache_answers_without_asking_github() {
     assert_eq!(check(Some(dir.path().to_path_buf()), now).await, None, "same version: no notice");
     let msg = notice("v999.0.0");
     assert!(msg.contains("v999.0.0") && msg.contains("codeturbo update"), "{msg}");
+}
+
+#[test]
+fn image_capable_models_are_recognized() {
+    use coturbo_cli::config::sees_images;
+    assert!(sees_images("anthropic", "claude-sonnet-5-5"));
+    assert!(sees_images("openai", "gpt-5"));
+    assert!(!sees_images("openai", "gpt-3.5-turbo"));
+    assert!(sees_images("ollama", "gemma4:31b-cloud"));
+    assert!(sees_images("ollama", "qwen2.5vl:7b"));
+    assert!(!sees_images("ollama", "qwen3:4b"));
+    let cfg = Config { provider: "ollama".into(), model: "qwen3:4b".into(), vision: Some(true), ..Config::default() };
+    assert!(config::agent_config(&cfg).unwrap().vision, "the config can force it");
 }
