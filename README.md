@@ -2,6 +2,13 @@
   <img src="docs/codeturbo.svg" alt="CodeTurbo: o logo com um caracol correndo" width="618">
 </p>
 
+<p align="center">
+  <a href="#licença"><img alt="Licença: MIT OR Apache-2.0" src="https://img.shields.io/badge/licen%C3%A7a-MIT%20OR%20Apache--2.0-2F7BFF"></a>
+  <img alt="Rust 1.94+" src="https://img.shields.io/badge/rust-1.94%2B-2F7BFF?logo=rust&logoColor=white">
+  <img alt="100% Rust" src="https://img.shields.io/badge/100%25-Rust-2F7BFF">
+  <img alt="Status: em desenvolvimento" src="https://img.shields.io/badge/status-em%20desenvolvimento-555555">
+</p>
+
 <p align="center"><b>Agente de código em Rust</b> · fast · frugal · verified</p>
 
 ---
@@ -63,4 +70,10 @@ economia de tokens e o motor de design embutido.
 
 ## Licença
 
-[MIT](LICENSE).
+Licenciado sob a sua escolha de uma das duas:
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
+- MIT license ([LICENSE-MIT](LICENSE-MIT))
+
+Qualquer contribuição enviada para inclusão no projeto, salvo indicação em
+contrário, fica licenciada da mesma forma, sem termos adicionais.
