@@ -57,12 +57,15 @@ pub struct TuiHost {
     label: String,
     /// File of the tool call being written, once its path streamed in.
     composing_path: Option<String>,
+    /// Model responses so far in this task, and the last tool run.
+    turns: u32,
+    last_step: Option<String>,
 }
 
 impl TuiHost {
     pub fn new(out: Sender<Out>, pricer: Pricer, root: PathBuf, verbose: bool, base: Usage) -> Self {
         let width = terminal_size::terminal_size().map_or(100, |(w, _)| w.0 as usize).min(140);
-        Self { out, pricer, root, verbose, limits: None, base, width, label: String::new(), composing_path: None }
+        Self { out, pricer, root, verbose, limits: None, base, width, label: String::new(), composing_path: None, turns: 0, last_step: None }
     }
 
     fn send(&self, m: Out) {
@@ -94,6 +97,10 @@ fn arg(input: &serde_json::Value) -> &str {
 impl Host for TuiHost {
     fn on_event(&mut self, ev: Event<'_>) {
         match ev {
+            Event::Waiting("thinking") if self.turns > 0 => {
+                let last = self.last_step.clone().map(|s| format!(" · último: {s}")).unwrap_or_default();
+                self.busy(format!("pensando no próximo passo · rodada {}{last}", self.turns + 1));
+            }
             Event::Waiting(what) => self.busy(busy_label(what)),
             Event::Thinking(delta) => {
                 self.busy("raciocinando".into());
@@ -109,6 +116,7 @@ impl Host for TuiHost {
                 self.busy(format!("executando {name} {}", arg(input)));
             }
             Event::ToolEnd { name, input, output, diff } => {
+                self.last_step = Some(format!("{name} {}", arg(input)).trim().to_string());
                 let mut lines = vec![Line::default(), ansi_line(&tool_line(name, input, output))];
                 if let Some(d) = diff {
                     let (add, del) = view::diff_stat(d);
@@ -120,6 +128,7 @@ impl Host for TuiHost {
                 }
             }
             Event::Turn { turn, task, secs, window } => {
+                self.turns += 1;
                 let cost = self.pricer.cost(turn);
                 let line = view::turn_line(turn, secs, window, cost, self.limits.as_deref());
                 let mut lines = vec![Line::styled(format!("  {line}"), Style::new().add_modifier(Modifier::DIM))];
