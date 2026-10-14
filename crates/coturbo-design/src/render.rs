@@ -107,7 +107,7 @@ async fn run(browser: &Path, args: &[String]) -> Result<String, String> {
     let n = RUNS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     let profile = std::env::temp_dir().join(format!("codeturbo-render-{}-{n}", std::process::id()));
     let mut cmd = tokio::process::Command::new(browser);
-    cmd.args(["--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--hide-scrollbars", "--window-size=1280,2000"])
+    cmd.args(["--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--hide-scrollbars", "--window-size=1440,900"])
         .arg(format!("--user-data-dir={}", profile.display()))
         .args(args)
         .stdin(std::process::Stdio::null())

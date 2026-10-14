@@ -177,3 +177,11 @@ async fn review_renders_in_the_installed_browser() {
         assert!(dir.path().join(".codeturbo/design/index.png").exists(), "screenshot saved");
     }
 }
+
+#[test]
+fn repeated_accordion_items_are_not_cards() {
+    let page = r#"<div class="faq-item">a</div><div class="faq-item">b</div><div class="faq-item">c</div>"#;
+    assert!(fiscal::check("p.html", page, None).iter().all(|f| f.rule != "cartoes-identicos"));
+    let cards = page.replace("faq-item", "price-card");
+    assert!(fiscal::check("p.html", &cards, None).iter().any(|f| f.rule == "cartoes-identicos"));
+}

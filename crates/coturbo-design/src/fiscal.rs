@@ -343,7 +343,9 @@ pub fn check(path: &str, text: &str, contract: Option<&Contract>) -> Vec<Finding
         for c in CLASS.captures_iter(&m) {
             let v = c[1].trim().to_string();
             let lower = v.to_lowercase();
-            if ["card", "feature", "item", "box", "tile", "plan", "testimonial", "depoimento", "recurso"].iter().any(|k| lower.contains(k)) {
+            // Accordions and lists repeat by nature; cards in a grid are the cliché.
+            let list = ["faq", "accordion", "acordeao", "pergunta", "question", "nav", "menu", "link"].iter().any(|k| lower.contains(k));
+            if !list && ["card", "feature", "box", "tile", "plan", "testimonial", "depoimento", "recurso"].iter().any(|k| lower.contains(k)) {
                 let e = classes.entry(v).or_insert((0, line_of(text, c.get(0).expect("match").start())));
                 e.0 += 1;
             }
