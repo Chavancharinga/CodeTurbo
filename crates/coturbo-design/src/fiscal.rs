@@ -64,7 +64,7 @@ static HEX: LazyLock<Regex> = LazyLock::new(|| re(r"#[0-9a-fA-F]{6}\b|#[0-9a-fA-
 static RGB_FN: LazyLock<Regex> = LazyLock::new(|| re(r"rgba?\(\s*(\d{1,3})[\s,]+(\d{1,3})[\s,]+(\d{1,3})"));
 static VAR: LazyLock<Regex> = LazyLock::new(|| re(r"var\(\s*(--[a-z0-9-]+)"));
 static HEADING: LazyLock<Regex> = LazyLock::new(|| re(r"(?i)<h([1-6])[\s>]"));
-static CLASS: LazyLock<Regex> = LazyLock::new(|| re(r#"(?i)\bclass(?:Name)?\s*=\s*["']([^"']+)["']"#));
+static CLASS: LazyLock<Regex> = LazyLock::new(|| re(r#"(?i)<([a-z][a-z0-9-]*)\b[^>]*?\bclass(?:Name)?\s*=\s*["']([^"']+)["']"#));
 static LANDMARK: LazyLock<Regex> =
     LazyLock::new(|| re(r#"(?is)<(?:section|header|footer|div|nav)\b[^>]*\b(?:id|class)\s*=\s*"([^"]*)"|<h2[^>]*>(.*?)</h2>"#));
 
@@ -424,7 +424,13 @@ pub fn check(path: &str, text: &str, contract: Option<&Contract>) -> Vec<Finding
         }
         let mut classes: HashMap<String, (usize, usize)> = HashMap::new();
         for c in CLASS.captures_iter(&m) {
-            let v = c[1].trim().to_string();
+            // List items, links and inline text repeat by nature.
+            if ["li", "ul", "ol", "dl", "span", "a", "p", "i", "b", "strong", "em", "svg", "img", "button", "td", "tr", "th", "option", "label", "input"]
+                .contains(&c[1].to_ascii_lowercase().as_str())
+            {
+                continue;
+            }
+            let v = c[2].trim().to_string();
             let lower = v.to_lowercase();
             // Accordions and lists repeat by nature; cards in a grid are the cliché.
             let list = ["faq", "accordion", "acordeao", "pergunta", "question", "nav", "menu", "link"].iter().any(|k| lower.contains(k));
@@ -455,7 +461,7 @@ pub fn check(path: &str, text: &str, contract: Option<&Contract>) -> Vec<Finding
         }
         let order = template_order(&m);
         if order.len() >= 5 {
-            add(Severity::P1, "sequencia-template", 1, format!("seções na ordem de template ({}): reorganize em torno do elemento de assinatura", order.join(" → ")));
+            add(Severity::P2, "sequencia-template", 1, format!("seções na ordem de template ({}): reorganize em torno do elemento de assinatura", order.join(" → ")));
         }
     }
     out.sort_by_key(|f| (f.severity, f.line));

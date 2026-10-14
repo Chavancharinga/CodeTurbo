@@ -227,8 +227,50 @@ impl Session {
         self.cfg.run = project.run.or(self.cfg.run.take());
     }
 
+    /// Asks before working in a folder for the first time. `false`: the
+    /// user did not allow it.
+    async fn trust_folder(&mut self) -> bool {
+        let mut trust = settings::Trust::load(self.dir.as_deref());
+        if trust.covers(&self.root) {
+            if settings::known_project(&self.root) {
+                self.info("Projeto do CodeTurbo reconhecido nesta pasta.");
+            }
+            return true;
+        }
+        let mut lines = vec![
+            Line::default(),
+            Line::styled(format!("Primeira vez nesta pasta: {}", self.root.display()), Style::new().fg(Color::Yellow)),
+            Line::raw("  O CodeTurbo vai ler e alterar arquivos aqui e pode rodar comandos, conforme o modo de aprovação."),
+            Line::raw("  Confie apenas em pastas cujo conteúdo você conhece."),
+        ];
+        if settings::too_broad(&self.root) {
+            lines.push(Line::styled(
+                "  Atenção: esta é a sua pasta pessoal ou a raiz do disco. Prefira abrir o CodeTurbo dentro da pasta do projeto.",
+                Style::new().fg(Color::Red),
+            ));
+        }
+        self.send(Out::Lines(lines));
+        let title = "Confiar nesta pasta?".to_string();
+        if !self.ask(|reply| Question::Confirm { title, reply }, false).await {
+            self.warn("pasta não autorizada: nada será lido nem alterado. Abra o CodeTurbo na pasta do seu projeto.");
+            return false;
+        }
+        if let Err(e) = trust.add(self.dir.as_deref(), &self.root) {
+            self.warn(format!("a autorização vale só nesta sessão: {e}"));
+        }
+        self.info("Pasta autorizada. Da próxima vez ela é reconhecida automaticamente.");
+        true
+    }
+
     async fn main_loop(&mut self, rx: &mut UnboundedReceiver<In>, cancel: &mut UnboundedReceiver<()>) -> Result<(), String> {
         self.welcome();
+        if !self.trust_folder().await {
+            // Wait for the user to quit; nothing runs here.
+            while let Some(In::Submit(_)) = rx.recv().await {
+                self.warn("esta pasta não foi autorizada; encerre com /sair e abra o CodeTurbo na pasta do projeto");
+            }
+            return Ok(());
+        }
         self.trust_project().await;
         let tools = config::make_tools(&self.root, self.mode, &self.cfg);
         let mut first = true;

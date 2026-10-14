@@ -34,7 +34,8 @@ pub fn find_browser() -> Option<PathBuf> {
 
 /// Runs in the page and leaves its measurements on `<html data-codeturbo>`.
 const PROBE: &str = r#"<script>(()=>{const go=()=>{
-const W=innerWidth;const vis=e=>{const s=getComputedStyle(e);return s.visibility!=='hidden'&&s.display!=='none'&&parseFloat(s.opacity)>0.2;};
+const W=innerWidth;const clipped=e=>{for(let a=e.parentElement;a;a=a.parentElement){const s=getComputedStyle(a);if(s.overflow!=='visible'||s.overflowY!=='visible'||s.overflowX!=='visible'){const r=a.getBoundingClientRect();if(r.height<2||r.width<2)return true;}}return false;};
+const vis=e=>{const s=getComputedStyle(e);return s.visibility!=='hidden'&&s.display!=='none'&&parseFloat(s.opacity)>0.2&&!clipped(e);};
 const R=e=>e.getBoundingClientRect();
 const label=e=>(e.tagName.toLowerCase()+(e.className&&typeof e.className==='string'?'.'+e.className.trim().split(/\s+/)[0]:'')+' "'+(e.innerText||e.alt||'').trim().replace(/\s+/g,' ').slice(0,24)+'"');
 const all=[...document.querySelectorAll('body *')].filter(e=>{const r=R(e);return r.width>=40&&r.height>=24&&vis(e);});
@@ -49,10 +50,11 @@ const same=k.every(c=>c.tagName===k[0].tagName&&c.className===k[0].className);
 if(same&&Math.max(...w)-Math.min(...w)<=2&&Math.max(...h)/Math.max(1,Math.min(...h))<1.15&&k[0].children.length>=2)rows++;}
 const own=e=>[...e.childNodes].some(n=>n.nodeType===3&&n.textContent.trim().length>0);
 const items=[...document.querySelectorAll('body *')].filter(e=>vis(e)&&(own(e)||/^(IMG|BUTTON|INPUT|SELECT|TEXTAREA|SVG|VIDEO)$/i.test(e.tagName))).filter(e=>{const r=R(e);return r.width>4&&r.height>4;}).slice(0,600);
-const overlaps=[],tight=[];
+const decor=e=>!!e.closest('[aria-hidden="true"]')||getComputedStyle(e).pointerEvents==='none';
+const overlaps=[],tight=[],under=[];
 for(let i=0;i<items.length;i++){for(let j=i+1;j<items.length;j++){const a=items[i],b=items[j];if(a.contains(b)||b.contains(a))continue;
 const p=R(a),q=R(b);const ix=Math.min(p.right,q.right)-Math.max(p.left,q.left),iy=Math.min(p.bottom,q.bottom)-Math.max(p.top,q.top);
-if(ix>2&&iy>2){const area=ix*iy,small=Math.min(p.width*p.height,q.width*q.height);if(area>small*0.15&&area>60&&overlaps.length<8)overlaps.push(label(a)+' × '+label(b));continue;}
+if(ix>2&&iy>2){const area=ix*iy,small=Math.min(p.width*p.height,q.width*q.height);if(area>small*0.15&&area>60){const l=label(a)+' × '+label(b);if(decor(a)||decor(b)){if(under.length<8)under.push(l);}else if(overlaps.length<8)overlaps.push(l);}continue;}
 const sameLine=Math.min(p.bottom,q.bottom)-Math.max(p.top,q.top)>Math.min(p.height,q.height)*0.5;
 const gap=Math.max(q.left-p.right,p.left-q.right);
 if(sameLine&&gap>=-2&&gap<4&&own(a)&&own(b)&&a.parentElement!==b.parentElement&&tight.length<8)tight.push(label(a)+' | '+label(b));}}
@@ -63,7 +65,7 @@ const cut=items.filter(e=>{const r=R(e);return own(e)&&(r.right>W+1||r.left<-1||
 const scrollers=[...document.querySelectorAll('body *')].filter(e=>{const s=getComputedStyle(e);return vis(e)&&((/(auto|scroll)/.test(s.overflowY)&&e.scrollHeight>e.clientHeight+1)||(/(auto|scroll)/.test(s.overflowX)&&e.scrollWidth>e.clientWidth+1))&&e.clientWidth>0;}).map(label).slice(0,5);
 const small=W<600?[...document.querySelectorAll('a,button,input,select')].filter(e=>{const r=R(e);return vis(e)&&r.width>0&&(r.height<32||r.width<32);}).length:0;
 let host=document.documentElement;try{if(window.parent!==window)host=parent.document.documentElement;}catch(e){}
-host.setAttribute('data-codeturbo',JSON.stringify({rounded,radii:radii.size,shadowed,shadows:shadows.size,centered,text,rows,tiny,overlaps,tight,broken,hscroll,scrollers,small,cut,edge}));};
+host.setAttribute('data-codeturbo',JSON.stringify({rounded,radii:radii.size,shadowed,shadows:shadows.size,centered,text,rows,tiny,overlaps,tight,broken,hscroll,scrollers,small,cut,edge,under}));};
 if(document.readyState==='complete')setTimeout(go,300);else addEventListener('load',()=>setTimeout(go,300));})();</script>"#;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -93,6 +95,8 @@ pub struct Metrics {
     pub cut: Vec<String>,
     /// Text touching the screen edge, with no side margin (phone only).
     pub edge: Vec<String>,
+    /// Decorative elements (aria-hidden) drawn over content.
+    pub under: Vec<String>,
 }
 
 /// Measurements at desktop and phone width.
@@ -126,6 +130,7 @@ pub fn parse_metrics(dom: &str) -> Option<Metrics> {
         small: n("small"),
         cut: list("cut"),
         edge: list("edge"),
+        under: list("under"),
     })
 }
 
@@ -140,6 +145,12 @@ pub fn judge(p: &Page) -> Vec<Finding> {
     for (m, at) in [(&p.desktop, "no computador"), (&p.mobile, "no celular")] {
         if !m.overlaps.is_empty() {
             add(Severity::P0, "render-sobreposicao", format!("elementos sobrepostos {at}: {}", sample(&m.overlaps)));
+        }
+        if !m.under.is_empty() {
+            add(Severity::P2, "render-ornamento-sobre-texto", format!(
+                "ornamento decorativo passando sobre o conteúdo {at}: {}; afaste-o do texto ou reduza a opacidade",
+                sample(&m.under)
+            ));
         }
         if !m.tight.is_empty() {
             add(Severity::P1, "render-colados", format!("elementos colados, sem espaço entre si, {at}: {}", sample(&m.tight)));

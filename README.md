@@ -82,6 +82,10 @@ Abra um terminal na pasta do seu projeto e execute:
 codeturbo
 ```
 
+Na primeira vez em uma pasta, o CodeTurbo pede confirmação antes de ler,
+alterar arquivos ou rodar comandos nela. A autorização fica salva e vale para
+as subpastas; projetos já usados são reconhecidos automaticamente.
+
 A interface ocupa o terminal: o logotipo permanece no topo, a conversa ao
 centro e o campo de texto na parte inferior. Na primeira execução, o
 CodeTurbo solicita o provedor e o modelo; as escolhas ficam salvas para as

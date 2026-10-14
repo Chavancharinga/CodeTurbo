@@ -496,3 +496,26 @@ fn clicking_code_opens_it_and_the_wheel_scrolls() {
     let all: String = (0..40).map(|y| (0..100).map(|x| buf[(x, y)].symbol().to_string()).collect::<String>()).collect();
     assert!(!all.contains("linha 29"), "the wheel scrolled up");
 }
+
+#[test]
+fn folders_are_trusted_once_and_recognized_after() {
+    use coturbo_cli::settings::{Trust, known_project, too_broad};
+    let config = tempfile::tempdir().unwrap();
+    let project = tempfile::tempdir().unwrap();
+    let inner = project.path().join("src");
+    std::fs::create_dir_all(&inner).unwrap();
+    let mut t = Trust::load(Some(config.path()));
+    assert!(!t.covers(project.path()), "a new folder asks first");
+    t.add(Some(config.path()), project.path()).unwrap();
+    let again = Trust::load(Some(config.path()));
+    assert!(again.covers(project.path()), "remembered after restart");
+    assert!(again.covers(&inner), "folders inside a trusted one are trusted");
+    assert!(!again.covers(config.path()), "others are not");
+    assert!(!known_project(project.path()));
+    std::fs::create_dir_all(project.path().join(".codeturbo")).unwrap();
+    assert!(known_project(project.path()), "CodeTurbo's own files mark a known project");
+    assert!(!too_broad(&inner));
+    if let Some(home) = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }) {
+        assert!(too_broad(std::path::Path::new(&home)), "the home folder is too broad");
+    }
+}

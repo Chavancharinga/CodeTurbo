@@ -113,3 +113,66 @@ pub fn api_key(provider: &str, creds: &Credentials) -> Option<String> {
         .filter(|k| !k.trim().is_empty());
     from_env.or_else(|| creds.get(provider).map(str::to_string))
 }
+
+const TRUSTED: &str = "trusted.toml";
+
+/// Folders the user allowed CodeTurbo to read, edit and run commands in.
+/// A trusted folder covers everything inside it.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct Trust {
+    folders: Vec<std::path::PathBuf>,
+}
+
+fn normalize(p: &Path) -> std::path::PathBuf {
+    let p = p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+    // Windows paths compare without case.
+    if cfg!(windows) { std::path::PathBuf::from(p.to_string_lossy().to_lowercase()) } else { p }
+}
+
+impl Trust {
+    pub fn load(dir: Option<&Path>) -> Self {
+        let folders = dir
+            .and_then(|d| std::fs::read_to_string(d.join(TRUSTED)).ok())
+            .and_then(|t| t.parse::<toml_edit::DocumentMut>().ok())
+            .and_then(|doc| {
+                Some(doc.get("folders")?.as_array()?.iter().filter_map(|v| v.as_str().map(std::path::PathBuf::from)).collect())
+            })
+            .unwrap_or_default();
+        Self { folders }
+    }
+
+    /// Whether `folder` or a folder containing it was trusted.
+    pub fn covers(&self, folder: &Path) -> bool {
+        let f = normalize(folder);
+        self.folders.iter().any(|t| f.starts_with(normalize(t)))
+    }
+
+    /// Trusts `folder` and saves the list.
+    pub fn add(&mut self, dir: Option<&Path>, folder: &Path) -> Result<(), String> {
+        let f = folder.canonicalize().unwrap_or_else(|_| folder.to_path_buf());
+        if !self.covers(&f) {
+            self.folders.push(f);
+        }
+        let Some(dir) = dir else { return Ok(()) };
+        let mut arr = toml_edit::Array::new();
+        for f in &self.folders {
+            arr.push(f.to_string_lossy().trim_start_matches(r"\\?\").to_string());
+        }
+        let mut doc = toml_edit::DocumentMut::new();
+        doc["folders"] = toml_edit::value(arr);
+        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        std::fs::write(dir.join(TRUSTED), doc.to_string()).map_err(|e| e.to_string())
+    }
+}
+
+/// Whether CodeTurbo was already used in `folder` (its own files are there).
+pub fn known_project(folder: &Path) -> bool {
+    folder.join(".codeturbo").is_dir() || folder.join("CODETURBO.md").is_file() || folder.join(".codeturbo.toml").is_file()
+}
+
+/// A folder too broad to work in: the home folder or a drive root.
+pub fn too_broad(folder: &Path) -> bool {
+    let f = folder.canonicalize().unwrap_or_else(|_| folder.to_path_buf());
+    let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(std::path::PathBuf::from);
+    f.parent().is_none() || f.components().count() <= 2 || home.is_some_and(|h| h.canonicalize().unwrap_or(h) == f)
+}

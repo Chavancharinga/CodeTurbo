@@ -102,7 +102,6 @@ fn a_generic_page_is_refused_for_the_right_reasons() {
         "raio-unico",
         "emoji-icone",
         "cartoes-identicos",
-        "sequencia-template",
         "titulos",
         "foco-ausente",
         "sem-contrato",
@@ -315,4 +314,13 @@ mod kit {
         let r = coturbo_design::review(dir.path(), &["index.html".into()]).await.unwrap();
         assert!(r.ok, "{}", r.summary);
     }
+}
+
+#[test]
+fn feature_lists_inside_plans_are_not_cards() {
+    let page = r#"<ul><li class="price-feature">a</li><li class="price-feature">b</li><li class="price-feature">c</li></ul>"#;
+    assert!(fiscal::check("p.html", page, None).iter().all(|f| f.rule != "cartoes-identicos"));
+    let order = r#"<section id="hero"></section><section id="features"></section><section id="testimonials"></section><section id="pricing"></section><section id="faq"></section><section id="contact"></section>"#;
+    let f = fiscal::check("p.html", order, None);
+    assert!(f.iter().any(|x| x.rule == "sequencia-template" && !x.blocking()), "the order is advice: {f:?}");
 }

@@ -174,6 +174,26 @@ async fn real_main(cli: Cli) -> Result<ExitCode, String> {
         let (plan, verbose, prompt) = (cli.opts.plan, cli.opts.verbose, cli.prompt);
         return session::run(Launch { cfg, prices, dir, root, mode, plan, verbose, prompt, update: check }).await;
     }
+    if matches!(cli.cmd, Some(Cmd::Run { .. })) {
+        let mut trust = settings::Trust::load(dir.as_deref());
+        if !trust.covers(&root) {
+            let interactive = std::io::stdin().is_terminal();
+            if !interactive {
+                return Err(format!(
+                    "a pasta {} ainda não foi autorizada; abra `codeturbo` nela uma vez para confiar",
+                    root.display()
+                ));
+            }
+            eprintln!("Primeira vez nesta pasta: {}", root.display());
+            eprint!("O CodeTurbo vai ler, alterar arquivos e rodar comandos aqui. Confiar nesta pasta? [s/N] ");
+            let mut answer = String::new();
+            let _ = std::io::stdin().read_line(&mut answer);
+            if !matches!(answer.trim().to_lowercase().as_str(), "s" | "sim" | "y" | "yes") {
+                return Err("pasta não autorizada".into());
+            }
+            trust.add(dir.as_deref(), &root)?;
+        }
+    }
     let creds = settings::Credentials::load(dir.as_deref());
     let provider = config::make_provider(&cfg, settings::api_key(&cfg.provider, &creds))?;
     let pricer = Pricer { table: prices, model: cfg.model.clone(), provider: cfg.provider.clone() };
