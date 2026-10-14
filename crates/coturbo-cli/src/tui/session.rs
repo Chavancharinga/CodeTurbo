@@ -302,6 +302,16 @@ impl Session {
                             self.info(format!("Sessão: {}", status_line(&total, self.pricer().cost(&total))));
                             false
                         }
+                        Command::Undo => {
+                            match agent.as_mut().map(Agent::undo) {
+                                Some(Ok(files)) => {
+                                    self.info(format!("Alterações desfeitas em: {}", files.join(", ")));
+                                }
+                                Some(Err(e)) => self.warn(e),
+                                None => self.warn("nenhum provedor pronto"),
+                            }
+                            false
+                        }
                         Command::Clear => {
                             self.send(Out::Clear);
                             self.info("Nova conversa iniciada.");

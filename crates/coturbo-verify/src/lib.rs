@@ -10,6 +10,7 @@ pub mod gate;
 pub mod html;
 pub mod lsp;
 pub mod native;
+pub mod skeleton;
 pub mod workspace;
 
 pub use cheat::{Finding, Snapshot};

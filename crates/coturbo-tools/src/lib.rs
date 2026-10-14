@@ -132,7 +132,7 @@ impl Tools {
     pub fn specs(&self) -> Vec<ToolSpec> {
         let read_desc = match self.mode {
             Mode::Naive => "Read a file.",
-            Mode::Ast => "Read a file. Large .rs files return a skeleton (bodies elided as `{ … }`); use read_symbol for a body or full=true for everything.",
+            Mode::Ast => "Read a file. Large .rs, .js and .ts files return a skeleton (bodies elided as `{ … }`); use read_symbol (Rust) for a body or full=true for everything.",
         };
         let mut v = vec![
             spec("read_file", read_desc, obj(json!({"path": s("relative path"), "full": {"type": "boolean"}}), &["path"])),

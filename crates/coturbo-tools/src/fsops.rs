@@ -69,6 +69,18 @@ impl Tools {
             );
             return Ok(ToolOutput::ok(header + &coturbo_ast::skeleton(&src)));
         }
+        let rel = self.display(&path);
+        if self.mode == Mode::Ast
+            && !full
+            && lines > SKELETON_MIN_LINES
+            && coturbo_verify::skeleton::is_js(&rel)
+            && let Some(sk) = coturbo_verify::skeleton::js_skeleton(&rel, &src)
+        {
+            let header = format!(
+                "// skeleton of {rel} ({lines} lines); function bodies elided — grep for a function or full=true to see bodies before editing\n"
+            );
+            return Ok(ToolOutput::ok(header + &sk));
+        }
         Ok(ToolOutput::ok(truncate(src, MAX_READ)))
     }
 

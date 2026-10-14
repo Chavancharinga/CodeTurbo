@@ -8,6 +8,7 @@ pub enum Command {
     Approval,
     Plan,
     Usage,
+    Undo,
     Clear,
     Update,
     Help,
@@ -21,7 +22,7 @@ pub struct CommandInfo {
     pub cmd: Command,
 }
 
-pub const COMMANDS: [CommandInfo; 10] = [
+pub const COMMANDS: [CommandInfo; 11] = [
     CommandInfo { name: "/provedor", aliases: &["/provider"], about: "escolher o provedor de modelos", cmd: Command::Provider },
     CommandInfo {
         name: "/modelo",
@@ -38,6 +39,7 @@ pub const COMMANDS: [CommandInfo; 10] = [
     },
     CommandInfo { name: "/plano", aliases: &["/plan"], about: "ativar ou desativar o modo plano", cmd: Command::Plan },
     CommandInfo { name: "/uso", aliases: &["/usage"], about: "tokens e custo da sessão", cmd: Command::Usage },
+    CommandInfo { name: "/desfazer", aliases: &["/undo"], about: "desfazer as alterações da última tarefa", cmd: Command::Undo },
     CommandInfo {
         name: "/limpar",
         aliases: &["/clear", "/novo", "/new"],

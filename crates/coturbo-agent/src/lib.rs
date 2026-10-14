@@ -241,6 +241,9 @@ pub struct Agent<'a> {
     /// History length, pending summary and plan mode before the running
     /// task, to put back if it is interrupted.
     started: Option<(usize, Option<String>, bool)>,
+    /// Per finished task, the files it changed and their content before it
+    /// (`None`: the file did not exist), for `undo`.
+    checkpoints: Vec<Vec<(std::path::PathBuf, String, Option<String>)>>,
 }
 
 /// Project files (not CoTurbo's own plan files) changed in the task.
@@ -265,7 +268,87 @@ impl<'a> Agent<'a> {
             snapshot: Snapshot::default(),
             decided: HashMap::new(),
             started: None,
+            checkpoints: Vec::new(),
         }
+    }
+
+    /// Puts back every file the last task changed, as it was before the
+    /// task. Returns the files restored; the next task is told.
+    pub fn undo(&mut self) -> Result<Vec<String>, String> {
+        let files = self.checkpoints.pop().ok_or("nenhuma alteração para desfazer")?;
+        let mut restored = Vec::new();
+        for (path, rel, before) in files.into_iter().rev() {
+            match before {
+                Some(text) => std::fs::write(&path, text).map_err(|e| format!("{rel}: {e}"))?,
+                None => {
+                    let _ = std::fs::remove_file(&path);
+                }
+            }
+            restored.push(rel);
+        }
+        restored.sort();
+        restored.dedup();
+        let note = format!("[The user undid the previous task's changes to: {}]\n\n", restored.join(", "));
+        self.pending_summary = Some(self.pending_summary.take().unwrap_or_default() + &note);
+        Ok(restored)
+    }
+
+    /// Tasks that can still be undone.
+    pub fn undo_depth(&self) -> usize {
+        self.checkpoints.len()
+    }
+
+    /// Records a file's content before its first change in this task.
+    fn checkpoint(&mut self, name: &str, input: &Value) {
+        let rel = match name {
+            "design_brief" => "DESIGN.md",
+            n if EDIT_TOOLS.contains(&n) => match input["path"].as_str() {
+                Some(p) => p,
+                None => return,
+            },
+            _ => return,
+        };
+        let Ok(path) = self.tools.resolve(rel) else { return };
+        let Some(current) = self.checkpoints.last_mut() else { return };
+        if current.iter().any(|(p, _, _)| *p == path) {
+            return;
+        }
+        let before = std::fs::read_to_string(&path).ok();
+        current.push((path, rel.replace('\\', "/"), before));
+    }
+
+    /// Replaces the conversation of a long task with a summary of what was
+    /// done, keeping the task, when the context is nearly full.
+    fn compact_midway(&mut self, task: &str, report: &TaskReport) {
+        let mut steps = Vec::new();
+        let mut last_text = String::new();
+        for m in &self.history {
+            for b in &m.content {
+                match b {
+                    ContentBlock::ToolUse { name, input, .. } => {
+                        let arg = ["path", "command", "pattern", "symbol"].iter().find_map(|k| input[*k].as_str()).unwrap_or("");
+                        steps.push(format!("- {name} {arg}"));
+                    }
+                    ContentBlock::ToolResult { is_error: true, content, .. } => {
+                        steps.push(format!("  failed: {}", content.lines().next().unwrap_or("")));
+                    }
+                    ContentBlock::Text { text } if m.role == Role::Assistant => last_text.clone_from(text),
+                    _ => {}
+                }
+            }
+        }
+        let keep = steps.len().saturating_sub(60);
+        let files = report.edited.iter().cloned().collect::<Vec<_>>().join(", ");
+        let summary = format!(
+            "[The conversation was compacted because the context was nearly full.]\nTask: {task}\n\
+             Steps so far (latest last):\n{}\nFiles changed so far: {}\nLast note: {}\n\
+             Continue the task from here; re-read any file you need.",
+            steps[keep..].join("\n"),
+            if files.is_empty() { "none".into() } else { files },
+            last_text.chars().take(1500).collect::<String>()
+        );
+        self.history = vec![Message { role: Role::User, content: vec![ContentBlock::Text { text: summary }] }];
+        self.last_prompt = 0;
     }
 
     pub fn session_usage(&self) -> Usage {
@@ -311,7 +394,11 @@ impl<'a> Agent<'a> {
     /// was before the task, so the next task starts from a valid state.
     pub async fn run_task(&mut self, prompt: &str, host: &mut dyn Host) -> Result<TaskReport, ProviderError> {
         self.started = Some((self.history.len(), self.pending_summary.clone(), self.plan_mode));
+        self.checkpoints.push(Vec::new());
         let r = self.run_inner(prompt, host).await;
+        if self.checkpoints.last().is_some_and(Vec::is_empty) {
+            self.checkpoints.pop();
+        }
         if r.is_err() {
             self.interrupted();
         }
@@ -381,6 +468,7 @@ impl<'a> Agent<'a> {
             Some(s) => format!("{s}{prompt}"),
             None => prompt,
         };
+        let task = user_text.clone();
         self.history.push(Message { role: Role::User, content: vec![ContentBlock::Text { text: user_text }] });
 
         let specs = self.tools.specs();
@@ -394,6 +482,11 @@ impl<'a> Agent<'a> {
                 break Stop::MaxTurns;
             }
             report.turns += 1;
+            let window = self.config.context_window as u64;
+            if window > 0 && self.last_prompt * 10 >= window * 8 && self.history.len() > 2 {
+                self.compact_midway(&task, &report);
+                host.on_event(Event::Notice("contexto acima de 80%: a conversa foi resumida para continuar"));
+            }
             let model = match (&self.config.plan_model, self.plan_mode) {
                 (Some(m), true) => m.clone(),
                 _ => self.config.model.clone(),
@@ -673,6 +766,7 @@ impl<'a> Agent<'a> {
         {
             self.snapshot.record(self.tools.root(), &rel.to_string_lossy());
         }
+        self.checkpoint(name, input);
         (self.tools.call(name, input).await, preview)
     }
 }

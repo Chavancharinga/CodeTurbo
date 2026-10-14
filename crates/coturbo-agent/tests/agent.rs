@@ -778,3 +778,45 @@ async fn project_instructions_reach_every_request() {
     assert!(sys.find("CODETURBO.md").unwrap() < sys.find("AGENTS.md").unwrap(), "CodeTurbo's own file first");
     assert!(coturbo_agent::project_memory(&dir.path().join("nada")).is_empty());
 }
+
+#[tokio::test]
+async fn the_last_task_can_be_undone() {
+    let dir = project();
+    let tools = Tools::new(dir.path(), Mode::Naive);
+    let mock = Mock::new(vec![
+        resp(vec![tool("t1", "write_file", json!({"path": "src/lib.rs", "content": "pub fn add() {}\n"})), tool("t2", "write_file", json!({"path": "novo.txt", "content": "x"}))], "tool_use", usage(10, 5)),
+        resp(vec![text("feito")], "end_turn", usage(10, 5)),
+        resp(vec![text("ok")], "end_turn", usage(10, 5)),
+    ]);
+    let mut agent = Agent::new(&mock, &tools, config());
+    agent.run_task("mude", &mut NoopHost).await.unwrap();
+    assert_eq!(agent.undo_depth(), 1);
+    assert!(dir.path().join("novo.txt").exists());
+    let restored = agent.undo().unwrap();
+    assert_eq!(restored, ["novo.txt", "src/lib.rs"]);
+    assert!(std::fs::read_to_string(dir.path().join("src/lib.rs")).unwrap().contains("a + b"), "original content back");
+    assert!(!dir.path().join("novo.txt").exists(), "created file removed");
+    assert!(agent.undo().is_err(), "nothing left to undo");
+    agent.run_task("e agora?", &mut NoopHost).await.unwrap();
+    let last = mock.requests().last().unwrap().messages.last().unwrap().clone();
+    assert!(format!("{last:?}").contains("undid the previous task"), "the model is told");
+    assert_eq!(agent.undo_depth(), 0, "a task without edits leaves no checkpoint");
+}
+
+#[tokio::test]
+async fn a_nearly_full_context_is_summarized_mid_task() {
+    let dir = project();
+    let tools = Tools::new(dir.path(), Mode::Naive);
+    let big = Usage { input: 900, cache_write: 0, cache_read: 0, output: 5 };
+    let mock = Mock::new(vec![
+        resp(vec![tool("t1", "read_file", json!({"path": "src/lib.rs"}))], "tool_use", big),
+        resp(vec![text("pronto")], "end_turn", usage(10, 5)),
+    ]);
+    let mut agent = Agent::new(&mock, &tools, config()); // window 1000: 900 is past 80%
+    let r = agent.run_task("leia o código", &mut NoopHost).await.unwrap();
+    assert_eq!(r.stop, Stop::Done);
+    let second = &mock.requests()[1];
+    assert_eq!(second.messages.len(), 1, "history replaced by one summary");
+    let text = format!("{:?}", second.messages[0]);
+    assert!(text.contains("compacted") && text.contains("read_file src/lib.rs") && text.contains("leia o código"), "{text}");
+}

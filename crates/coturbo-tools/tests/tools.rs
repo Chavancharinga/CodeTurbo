@@ -294,3 +294,22 @@ async fn design_brief_locks_a_contract_and_edits_are_inspected() {
     let out = t.call("write_file", &json!({"path": "notes.txt", "content": "#6366f1"})).await;
     assert!(!out.content.contains("design "), "only interface files are inspected");
 }
+
+#[tokio::test]
+async fn large_typescript_files_are_read_as_skeletons() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut src = String::from("import { x } from './x';\nexport interface User { id: number; name: string }\n");
+    for i in 0..15 {
+        src.push_str(&format!("export function f{i}(a: number): number {{\n  const b = a * {i};\n  const c = b + 1;\n  return c;\n}}\n"));
+    }
+    fs::write(dir.path().join("app.ts"), &src).unwrap();
+    let t = Tools::new(dir.path(), Mode::Ast);
+    let out = t.call("read_file", &json!({"path": "app.ts"})).await;
+    assert!(out.content.starts_with("// skeleton of app.ts"), "{}", out.content);
+    assert!(out.content.contains("export function f3(a: number): number { … }"), "{}", out.content);
+    assert!(out.content.contains("export interface User"), "types stay");
+    assert!(!out.content.contains("const b"), "bodies elided");
+    assert!(out.content.len() < src.len() * 2 / 3, "{} vs {}", out.content.len(), src.len());
+    let full = t.call("read_file", &json!({"path": "app.ts", "full": true})).await;
+    assert!(full.content.contains("const b = a * 3"));
+}
