@@ -320,7 +320,7 @@ impl Session {
             if std::mem::take(&mut first) && agent.is_none() {
                 // First run without a usable provider: go straight to choosing one.
                 self.info("Escolha um provedor para começar. O Ollama roda modelos locais sem chave de API.");
-                if self.choose_provider().await {
+                if self.choose_provider(false).await {
                     continue 'session;
                 }
             }
@@ -348,7 +348,7 @@ impl Session {
                         false
                     }
                     Parsed::Command(cmd, arg) => match cmd {
-                        Command::Provider => self.choose_provider().await,
+                        Command::Provider => self.choose_provider(agent.is_some()).await,
                         Command::Model => self.choose_model(&arg).await,
                         Command::Key => self.set_key().await,
                         Command::Approval => self.choose_approval(&arg).await,
@@ -486,12 +486,27 @@ impl Session {
         self.status(agent.session_usage());
     }
 
-    async fn choose_provider(&mut self) -> bool {
+    /// Picks a provider. `ready`: the current one is actually working.
+    async fn choose_provider(&mut self, ready: bool) -> bool {
         let options = PROVIDERS
             .iter()
             .map(|p| {
-                let current = if p.id == self.cfg.provider { " (atual)" } else { "" };
-                Choice::new(p.id, format!("{}{current}", p.label))
+                let note = if p.id == self.cfg.provider && ready {
+                    format!(" · em uso ({})", self.cfg.model)
+                } else if p.key_var.is_some() && settings::api_key(p.id, &self.creds).is_none() {
+                    " · pede a chave de API".to_string()
+                } else if matches!(p.id, "claude-code" | "codex")
+                    && !coturbo_providers::cli::installed(if p.id == "codex" {
+                        coturbo_providers::cli::Tool::Codex
+                    } else {
+                        coturbo_providers::cli::Tool::ClaudeCode
+                    })
+                {
+                    " · app oficial não instalado".to_string()
+                } else {
+                    String::new()
+                };
+                Choice::new(p.id, format!("{}{note}", p.label))
             })
             .collect();
         let Some(id) = self.select("Escolha o provedor".into(), options, false).await else { return false };
@@ -534,13 +549,15 @@ impl Session {
         let base = if provider == self.cfg.provider { self.cfg.base_url.clone() } else { None };
         let listed = models::list(provider, key.as_deref(), base.as_deref()).await;
         self.send(Out::Busy(None));
-        let mut ids = listed.unwrap_or_else(|e| {
+        let mut named = listed.unwrap_or_else(|e| {
             self.warn(format!("não foi possível listar os modelos: {e}"));
             Vec::new()
         });
-        if provider == "anthropic" && ids.is_empty() {
-            ids = models::ANTHROPIC_FALLBACK.map(String::from).to_vec();
+        if provider == "anthropic" && named.is_empty() {
+            named = models::ANTHROPIC_FALLBACK.map(|m| (m.to_string(), m.to_string())).to_vec();
         }
+        let labels: std::collections::HashMap<String, String> = named.iter().cloned().collect();
+        let mut ids: Vec<String> = named.into_iter().map(|(id, _)| id).collect();
         if provider == "ollama" && ids.is_empty() {
             self.info("Nenhum modelo local encontrado. Para instalar um: ollama pull qwen2.5:7b");
         }
@@ -552,15 +569,17 @@ impl Session {
             let id = ids.remove(i);
             ids.insert(0, id);
         }
+        let count = ids.len();
         let options = ids
             .into_iter()
             .map(|id| {
-                let label = if Some(&id) == current.as_ref() { format!("{id} (atual)") } else { id.clone() };
+                let base = labels.get(&id).cloned().unwrap_or_else(|| id.clone());
+                let label = if Some(&id) == current.as_ref() { format!("{base} · em uso") } else { base };
                 Choice::new(id, label)
             })
             .collect();
         let label = settings::provider(provider).map_or(provider, |p| p.label);
-        self.select(format!("Escolha o modelo · {label}"), options, true).await
+        self.select(format!("Modelo · {label} · {count} disponíveis · digite para pesquisar"), options, true).await
     }
 
     async fn set_key(&mut self) -> bool {

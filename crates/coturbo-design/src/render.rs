@@ -99,11 +99,13 @@ pub struct Metrics {
     pub under: Vec<String>,
 }
 
-/// Measurements at desktop and phone width.
+/// Measurements at every screen size checked.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Page {
     pub desktop: Metrics,
     pub mobile: Metrics,
+    pub tablet: Metrics,
+    pub laptop: Metrics,
 }
 
 pub fn parse_metrics(dom: &str) -> Option<Metrics> {
@@ -142,7 +144,7 @@ fn sample(v: &[String]) -> String {
 pub fn judge(p: &Page) -> Vec<Finding> {
     let mut out = Vec::new();
     let mut add = |severity, rule, message: String| out.push(Finding { severity, rule, line: 1, message });
-    for (m, at) in [(&p.desktop, "no computador"), (&p.mobile, "no celular")] {
+    for (m, at) in [(&p.desktop, "no computador"), (&p.laptop, "no notebook"), (&p.tablet, "no tablet"), (&p.mobile, "no celular")] {
         if !m.overlaps.is_empty() {
             add(Severity::P0, "render-sobreposicao", format!("elementos sobrepostos {at}: {}", sample(&m.overlaps)));
         }
@@ -181,8 +183,10 @@ pub fn judge(p: &Page) -> Vec<Finding> {
     if p.mobile.hscroll {
         add(Severity::P1, "render-sem-responsividade", "a página rola para o lado no celular (390px): não é responsiva".into());
     }
-    if p.desktop.hscroll {
-        add(Severity::P1, "render-rolagem-lateral", "a página rola para o lado no computador".into());
+    for (m, at) in [(&p.desktop, "no computador"), (&p.laptop, "no notebook (1280px)"), (&p.tablet, "no tablet (768px)")] {
+        if m.hscroll {
+            add(Severity::P1, "render-rolagem-lateral", format!("a página rola para o lado {at}"));
+        }
     }
     if p.mobile.small >= 3 {
         add(Severity::P1, "render-alvo-pequeno", format!("{} botões ou links menores que 32px no celular", p.mobile.small));
@@ -236,6 +240,8 @@ async fn run(browser: &Path, size: (u32, u32), args: &[String]) -> Result<String
 
 pub const DESKTOP: (u32, u32) = (1440, 900);
 pub const MOBILE: (u32, u32) = (390, 844);
+pub const TABLET: (u32, u32) = (768, 1024);
+pub const LAPTOP: (u32, u32) = (1280, 800);
 
 /// Measures `html` at one size and saves a screenshot to `shot`.
 async fn measure_at(browser: &Path, html: &Path, shot: &Path, size: (u32, u32)) -> Result<Metrics, String> {
@@ -283,10 +289,22 @@ pub fn mobile_shot(shot: &Path) -> PathBuf {
     shot.with_file_name(format!("{stem}-celular.png"))
 }
 
-/// Renders `html` at desktop and phone width. Screenshots go to `shot` and
-/// [`mobile_shot`]`(shot)`.
+/// Screenshot path for another size: `index.png` → `index-tablet.png`.
+pub fn sized_shot(shot: &Path, name: &str) -> PathBuf {
+    let stem = shot.file_stem().map_or("page".into(), |s| s.to_string_lossy().into_owned());
+    shot.with_file_name(format!("{stem}-{name}.png"))
+}
+
+/// Renders `html` at desktop, laptop, tablet and phone sizes, in parallel.
+/// Screenshots go to `shot` and its `-notebook`, `-tablet` and `-celular`
+/// siblings.
 pub async fn measure(browser: &Path, html: &Path, shot: &Path) -> Result<Page, String> {
-    let desktop = measure_at(browser, html, shot, DESKTOP).await?;
-    let mobile = measure_at(browser, html, &mobile_shot(shot), MOBILE).await?;
-    Ok(Page { desktop, mobile })
+    let (laptop_shot, tablet_shot, phone_shot) = (sized_shot(shot, "notebook"), sized_shot(shot, "tablet"), mobile_shot(shot));
+    let (desktop, laptop, tablet, mobile) = tokio::join!(
+        measure_at(browser, html, shot, DESKTOP),
+        measure_at(browser, html, &laptop_shot, LAPTOP),
+        measure_at(browser, html, &tablet_shot, TABLET),
+        measure_at(browser, html, &phone_shot, MOBILE),
+    );
+    Ok(Page { desktop: desktop?, laptop: laptop?, tablet: tablet?, mobile: mobile? })
 }

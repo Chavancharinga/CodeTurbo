@@ -39,8 +39,29 @@ fn ollama_root(base_url: Option<&str>) -> String {
     host.trim_end_matches('/').trim_end_matches("/v1").to_string()
 }
 
-/// Fetches the model list of `provider`.
-pub async fn list(provider: &str, key: Option<&str>, base_url: Option<&str>) -> Result<Vec<String>, String> {
+/// `(id, label)` of each model: OpenRouter's name and context size help to
+/// search hundreds of models; others show the id.
+pub fn parse_named(provider: &str, body: &Value) -> Vec<(String, String)> {
+    let ids = parse_ids(provider, body);
+    if provider != "openrouter" {
+        return ids.into_iter().map(|id| (id.clone(), id)).collect();
+    }
+    let by_id: std::collections::HashMap<&str, &Value> =
+        body["data"].as_array().into_iter().flatten().filter_map(|m| Some((m["id"].as_str()?, m))).collect();
+    ids.into_iter()
+        .map(|id| {
+            let m = by_id.get(id.as_str()).copied().unwrap_or(&Value::Null);
+            let name = m["name"].as_str().unwrap_or("");
+            let ctx = m["context_length"].as_u64().map(|c| format!(" · {}k de contexto", c / 1000)).unwrap_or_default();
+            let free = if id.ends_with(":free") { " · grátis" } else { "" };
+            let label = if name.is_empty() { format!("{id}{ctx}{free}") } else { format!("{id} · {name}{ctx}{free}") };
+            (id, label)
+        })
+        .collect()
+}
+
+/// Fetches the model list of `provider`: `(id, label)`.
+pub async fn list(provider: &str, key: Option<&str>, base_url: Option<&str>) -> Result<Vec<(String, String)>, String> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .user_agent(concat!("codeturbo/", env!("CARGO_PKG_VERSION")))
@@ -64,8 +85,16 @@ pub async fn list(provider: &str, key: Option<&str>, base_url: Option<&str>) -> 
         "openrouter" => client.get("https://openrouter.ai/api/v1/models"),
         "ollama" => client.get(format!("{}/api/tags", ollama_root(base_url))),
         // The official tools take their own model names.
-        "claude-code" => return Ok(["padrao", "opus", "sonnet", "haiku"].map(String::from).to_vec()),
-        "codex" => return Ok(["padrao", "gpt-5-codex", "gpt-5"].map(String::from).to_vec()),
+        "claude-code" => {
+            return Ok([("padrao", "padrão do seu plano"), ("opus", "opus"), ("sonnet", "sonnet"), ("haiku", "haiku")]
+                .map(|(a, b)| (a.to_string(), b.to_string()))
+                .to_vec());
+        }
+        "codex" => {
+            return Ok([("padrao", "padrão do seu plano"), ("gpt-5-codex", "gpt-5-codex"), ("gpt-5", "gpt-5")]
+                .map(|(a, b)| (a.to_string(), b.to_string()))
+                .to_vec());
+        }
         p => return Err(format!("provedor desconhecido: {p}")),
     };
     let resp = req.send().await.map_err(|e| {
@@ -79,5 +108,5 @@ pub async fn list(provider: &str, key: Option<&str>, base_url: Option<&str>) -> 
         return Err(format!("o provedor respondeu {}", resp.status()));
     }
     let body: Value = resp.json().await.map_err(|e| e.to_string())?;
-    Ok(parse_ids(provider, &body))
+    Ok(parse_named(provider, &body))
 }

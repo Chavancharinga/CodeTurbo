@@ -199,7 +199,7 @@ async fn a_session_runs_tasks_switches_models_and_quits() {
     *pick.lock().unwrap() = Some("outro:2b".into());
     tx.send(In::Submit("/modelo".into())).unwrap();
     wait_for(&seen, "Modelo: outro:2b").await;
-    assert!(seen.lock().unwrap().titles.iter().any(|t| t.contains("Escolha o modelo")));
+    assert!(seen.lock().unwrap().titles.iter().any(|t| t.contains("Modelo · ") && t.contains("digite para pesquisar")));
     let saved = std::fs::read_to_string(config_dir.path().join("config.toml")).unwrap();
     assert!(saved.contains("model = \"outro:2b\""), "{saved}");
 

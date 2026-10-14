@@ -161,7 +161,7 @@ fn rendered_measurements_are_judged() {
     assert_eq!((m.rounded, m.radii, m.rows, m.small), (9, 1, 3, 4));
     assert_eq!(m.overlaps, ["div.card × img"]);
     assert!(m.hscroll);
-    let page = Page { desktop: m.clone(), mobile: m };
+    let page = Page { desktop: m.clone(), mobile: m, ..Page::default() };
     let rules: Vec<&str> = judge(&page).iter().map(|f| f.rule).collect();
     for r in [
         "render-sobreposicao", "render-colados", "render-conteudo-cortado", "render-barra-de-rolagem", "render-imagem-quebrada",
@@ -171,7 +171,7 @@ fn rendered_measurements_are_judged() {
         assert!(rules.contains(&r), "missing {r}: {rules:?}");
     }
     let clean = Metrics { rounded: 9, radii: 3, text: 10, centered: 2, ..Metrics::default() };
-    assert!(judge(&Page { desktop: clean.clone(), mobile: clean }).is_empty());
+    assert!(judge(&Page { desktop: clean.clone(), mobile: clean, ..Page::default() }).is_empty());
     assert!(parse_metrics("<html>").is_none());
 }
 
@@ -188,6 +188,8 @@ async fn review_renders_in_the_installed_browser() {
         assert!(r.summary.contains("página renderizada"), "{}", r.summary);
         assert!(dir.path().join(".codeturbo/design/index.png").exists(), "desktop screenshot saved");
         assert!(dir.path().join(".codeturbo/design/index-celular.png").exists(), "phone screenshot saved");
+        assert!(dir.path().join(".codeturbo/design/index-tablet.png").exists(), "tablet screenshot saved");
+        assert!(dir.path().join(".codeturbo/design/index-notebook.png").exists(), "laptop screenshot saved");
     }
 }
 

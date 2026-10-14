@@ -180,6 +180,10 @@ fn model_lists_of_each_provider() {
     let ollama = json!({"models": [{"name": "qwen3:4b"}, {"name": "qwen2.5:7b"}]});
     assert_eq!(parse_ids("ollama", &ollama), ["qwen2.5:7b", "qwen3:4b"]);
     assert!(parse_ids("openrouter", &json!({"error": "x"})).is_empty());
+    let or = json!({"data": [{"id": "x/free:free", "name": "X Free", "context_length": 128000}, {"id": "a/b", "name": "A B"}]});
+    let named = coturbo_cli::models::parse_named("openrouter", &or);
+    assert_eq!(named[0], ("a/b".into(), "a/b · A B".into()));
+    assert_eq!(named[1].1, "x/free:free · X Free · 128k de contexto · grátis");
 }
 
 fn key(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
