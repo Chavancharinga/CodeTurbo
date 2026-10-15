@@ -199,3 +199,24 @@ fn external_rea_suggestions_depend_on_install() {
         assert!(s.is_empty(), "sem rea instalado, nada é sugerido");
     }
 }
+
+#[test]
+fn wasm_modules_are_parsed() {
+    use coturbo_rea::wasm;
+    // A minimal WASM module: magic + version + a type section and an export.
+    // \0asm, version 1, then type section (id 1) with one () -> () type,
+    // function section, and export "main".
+    let module: &[u8] = &[
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, // magic + version 1
+        0x01, 0x04, 0x01, 0x60, 0x00, 0x00, // type: 1 type, () -> ()
+        0x03, 0x02, 0x01, 0x00, // function: 1 func, type 0
+        0x07, 0x08, 0x01, 0x04, b'm', b'a', b'i', b'n', 0x00, 0x00, // export "main" func 0
+    ];
+    assert!(wasm::is_wasm(module));
+    assert!(!wasm::is_wasm(b"not wasm"));
+    let r = wasm::inspect(module, "main").unwrap();
+    assert!(r.contains("WebAssembly module: version 1"), "{r}");
+    assert!(r.contains("Functions: 1"), "{r}");
+    assert!(r.contains("main (func)"), "exports: {r}");
+    assert!(wasm::inspect(b"xxxxxxxx", "").is_err());
+}

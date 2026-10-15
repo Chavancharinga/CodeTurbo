@@ -13,6 +13,7 @@ pub mod disasm;
 pub mod js;
 pub mod site;
 pub mod sqlite;
+pub mod wasm;
 
 use std::path::{Path, PathBuf};
 
@@ -64,6 +65,8 @@ pub async fn investigate(root: &Path, target: &str, question: &str) -> Result<Re
         (apk::inspect(&data, question)?, "other")
     } else if data.len() >= 16 && &data[..16] == b"SQLite format 3\0" {
         (sqlite::inspect(&data)?, "other")
+    } else if wasm::is_wasm(&data) {
+        (wasm::inspect(&data, question)?, "binary")
     } else {
         // A native binary: static facts, plus the disassembly of the
         // functions related to the question when the symbols allow it.
