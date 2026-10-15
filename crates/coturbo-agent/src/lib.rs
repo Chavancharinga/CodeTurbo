@@ -170,6 +170,43 @@ const MEMORY_MAX: usize = 12_000;
 
 /// The project's instruction files, appended to the system prompt so every
 /// session follows its conventions. Part of the cached prefix: read once.
+/// File holding standing behavioural rules the user set (like omp's TTSR):
+/// short corrections injected every turn so a mistake is not repeated.
+pub const RULES_FILE: &str = ".codeturbo/rules.md";
+
+/// The project's standing rules, for the system prompt.
+pub fn stream_rules(root: &std::path::Path) -> String {
+    let Ok(text) = std::fs::read_to_string(root.join(RULES_FILE)) else { return String::new() };
+    let rules: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')).collect();
+    if rules.is_empty() {
+        return String::new();
+    }
+    let list = rules.iter().map(|r| format!("- {}", r.trim_start_matches(['-', '*', ' ']))).collect::<Vec<_>>().join("
+");
+    format!("
+
+Standing rules from the user — always follow, never repeat these mistakes:
+{list}")
+}
+
+/// Appends a rule to [`RULES_FILE`].
+pub fn add_rule(root: &std::path::Path, rule: &str) -> Result<(), String> {
+    let rule = rule.trim();
+    if rule.is_empty() {
+        return Err("regra vazia".into());
+    }
+    let path = root.join(RULES_FILE);
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
+    let mut text = std::fs::read_to_string(&path).unwrap_or_default();
+    if !text.is_empty() && !text.ends_with('\n') {
+        text.push('\n');
+    }
+    text.push_str(&format!("- {}\n", rule.trim_start_matches(['-', '*', ' '])));
+    std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))
+}
+
 pub fn project_memory(root: &std::path::Path) -> String {
     let mut out = String::new();
     for name in MEMORY_FILES {
@@ -261,7 +298,7 @@ impl<'a> Agent<'a> {
             provider,
             tools,
             config,
-            system: system_prompt(tools.mode()) + &project_memory(tools.root()),
+            system: system_prompt(tools.mode()) + &project_memory(tools.root()) + &stream_rules(tools.root()),
             history: Vec::new(),
             pending_summary: None,
             last: None,
@@ -373,6 +410,11 @@ impl<'a> Agent<'a> {
         );
         self.history = vec![Message { role: Role::User, content: vec![ContentBlock::Text { text: summary }] }];
         self.last_prompt = 0;
+    }
+
+    /// Rebuilds the system prompt so a just-added rule takes effect.
+    pub fn reload_rules(&mut self, root: &std::path::Path) {
+        self.system = system_prompt(self.tools.mode()) + &project_memory(root) + &stream_rules(root);
     }
 
     pub fn session_usage(&self) -> Usage {

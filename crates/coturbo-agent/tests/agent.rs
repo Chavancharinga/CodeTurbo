@@ -842,3 +842,20 @@ async fn old_tool_results_are_shrunk_before_the_context_fills() {
     assert!(!dump.contains("linha 150 de um arquivo"), "its content is gone");
     assert_eq!(agent.shake(0), 0, "already small");
 }
+
+#[tokio::test]
+async fn standing_rules_are_injected_and_appended() {
+    let dir = project();
+    coturbo_agent::add_rule(dir.path(), "sempre rode os testes antes de concluir").unwrap();
+    coturbo_agent::add_rule(dir.path(), "- nunca use unwrap em codigo de producao").unwrap();
+    let rules = coturbo_agent::stream_rules(dir.path());
+    assert!(rules.contains("Standing rules"), "{rules}");
+    assert!(rules.contains("- sempre rode os testes antes de concluir"), "{rules}");
+    assert!(rules.contains("- nunca use unwrap em codigo de producao"), "no double dash: {rules}");
+    let tools = Tools::new(dir.path(), Mode::Naive);
+    let mock = Mock::new(vec![resp(vec![text("ok")], "end_turn", usage(10, 5))]);
+    let mut agent = Agent::new(&mock, &tools, config());
+    agent.run_task("oi", &mut NoopHost).await.unwrap();
+    assert!(mock.requests()[0].system.contains("sempre rode os testes"), "rules reach the request");
+    assert!(coturbo_agent::add_rule(dir.path(), "   ").is_err());
+}

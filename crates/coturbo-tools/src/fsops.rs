@@ -59,6 +59,7 @@ impl Tools {
     pub(crate) fn read_file(&self, input: &Value) -> Res {
         let path = self.resolve(arg(input, "path")?)?;
         let src = read_text(&path)?;
+        self.record_read(&self.display(&path), &src);
         let full = input["full"].as_bool().unwrap_or(false);
         let is_rs = path.extension().is_some_and(|e| e == "rs");
         let lines = src.lines().count();
@@ -146,7 +147,26 @@ impl Tools {
 
     pub(crate) fn write_file(&self, input: &Value) -> Res {
         let len = arg(input, "content")?.len();
-        self.apply_edit("write_file", input, "wrote".into()).map(|o| ToolOutput::ok(format!("{} ({len} bytes)", o.content)))
+        // Warn (do not block) when overwriting a file that changed since the
+        // model read it, or one it never read: it may be clobbering work.
+        let conflict = self
+            .resolve(arg(input, "path")?)
+            .ok()
+            .filter(|p| p.is_file())
+            .and_then(|p| Some((self.display(&p), std::fs::read_to_string(&p).ok()?)))
+            .filter(|(rel, cur)| self.write_conflict(rel, cur))
+            .map(|(rel, _)| rel);
+        let out = self.apply_edit("write_file", input, "wrote".into())?;
+        let mut content = format!("{} ({len} bytes)", out.content);
+        if let Some(rel) = conflict {
+            content.push_str(&format!(
+                "\n! conflito: {rel} mudou no disco desde a última leitura (ou não foi lido antes);                  se não era a intenção, releia o arquivo e refaça a alteração"
+            ));
+        }
+        if let Ok(abs) = self.resolve(arg(input, "path")?) {
+            self.record_read(&self.display(&abs), arg(input, "content")?);
+        }
+        Ok(ToolOutput::ok(content))
     }
 
     pub(crate) fn edit_file(&self, input: &Value) -> Res {
@@ -191,6 +211,11 @@ impl Tools {
     }
 
     pub(crate) fn read_symbol(&self, input: &Value) -> Res {
+        if let Ok(p) = self.resolve(arg(input, "path").unwrap_or(""))
+            && let Ok(src) = read_text(&p)
+        {
+            self.record_read(&self.display(&p), &src);
+        }
         let path = self.resolve(arg(input, "path")?)?;
         let src = read_text(&path)?;
         coturbo_ast::read_symbol(&src, arg(input, "symbol")?).map(ToolOutput::ok).map_err(|e| e.to_string())

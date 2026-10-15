@@ -403,6 +403,22 @@ impl Session {
                             }
                             false
                         }
+                        Command::Rule => {
+                            if arg.trim().is_empty() {
+                                self.warn("use /regra seguido do que o modelo deve sempre fazer, ex: /regra sempre rode os testes antes de concluir");
+                            } else {
+                                match coturbo_agent::add_rule(&self.root, &arg) {
+                                    Ok(()) => {
+                                        if let Some(a) = agent.as_mut() {
+                                            a.reload_rules(&self.root);
+                                        }
+                                        self.info(format!("Regra fixada (vale a partir da próxima mensagem): {}", arg.trim()));
+                                    }
+                                    Err(e) => self.warn(e),
+                                }
+                            }
+                            false
+                        }
                         Command::Undo => {
                             match agent.as_mut().map(Agent::undo) {
                                 Some(Ok(files)) => {

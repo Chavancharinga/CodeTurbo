@@ -315,3 +315,29 @@ async fn large_typescript_files_are_read_as_skeletons() {
     let full = t.call("read_file", &json!({"path": "app.ts", "full": true})).await;
     assert!(full.content.contains("const b = a * 3"));
 }
+
+#[tokio::test]
+async fn overwriting_an_unread_or_changed_file_warns() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("a.txt"), "original\n").unwrap();
+    let t = Tools::new(dir.path(), Mode::Naive);
+    // Never read: overwriting warns of a possible clobber.
+    let out = t.call("write_file", &json!({"path": "a.txt", "content": "novo\n"})).await;
+    assert!(out.content.contains("conflito"), "unread overwrite warns: {}", out.content);
+    // Now it was just written (recorded): overwriting again is clean.
+    let out = t.call("write_file", &json!({"path": "a.txt", "content": "novo2\n"})).await;
+    assert!(!out.content.contains("conflito"), "known file, no warning: {}", out.content);
+    // External change after our write: next overwrite warns again.
+    fs::write(dir.path().join("a.txt"), "mexido por fora\n").unwrap();
+    let out = t.call("write_file", &json!({"path": "a.txt", "content": "novo3\n"})).await;
+    assert!(out.content.contains("conflito"), "external change warns: {}", out.content);
+    // Reading refreshes the record: then overwriting is clean.
+    t.call("read_file", &json!({"path": "a.txt"})).await;
+    fs::write(dir.path().join("a.txt"), "x\n").unwrap();
+    // changed again after read -> warns
+    let out = t.call("write_file", &json!({"path": "a.txt", "content": "y\n"})).await;
+    assert!(out.content.contains("conflito"), "changed after read warns: {}", out.content);
+    // A brand-new file never warns.
+    let out = t.call("write_file", &json!({"path": "novo.txt", "content": "z"})).await;
+    assert!(!out.content.contains("conflito"), "new file is fine: {}", out.content);
+}

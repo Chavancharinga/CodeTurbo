@@ -75,6 +75,14 @@ pub struct Tools {
     lsp: Option<Arc<LspManager>>,
     /// Built-in Rust/JS/TS/CSS/JSON/TOML checks after every edit.
     native_checks: bool,
+    /// Content hash of each file when the model last read it, to warn when
+    /// a write would clobber a file that changed on disk since (conflict).
+    seen: std::sync::Mutex<std::collections::HashMap<String, u64>>,
+}
+
+/// FNV-1a hash of file content, for cheap change detection.
+pub(crate) fn content_hash(s: &str) -> u64 {
+    s.bytes().fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ b as u64).wrapping_mul(0x0100_0000_01b3))
 }
 
 /// Rust files longer than this are returned as a skeleton by `read_file` in Ast mode.
@@ -99,7 +107,7 @@ fn arg<'a>(input: &'a Value, key: &str) -> Result<&'a str, String> {
 impl Tools {
     pub fn new(root: &Path, mode: Mode) -> Self {
         let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
-        Self { root, mode, lsp: None, native_checks: false }
+        Self { root, mode, lsp: None, native_checks: false, seen: std::sync::Mutex::new(std::collections::HashMap::new()) }
     }
 
     /// Enables the built-in checks after every edit (no external tools).
@@ -312,6 +320,22 @@ impl Tools {
 
     pub(crate) fn display(&self, p: &Path) -> String {
         p.strip_prefix(&self.root).unwrap_or(p).to_string_lossy().replace('\\', "/")
+    }
+
+    /// Remembers the content the model just saw for `rel`.
+    pub(crate) fn record_read(&self, rel: &str, content: &str) {
+        if let Ok(mut m) = self.seen.lock() {
+            m.insert(rel.to_string(), content_hash(content));
+        }
+    }
+
+    /// Whether overwriting `rel` (current on-disk `content`) would clobber a
+    /// change made since the model last read it, or a file it never read.
+    pub(crate) fn write_conflict(&self, rel: &str, current: &str) -> bool {
+        match self.seen.lock().ok().and_then(|m| m.get(rel).copied()) {
+            Some(h) => h != content_hash(current),
+            None => true,
+        }
     }
 
     /// Unified diff an edit tool would apply, without writing. `None` for
