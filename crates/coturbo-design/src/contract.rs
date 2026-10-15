@@ -72,6 +72,68 @@ pub fn font_link(t: &Tokens) -> String {
 }
 
 /// The contract file.
+/// Semantic colour roles for the Stitch-format palette table.
+pub fn color_roles(t: &Tokens) -> Vec<(&'static str, String, &'static str)> {
+    let role = |n: &str| match n {
+        "bg" => "Fundo da página",
+        "surface" => "Superfícies elevadas (cartões, painéis)",
+        "ink" => "Texto principal",
+        "muted" => "Texto secundário",
+        "line" => "Bordas e divisórias",
+        "primary" => "Cor da marca; ações principais e preenchimentos",
+        "on-primary" => "Texto/ícone sobre a cor primária",
+        "primary-ink" => "A cor da marca usada como texto legível",
+        "accent" => "Destaque secundário",
+        n if n.starts_with("gray") => "Escala neutra para hierarquia",
+        _ => "",
+    };
+    t.colors.iter().map(|(n, c)| (*n, hex(*c), role(n))).collect()
+}
+
+/// A visual catalogue of the design system (swatches, type scale, buttons,
+/// cards) the user can open in a browser, like the preview.html of a Stitch
+/// DESIGN.md.
+pub fn preview_html(t: &Tokens) -> String {
+    let swatches: String = color_roles(t)
+        .iter()
+        .map(|(n, hx, role)| {
+            format!(
+                "<div class=\"panel\" style=\"display:flex;gap:var(--space-4);align-items:center\">\
+                 <span style=\"width:48px;height:48px;border-radius:var(--radius-md);background:{hx};border:1px solid var(--color-line);flex:none\"></span>\
+                 <span><strong>--color-{n}</strong> <code>{hx}</code><br><span class=\"muted\">{role}</span></span></div>"
+            )
+        })
+        .collect();
+    let type_rows: String = t
+        .type_scale
+        .iter()
+        .rev()
+        .map(|(n, rem)| format!("<p style=\"font-size:var(--text-{n});margin:0\">{n} — {rem}rem · Grumpy wizards make a toxic brew</p>"))
+        .collect();
+    format!(
+        "<!DOCTYPE html><html lang=\"pt-BR\"><head><meta charset=\"utf-8\">\
+         <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\
+         <title>Preview — {subject}</title>{fonts}<style>{tokens}\n{kit}\n\
+         body{{padding:var(--space-6)}} section{{margin-bottom:var(--space-9)}} \
+         .swatches{{display:grid;gap:var(--space-4);grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}}</style></head>\
+         <body><header style=\"margin-bottom:var(--space-8)\"><h1>{subject}</h1>\
+         <p class=\"muted\">Catálogo do design system — tom {tone}. Gerado pelo CodeTurbo.</p></header>\
+         <section><h2>Cores e papéis</h2><div class=\"swatches\">{swatches}</div></section>\
+         <section><h2>Tipografia</h2><div class=\"stack\">{type_rows}</div></section>\
+         <section><h2>Botões</h2><div class=\"cluster\"><a class=\"btn btn--primary\" href=\"#\">Ação principal</a>\
+         <a class=\"btn btn--secondary\" href=\"#\">Secundária</a></div></section>\
+         <section><h2>Cartões</h2><div class=\"grid\">\
+         <div class=\"panel card\"><h3>Painel</h3><p class=\"muted\">Superfície elevada com borda e sombra do contrato.</p></div>\
+         <div class=\"panel card\"><h3>Outro</h3><p class=\"muted\">A grade é responsiva por padrão.</p></div></div></section>\
+         </body></html>",
+        subject = t.brief.subject,
+        tone = t.tone.name(),
+        fonts = font_link(t),
+        tokens = css(t),
+        kit = crate::kit::base_css(t),
+    )
+}
+
 pub fn markdown(t: &Tokens) -> String {
     let b = &t.brief;
     format!(
@@ -79,12 +141,15 @@ pub fn markdown(t: &Tokens) -> String {
          Gerado pelo CodeTurbo. Todo código de interface usa somente estes tokens; \
          a verificação recusa cores, raios e espaçamentos fora deles e os padrões \
          genéricos de interface gerada por IA.\n\n\
-         ## Resumo\n\n\
+         ## Tema visual e atmosfera\n\n\
          - Assunto: {}\n- Público: {}\n- Tom: {} ({})\n- Elemento de assinatura: {}\n- Cores da marca preservadas: {}\n\n\
+         ## Paleta e papéis\n\n| Token | Cor | Papel |\n| --- | --- | --- |\n{roles}\n\n\
          ## Composição\n\n{}.\n\n\
-         Evitar: sequência herói, recursos, depoimentos, preços, perguntas e contato; \
-         grade de cartões idênticos com ícone, título e texto; ícones de emoji; \
-         gradiente de duas cores; tudo centralizado; um único raio e uma única sombra em tudo.\n\n\
+         ## Faça e não faça\n\n\
+         Faça: construa em torno do elemento de assinatura; varie tamanho e forma dos blocos; \
+         alinhe o texto corrido à esquerda; dê margem lateral e respiro entre as seções; garanta foco visível e responsividade.\n\n\
+         Não faça: a sequência padrão herói→recursos→depoimentos→preços→perguntas→contato; grade de cartões idênticos; \
+         ícones de emoji; fontes padrão (Inter/Roboto); paleta do Tailwind; cores fora desta tabela.\n\n\
          ## Plano de composição\n\n{}\n\n\
          ## Fontes\n\n{}\n\n\
          ## Tokens\n\n```css\n{}\n```\n\n\
@@ -104,7 +169,8 @@ pub fn markdown(t: &Tokens) -> String {
         css(t),
         crate::kit::base_css(t),
         crate::kit::ornament_svg(t),
-        crate::kit::divider_svg(t)
+        crate::kit::divider_svg(t),
+        roles = color_roles(t).iter().map(|(n, hx, role)| format!("| `--color-{n}` | {hx} | {role} |")).collect::<Vec<_>>().join("\n")
     )
 }
 

@@ -387,3 +387,18 @@ fn a_page_linking_the_kit_file_satisfies_the_static_rules() {
     assert!(f.iter().all(|x| !x.blocking()), "the external kit satisfies focus/responsiveness: {f:?}");
     assert!(merged.contains(":focus-visible"), "the kit css was inlined for checking");
 }
+
+#[test]
+fn design_md_follows_the_stitch_format_and_preview_renders() {
+    let t = compile(&brief("editorial"));
+    let md = contract::markdown(&t);
+    for section in ["## Tema visual e atmosfera", "## Paleta e papéis", "## Faça e não faça", "| Token | Cor | Papel |"] {
+        assert!(md.contains(section), "falta secao {section}");
+    }
+    assert!(md.contains("| `--color-primary` |"), "tabela de paleta: {md}");
+    let roles = contract::color_roles(&t);
+    assert!(roles.iter().any(|(n, _, r)| *n == "ink" && r.contains("Texto principal")));
+    let html = contract::preview_html(&t);
+    assert!(html.starts_with("<!DOCTYPE html>") && html.contains("Cores e papéis") && html.contains("btn--primary"), "preview");
+    assert!(html.contains(":root") && html.contains("--color-primary"), "tokens inline no preview");
+}

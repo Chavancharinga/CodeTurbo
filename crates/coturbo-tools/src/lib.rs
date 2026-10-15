@@ -218,6 +218,8 @@ impl Tools {
             coturbo_design::kit::base_css(&tokens)
         );
         std::fs::write(self.root.join("codeturbo-kit.css"), kit_css).map_err(|e| format!("codeturbo-kit.css: {e}"))?;
+        // A visual catalogue the user can open in a browser.
+        let _ = std::fs::write(self.root.join("design-preview.html"), contract::preview_html(&tokens));
         let kept = if existing.is_empty() && brief.brand.is_empty() {
             String::new()
         } else if !existing.is_empty() {
