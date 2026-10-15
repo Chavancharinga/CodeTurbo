@@ -98,7 +98,28 @@ pub fn parse_reply(text: &str, turn: usize) -> Vec<ContentBlock> {
     let mut prose = String::new();
     let mut rest = text;
     let mut n = 0;
-    while let Some(start) = rest.find(OPEN) {
+    loop {
+        // A tool call may come as our <tool_call>{json} or as Claude's
+        // native <invoke name="..."><parameter name="...">...</invoke>.
+        let json_at = rest.find(OPEN);
+        let xml_at = rest.find("<invoke ").filter(|&i| json_at.is_none_or(|j| i < j));
+        if let Some(start) = xml_at {
+            let after = &rest[start..];
+            let Some(end) = after.find("</invoke>") else {
+                prose.push_str(&rest[..start]);
+                rest = "";
+                break;
+            };
+            prose.push_str(&rest[..start]);
+            let block = &after[..end];
+            if let Some((name, input)) = parse_invoke(block) {
+                n += 1;
+                blocks.push(ContentBlock::ToolUse { id: format!("cli-{turn}-{n}"), name, input });
+            }
+            rest = &after[end + "</invoke>".len()..];
+            continue;
+        }
+        let Some(start) = json_at else { break };
         prose.push_str(&rest[..start]);
         let after = &rest[start + OPEN.len()..];
         let Some(end) = after.find(CLOSE) else {
@@ -107,19 +128,51 @@ pub fn parse_reply(text: &str, turn: usize) -> Vec<ContentBlock> {
             break;
         };
         let raw = after[..end].trim();
-        let v: Value = serde_json::from_str(raw).unwrap_or_else(|_| json!({"name": "", "input": {crate::INVALID_JSON_KEY: raw}}));
-        let name = v["name"].as_str().unwrap_or("").to_string();
-        let input = if v["input"].is_object() { v["input"].clone() } else { json!({}) };
-        n += 1;
-        blocks.push(ContentBlock::ToolUse { id: format!("cli-{turn}-{n}"), name, input });
+        // Claude sometimes puts <invoke> inside <tool_call>.
+        if raw.contains("<invoke ") {
+            if let Some((name, input)) = parse_invoke(raw) {
+                n += 1;
+                blocks.push(ContentBlock::ToolUse { id: format!("cli-{turn}-{n}"), name, input });
+            }
+        } else {
+            let v: Value = serde_json::from_str(raw).unwrap_or_else(|_| json!({"name": "", "input": {crate::INVALID_JSON_KEY: raw}}));
+            let name = v["name"].as_str().unwrap_or("").to_string();
+            let input = if v["input"].is_object() { v["input"].clone() } else { json!({}) };
+            n += 1;
+            blocks.push(ContentBlock::ToolUse { id: format!("cli-{turn}-{n}"), name, input });
+        }
         rest = &after[end + CLOSE.len()..];
     }
     prose.push_str(rest);
-    let prose = prose.trim().to_string();
+    // Strip stray protocol tags the model left in prose.
+    let prose = prose.replace(OPEN, "").replace(CLOSE, "").trim().to_string();
     if !prose.is_empty() {
         blocks.insert(0, ContentBlock::Text { text: prose });
     }
     blocks
+}
+
+/// Parses Claude's native `<invoke name="tool">` ... `<parameter name="k">v</parameter>` form.
+fn parse_invoke(block: &str) -> Option<(String, Value)> {
+    let name_start = block.find("name=\"")? + 6;
+    let name = block[name_start..].split('"').next()?.to_string();
+    let mut input = serde_json::Map::new();
+    let mut rest = block;
+    while let Some(ps) = rest.find("<parameter name=\"") {
+        let after = &rest[ps + "<parameter name=\"".len()..];
+        let Some(key_end) = after.find('"') else { break };
+        let key = after[..key_end].to_string();
+        let after_key = &after[key_end + 1..];
+        let Some(gt) = after_key.find('>') else { break };
+        let value_part = &after_key[gt + 1..];
+        let Some(close) = value_part.find("</parameter>") else { break };
+        let raw = &value_part[..close];
+        // A value may be JSON (object/array/number/bool) or plain text.
+        let value = serde_json::from_str::<Value>(raw.trim()).unwrap_or_else(|_| Value::String(raw.to_string()));
+        input.insert(key, value);
+        rest = &value_part[close + "</parameter>".len()..];
+    }
+    Some((name, Value::Object(input)))
 }
 
 /// Usage reported by `claude -p --output-format json`.

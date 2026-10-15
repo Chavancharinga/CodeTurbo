@@ -247,3 +247,26 @@ fn the_text_tool_protocol_round_trips() {
     assert!(prompt.contains("[user]\nolá") && prompt.contains("<tool_call>{\"input\":{\"path\":\"a.rs\"},\"name\":\"read_symbol\"}</tool_call>"), "{prompt}");
     assert!(prompt.ends_with("[assistant]\n"));
 }
+
+
+#[test]
+fn claude_native_invoke_format_is_parsed() {
+    use coturbo_providers::cli::parse_reply;
+    // Claude sometimes emits its own <invoke>/<parameter> form inside <tool_call>.
+    let reply = "Vou criar.
+<tool_call>
+<invoke name=\"write_file\">
+<parameter name=\"path\">a.txt</parameter>
+<parameter name=\"content\">oi</parameter>
+</invoke>
+</tool_call>";
+    let b = parse_reply(reply, 1);
+    assert!(matches!(&b[0], ContentBlock::Text { text } if text == "Vou criar."), "{b:?}");
+    assert!(matches!(&b[1], ContentBlock::ToolUse { name, input, .. } if name == "write_file" && input["path"] == "a.txt" && input["content"] == "oi"), "{b:?}");
+    // And as bare <invoke> with no wrapper.
+    let bare = parse_reply("<invoke name=\"bash\"><parameter name=\"command\">ls</parameter></invoke>", 2);
+    assert!(matches!(&bare[0], ContentBlock::ToolUse { name, input, .. } if name == "bash" && input["command"] == "ls"), "{bare:?}");
+    // JSON form still works.
+    let js = parse_reply("<tool_call>{\"name\": \"read_file\", \"input\": {\"path\": \"x\"}}</tool_call>", 3);
+    assert!(matches!(&js[0], ContentBlock::ToolUse { name, .. } if name == "read_file"));
+}
