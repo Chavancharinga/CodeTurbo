@@ -171,7 +171,7 @@ impl Tools {
             ),
             spec(
                 "investigate",
-                "Reverse-engineer how existing software does something, from evidence (read-only): a website URL (rendered, with structure, technology, design system and screenshots), a local app folder, an Electron .asar, a JS bundle, or a native binary (exe/dll/so/dylib/wasm: imports, exports, strings). Use it to learn from a reference before building something similar.",
+                "Reverse-engineer how existing software does something, from evidence (read-only): a website URL (rendered, with structure, technology, design system and screenshots), a local app folder, an Electron .asar, a JS bundle, or a native binary (exe/dll/so/dylib/wasm: imports, exports, strings). Use it to learn from a reference before building something similar. When recreating an app with an interface, reproduce the real layout faithfully — its navigation, lists, master-detail panels, primary actions and states — grounded in what the report shows, not a simplified demo. For an app whose UI lives in resources (e.g. Electron/CEF), also investigate that UI folder, not only the launcher binary.",
                 obj(json!({"target": s("URL, or path to a folder or file (absolute paths allowed)"), "question": s("what you want to understand, e.g. how search works")}), &["target"]),
             ),
             spec("propose_plan", "Plan mode only: submit .codeturbo/plans/<slug>-plan.md for the user's approval.", obj(json!({"slug": s("plan slug")}), &["slug"])),

@@ -11,6 +11,7 @@ pub mod binary;
 pub mod external;
 pub mod disasm;
 pub mod js;
+pub mod replicate;
 pub mod site;
 pub mod sqlite;
 pub mod wasm;
@@ -48,11 +49,13 @@ pub async fn investigate(root: &Path, target: &str, question: &str) -> Result<Re
     if t.starts_with("http://") || t.starts_with("https://") {
         let mut report = site::inspect(root, t, question).await?;
         report.text.push_str(&external::suggestions("site", t));
+        report.text.push_str(&replicate::guidance("site", &report.text));
         return Ok(report);
     }
     let path = if Path::new(t).is_absolute() { PathBuf::from(t) } else { root.join(t) };
     if path.is_dir() {
-        let text = js::inspect_dir(&path, question) + &external::suggestions("js", &path.to_string_lossy());
+        let mut text = js::inspect_dir(&path, question) + &external::suggestions("js", &path.to_string_lossy());
+        text.push_str(&replicate::guidance("js", &text));
         return Ok(Report { text, images: Vec::new() });
     }
     let data = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -81,5 +84,6 @@ pub async fn investigate(root: &Path, target: &str, question: &str) -> Result<Re
         (text, "binary")
     };
     text.push_str(&external::suggestions(kind, &path.to_string_lossy()));
+    text.push_str(&replicate::guidance(kind, &text));
     Ok(Report { text, images: Vec::new() })
 }
