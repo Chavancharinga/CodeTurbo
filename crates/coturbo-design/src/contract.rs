@@ -34,6 +34,23 @@ pub fn css(t: &Tokens) -> String {
     for (i, px) in t.space.iter().enumerate() {
         s.push_str(&format!("  --space-{}: {px}px;\n", i + 1));
     }
+    // Semantic aliases so the model's natural names (--space-md, --space-xl)
+    // resolve too, instead of collapsing to an undefined value.
+    let at = |i: usize| t.space.get(i).copied().unwrap_or(16);
+    for (name, px) in [
+        ("xs", at(1)),
+        ("sm", at(2)),
+        ("s", at(2)),
+        ("md", at(3)),
+        ("m", at(3)),
+        ("lg", at(5)),
+        ("l", at(5)),
+        ("xl", at(6)),
+        ("2xl", at(7)),
+        ("3xl", at(8)),
+    ] {
+        s.push_str(&format!("  --space-{name}: {px}px;\n"));
+    }
     for (n, px) in &t.radius {
         s.push_str(&format!("  --radius-{n}: {px}px;\n"));
     }

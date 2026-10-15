@@ -188,8 +188,13 @@ h2 {{ font-size: clamp(var(--text-xl), 4vw, var(--text-3xl)); }}
 h3 {{ font-size: var(--text-lg); }}
 p {{ margin: 0 0 var(--space-4); max-width: 65ch; text-wrap: pretty; }}
 a {{ color: var(--color-primary-ink, var(--color-primary)); text-underline-offset: 0.2em; }}
+body {{ overflow-x: clip; }}
 .container {{ width: 100%; max-width: 1200px; margin-inline: auto; padding-inline: clamp(var(--space-4), 5vw, var(--space-8)); }}
+/* Safety net: any top-level block or section that forgot .container still
+   gets side padding, so content never hugs the edge. Low specificity. */
+:where(body > header:not(.container), body > footer:not(.container), body > nav:not(.container), .section:not(.container)) {{ padding-inline: clamp(var(--space-4), 5vw, var(--space-8)); }}
 .section {{ padding-block: clamp(var(--space-8), 10vw, var(--space-10)); }}
+:where(main > * + *) {{ margin-top: clamp(var(--space-8), 8vw, var(--space-9)); }}
 .section--surface {{ background: var(--color-surface); }}
 .grid {{ display: grid; gap: var(--space-6); grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); }}
 .stack > * + * {{ margin-top: var(--space-4); }}
