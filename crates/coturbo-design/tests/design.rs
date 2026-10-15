@@ -367,3 +367,23 @@ fn the_design_system_is_read_from_the_project() {
     let radii: Vec<u32> = t.radius.iter().map(|(_, r)| *r).collect();
     assert!(radii.contains(&6) && radii.contains(&14), "{radii:?}");
 }
+
+#[test]
+fn a_page_linking_the_kit_file_satisfies_the_static_rules() {
+    use coturbo_design::{kit, with_linked_css};
+    let t = compile(&brief("técnico"));
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("DESIGN.md"), contract::markdown(&t)).unwrap();
+    std::fs::write(dir.path().join("codeturbo-kit.css"), format!("{}\n{}", contract::css(&t), kit::base_css(&t))).unwrap();
+    // A page with NO inline styles, only the external kit and tokens.
+    let page = r#"<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="codeturbo-kit.css"><title>X</title></head>
+<body><header class="container cluster"><strong>Nordlync</strong><a class="btn btn--secondary" href="/x">Entrar</a></header>
+<main><section class="section reveal"><div class="container"><h1>Automação industrial</h1><p class="muted">Texto.</p>
+<div class="grid"><div class="panel card"><h2>Um</h2><p>a</p></div><div class="panel card"><h2>Dois</h2><p>b</p></div></div></div></section></main></body></html>"#;
+    std::fs::write(dir.path().join("index.html"), page).unwrap();
+    let c = Contract::parse(&contract::markdown(&t));
+    let merged = with_linked_css(dir.path(), "index.html", page);
+    let f = fiscal::check("index.html", &merged, Some(&c));
+    assert!(f.iter().all(|x| !x.blocking()), "the external kit satisfies focus/responsiveness: {f:?}");
+    assert!(merged.contains(":focus-visible"), "the kit css was inlined for checking");
+}

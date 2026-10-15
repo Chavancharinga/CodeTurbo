@@ -23,6 +23,27 @@ pub struct Review {
     pub summary: String,
 }
 
+/// The page text plus the contents of any local stylesheet it `<link>`s
+/// (the design kit), so the static rules see focus, responsiveness and the
+/// rest that live in the shared file instead of inline.
+pub fn with_linked_css(root: &Path, rel: &str, text: &str) -> String {
+    let lower = rel.to_ascii_lowercase();
+    if !(lower.ends_with(".html") || lower.ends_with(".htm")) {
+        return text.to_string();
+    }
+    let link = regex::Regex::new(r#"(?i)<link[^>]+href=["']([^"':]+\.css)["']"#).expect("valid regex");
+    let base = Path::new(rel).parent().unwrap_or(Path::new(""));
+    let mut out = text.to_string();
+    for c in link.captures_iter(text).take(6) {
+        let href = c[1].trim_start_matches("./");
+        let path = root.join(base).join(href);
+        if let Ok(css) = std::fs::read_to_string(&path) {
+            out.push_str(&format!("\n<style data-linked=\"{href}\">\n{css}\n</style>"));
+        }
+    }
+    out
+}
+
 /// Checks the interface files a task changed: the static rules on each,
 /// and, for HTML pages, the rendered measurements. `None` when none of
 /// `files` is an interface file.
@@ -38,7 +59,8 @@ pub async fn review(root: &Path, files: &[String]) -> Option<Review> {
     let mut rendered = 0;
     for rel in ui {
         let Ok(text) = std::fs::read_to_string(root.join(rel)) else { continue };
-        let mut findings: Vec<Finding> = fiscal::check(rel, &text, contract.as_ref());
+        let checked = with_linked_css(root, rel, &text);
+        let mut findings: Vec<Finding> = fiscal::check(rel, &checked, contract.as_ref());
         let lower = rel.to_ascii_lowercase();
         if let Some(b) = &browser
             && (lower.ends_with(".html") || lower.ends_with(".htm"))

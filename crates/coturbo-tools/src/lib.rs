@@ -202,6 +202,14 @@ impl Tools {
         let tokens = compiler::compile(&brief);
         let path = self.root.join(contract::FILE);
         std::fs::write(&path, contract::markdown(&tokens)).map_err(|e| format!("{}: {e}", path.display()))?;
+        // Write a ready stylesheet so every page just links it and starts
+        // with margins, focus, responsiveness and motion already right.
+        let kit_css = format!(
+            "/* Gerado pelo CodeTurbo: tokens + kit base. Inclua em toda página:\n   <link rel=\"stylesheet\" href=\"codeturbo-kit.css\"> */\n{}\n\n{}\n",
+            contract::css(&tokens),
+            coturbo_design::kit::base_css(&tokens)
+        );
+        std::fs::write(self.root.join("codeturbo-kit.css"), kit_css).map_err(|e| format!("codeturbo-kit.css: {e}"))?;
         let kept = if existing.is_empty() && brief.brand.is_empty() {
             String::new()
         } else if !existing.is_empty() {
@@ -217,26 +225,27 @@ impl Tools {
             )
         };
         Ok(ToolOutput::ok(format!(
-            "wrote {} (tone: {}).{kept} Use only these tokens: every color, font, size, space, radius and shadow through var(--…); \
-             the design check rejects anything else and generic patterns (default fonts/palettes, emoji icons, identical card grids, \
-             template section order, one radius everywhere, centered body text).\n\
+            "wrote {} and codeturbo-kit.css (tone: {}).{kept}\n\
+             REQUIRED in every page's <head>: {}\n\
+             and <link rel=\"stylesheet\" href=\"codeturbo-kit.css\">. The kit already gives margins, focus-visible, \
+             fluid type, a responsive .grid, and motion — do not redefine them. Use only the tokens (var(--…)); \
+             the design check rejects raw colors/sizes and generic patterns (default fonts/palettes, emoji icons, \
+             identical card grids, template section order, one radius everywhere, centered body text).\n\
              Layout: {}.\nSignature element to build around: {}.\n\
              Composition plan for this project (follow it, in this order; it is unique to this project):\n{}\n\
-             Fonts:\n{}\nTokens:\n{}\n\
-             Base kit (already passes the design check; include it and build on its classes):\n{}\n\
-             Motion is built in and respects prefers-reduced-motion: add class `reveal` to sections and this script to animate them on scroll: \
-             <script>addEventListener('DOMContentLoaded',()=>{{const o=new IntersectionObserver((es)=>es.forEach(e=>e.isIntersecting&&e.target.classList.add('in')),{{threshold:0.12}});document.querySelectorAll('.reveal').forEach(el=>o.observe(el))}})</script> \
-             Use `card` (hover lift), `float` (gentle float), `link-underline` and `data-animate=\"rise\"` for tasteful motion.\n\
-             Project ornament (inline SVG, colored by `color`):\n{}\nSection divider:\n{}\n\
+             Classes: .container (centered, with side padding), .section, .grid (responsive), .cluster, .btn/.btn--primary/.btn--secondary, .panel, .card (hover lift), .tag.\n\
+             Animate sections: add class `reveal` and this script once per page: \
+             <script>addEventListener('DOMContentLoaded',()=>{{const o=new IntersectionObserver(es=>es.forEach(e=>e.isIntersecting&&e.target.classList.add('in')),{{threshold:0.12}});document.querySelectorAll('.reveal').forEach(el=>o.observe(el))}})</script> \
+             Also `float`, `link-underline`, `data-animate=\"rise\"`.\n\
+             For tables on small screens, wrap them so they stack or fit — never let content run off the edge.\n\
+             Project ornament (inline SVG, colored by `color`, keep it behind content with the .ornament class):\n{}\nSection divider:\n{}\n\
              No stock imagery: draw product screens and illustrations in HTML/CSS or SVG.",
             contract::FILE,
             tokens.tone.name(),
+            contract::font_link(&tokens).replace('\n', " "),
             tokens.layout,
             brief.signature,
             coturbo_design::kit::blueprint(&tokens).iter().enumerate().map(|(i, s)| format!("{}. {s}", i + 1)).collect::<Vec<_>>().join("\n"),
-            contract::font_link(&tokens),
-            contract::css(&tokens),
-            coturbo_design::kit::base_css(&tokens),
             coturbo_design::kit::ornament_svg(&tokens),
             coturbo_design::kit::divider_svg(&tokens)
         )))
@@ -384,7 +393,8 @@ impl Tools {
             }
             if coturbo_design::fiscal::is_ui_file(&rel) {
                 let contract = coturbo_design::contract::Contract::load(&self.root);
-                let findings = coturbo_design::fiscal::check(&rel, &text, contract.as_ref());
+                let checked = coturbo_design::with_linked_css(&self.root, &rel, &text);
+                let findings = coturbo_design::fiscal::check(&rel, &checked, contract.as_ref());
                 out.content.push('\n');
                 out.content.push_str(&coturbo_design::fiscal::render(&rel, &findings));
             }

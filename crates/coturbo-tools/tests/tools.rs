@@ -284,8 +284,10 @@ async fn design_brief_locks_a_contract_and_edits_are_inspected() {
     });
     let out = t.call("design_brief", &brief).await;
     assert!(!out.is_error, "{}", out.content);
-    assert!(out.content.contains(":root {") && out.content.contains("--color-primary"), "{}", out.content);
+    assert!(out.content.contains("codeturbo-kit.css") && out.content.contains("REQUIRED in every page"), "{}", out.content);
     assert!(read(dir.path(), "DESIGN.md").contains("quadro de giz"));
+    let kit = read(dir.path(), "codeturbo-kit.css");
+    assert!(kit.contains(":root {") && kit.contains("--color-primary") && kit.contains(":focus-visible"), "kit file written: {kit}");
 
     let page = "<html><head><style>body { font-family: Inter; color: #6366f1; }</style></head><body><p>oi</p></body></html>";
     let out = t.call("write_file", &json!({"path": "index.html", "content": page})).await;
