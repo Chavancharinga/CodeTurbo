@@ -257,8 +257,10 @@ pub fn check(path: &str, text: &str, contract: Option<&Contract>) -> Vec<Finding
                 literals += lits.len();
                 for c in &lits {
                     let h = crate::color::hex(*c);
+                    // Pure white, black and transparent are universal neutrals, not brand colors.
+                    let neutral = matches!(*c, (255, 255, 255) | (0, 0, 0));
                     if contract.is_some() {
-                        if !allowed.contains(c) {
+                        if !allowed.contains(c) && !neutral {
                             add(Severity::P1, "cor-fora-do-contrato", dline, format!("{h} não está no DESIGN.md; use var(--color-…)"));
                         }
                     } else if GENERIC_HEX.contains(&h.as_str()) {

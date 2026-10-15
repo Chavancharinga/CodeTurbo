@@ -57,7 +57,9 @@ const p=R(a),q=R(b);const ix=Math.min(p.right,q.right)-Math.max(p.left,q.left),i
 if(ix>2&&iy>2){const area=ix*iy,small=Math.min(p.width*p.height,q.width*q.height);if(area>small*0.15&&area>60){const l=label(a)+' × '+label(b);if(decor(a)||decor(b)){if(under.length<8)under.push(l);}else if(overlaps.length<8)overlaps.push(l);}continue;}
 const sameLine=Math.min(p.bottom,q.bottom)-Math.max(p.top,q.top)>Math.min(p.height,q.height)*0.5;
 const gap=Math.max(q.left-p.right,p.left-q.right);
-if(sameLine&&gap>=-2&&gap<4&&own(a)&&own(b)&&a.parentElement!==b.parentElement&&tight.length<8)tight.push(label(a)+' | '+label(b));}}
+// Adjacent links or buttons with no gap read as one blob (a squished nav).
+const clickable=e=>/^(A|BUTTON)$/.test(e.tagName);
+if(sameLine&&gap>=-2&&gap<4&&clickable(a)&&clickable(b)&&a.parentElement===b.parentElement&&a.textContent.trim()&&b.textContent.trim()&&tight.length<8)tight.push(label(a)+' | '+label(b));}}
 const broken=[...document.images].filter(i=>vis(i)&&i.complete&&i.naturalWidth===0).map(label).slice(0,5);
 const hscroll=document.documentElement.scrollWidth>W+1;
 const edge=W<600?items.filter(e=>{const r=R(e);return own(e)&&r.width<W-4&&(r.left<10||r.right>W-10);}).map(label).slice(0,5):[];
@@ -195,7 +197,7 @@ pub fn judge(p: &Page) -> Vec<Finding> {
         add(Severity::P2, "render-texto-pequeno", format!("{} blocos de texto abaixo de 14px no celular", p.mobile.tiny));
     }
     let m = &p.desktop;
-    if m.rows >= 2 {
+    if m.rows >= 3 {
         add(Severity::P1, "render-grades-iguais", format!("{} fileiras de blocos idênticos na página renderizada", m.rows));
     }
     if m.rounded >= 6 && m.radii == 1 {
