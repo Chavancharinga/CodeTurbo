@@ -198,7 +198,7 @@ pub fn judge(p: &Page) -> Vec<Finding> {
     }
     let m = &p.desktop;
     if m.rows >= 3 {
-        add(Severity::P1, "render-grades-iguais", format!("{} fileiras de blocos idênticos na página renderizada", m.rows));
+        add(Severity::P2, "render-grades-iguais", format!("{} fileiras de blocos idênticos na página renderizada", m.rows));
     }
     if m.rounded >= 6 && m.radii == 1 {
         add(Severity::P1, "render-raio-unico", format!("{} elementos renderizados com um único raio", m.rounded));

@@ -289,7 +289,7 @@ pub fn check(path: &str, text: &str, contract: Option<&Contract>) -> Vec<Finding
                             if chromatic.len() >= 2 {
                                 let (a, b) = (chromatic[0].0, chromatic[chromatic.len() - 1].0);
                                 if ((a - b + 540.0) % 360.0 - 180.0).abs() > 25.0 {
-                                    add(Severity::P1, "gradiente-generico", dline, "gradiente entre duas cores saturadas: assinatura visual de página gerada por IA".into());
+                                    add(Severity::P2, "gradiente-generico", dline, "gradiente entre duas cores saturadas: assinatura visual de página gerada por IA".into());
                                 }
                             }
                         }
@@ -309,7 +309,7 @@ pub fn check(path: &str, text: &str, contract: Option<&Contract>) -> Vec<Finding
                     }
                     "box-shadow" if value != "none" => shadows.push((value.clone(), dline)),
                     "backdrop-filter" | "-webkit-backdrop-filter" if value.contains("blur") => {
-                        add(Severity::P1, "vidro-fosco", dline, "vidro fosco (backdrop-filter: blur): clichê de interface gerada por IA".into());
+                        add(Severity::P2, "vidro-fosco", dline, "vidro fosco (backdrop-filter: blur): clichê de interface gerada por IA".into());
                     }
                     "outline" if (value == "none" || value == "0") && !selector.contains("focus-visible") => {
                         outline_none.get_or_insert(dline);
@@ -388,7 +388,7 @@ pub fn check(path: &str, text: &str, contract: Option<&Contract>) -> Vec<Finding
     }
     let uniform = |v: &[(String, usize)]| v.iter().map(|(s, _)| s.as_str()).collect::<std::collections::HashSet<_>>().len() == 1;
     if radii.len() >= 4 && uniform(&radii) {
-        add(Severity::P1, "raio-unico", radii[0].1, format!("{} elementos com o mesmo raio `{}`: varie entre os raios do contrato", radii.len(), radii[0].0));
+        add(Severity::P2, "raio-unico", radii[0].1, format!("{} elementos com o mesmo raio `{}`: varie entre os raios do contrato", radii.len(), radii[0].0));
     }
     if shadows.len() >= 3 && uniform(&shadows) {
         add(Severity::P2, "sombra-unica", shadows[0].1, format!("{} elementos com a mesma sombra", shadows.len()));
@@ -455,7 +455,7 @@ pub fn check(path: &str, text: &str, contract: Option<&Contract>) -> Vec<Finding
         let mut repeated: Vec<_> = classes.into_iter().filter(|(_, (n, _))| *n >= 3).collect();
         repeated.sort_by_key(|(_, (_, l))| *l);
         for (class, (n, line)) in repeated.into_iter().take(2) {
-            add(Severity::P1, "cartoes-identicos", line, format!("{n} blocos `{class}` idênticos: grade de cartões genérica; varie tamanho, conteúdo ou forma"));
+            add(Severity::P2, "cartoes-identicos", line, format!("{n} blocos `{class}` idênticos: grade de cartões genérica; varie tamanho, conteúdo ou forma"));
         }
         let lower = m.to_lowercase();
         if let Some(i) = lower.find("lorem ipsum") {

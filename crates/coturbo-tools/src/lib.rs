@@ -226,13 +226,15 @@ impl Tools {
         };
         Ok(ToolOutput::ok(format!(
             "wrote {} and codeturbo-kit.css (tone: {}).{kept}\n\
-             REQUIRED in every page's <head>: {}\n\
-             and <link rel=\"stylesheet\" href=\"codeturbo-kit.css\">. The kit already gives margins, focus-visible, \
-             fluid type, a responsive .grid, and motion — do not redefine them. Use only the tokens (var(--…)); \
-             the design check rejects raw colors/sizes and generic patterns (default fonts/palettes, emoji icons, \
-             identical card grids, template section order, one radius everywhere, centered body text).\n\
-             Layout: {}.\nSignature element to build around: {}.\n\
-             Composition plan for this project (follow it, in this order; it is unique to this project):\n{}\n\
+             Design boldly and make this interface unmistakably its own — the kit is a starting point to build ON, not a mold to fit into. \
+             Link it in every page's <head>: {}\n\
+             and <link rel=\"stylesheet\" href=\"codeturbo-kit.css\">. It handles side margins, focus, fluid type and motion so you don't have to. \
+             Build on the tokens (var(--…)). The design check BLOCKS only real defects (unreadable contrast, overlap, content cut off, \
+             not responsive, no side margin, broken images) and the tell-tale generic-AI look (default fonts like Inter/Roboto, raw Tailwind \
+             colors, emoji used as icons). Everything else — layout, shapes, density, repetition — is your creative call; a toolbar of \
+             identical buttons or a dense app panel is fine. Avoid the stock marketing-page shape unless it truly fits.\n\
+             Layout idea: {}.\nSignature element to build around: {}.\n\
+             A composition you could follow or diverge from (make it yours):\n{}\n\
              Classes: .container (centered, with side padding), .section, .grid (responsive), .cluster, .btn/.btn--primary/.btn--secondary, .panel, .card (hover lift), .tag.\n\
              Animate sections: add class `reveal` and this script once per page: \
              <script>addEventListener('DOMContentLoaded',()=>{{const o=new IntersectionObserver(es=>es.forEach(e=>e.isIntersecting&&e.target.classList.add('in')),{{threshold:0.12}});document.querySelectorAll('.reveal').forEach(el=>o.observe(el))}})</script> \
