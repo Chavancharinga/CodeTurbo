@@ -52,9 +52,10 @@ testado, com o menor consumo de tokens possível em cada tarefa.
   comando, e a alteração exibida antes de ser aplicada. O modo plano permite
   revisar e aprovar a estratégia antes de qualquer modificação no projeto.
 - **Engenharia reversa embutida.** O agente estuda como um site, um aplicativo
-  JavaScript ou Electron, ou um binário nativo faz algo, com evidências de
-  arquivo e linha, antes de construir algo semelhante. Tudo em Rust, sem
-  ferramentas externas.
+  JavaScript ou Electron, um binário nativo (incluindo a desmontagem x86/x64
+  das funções ligadas à pergunta), um APK de Android ou um banco SQLite faz
+  algo, com evidências de arquivo e linha, antes de construir algo semelhante.
+  Tudo em Rust, sem ferramentas externas.
 - **Atualização integrada.** O CodeTurbo avisa quando há uma versão nova e se
   atualiza com um único comando.
 

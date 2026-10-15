@@ -79,3 +79,110 @@ fn rendered_pages_are_described() {
     assert!(r.contains("Next.js"), "{r}");
     assert!(r.contains("Scripts loaded: 1; forms: 1"), "{r}");
 }
+
+#[test]
+fn x86_code_is_disassembled() {
+    use coturbo_rea::disasm::disassemble;
+    // mov eax, 1 ; add eax, 2 ; ret
+    let code = [0xb8, 0x01, 0x00, 0x00, 0x00, 0x83, 0xc0, 0x02, 0xc3];
+    let lines = disassemble(&code, 0x1000, 64, 20);
+    assert_eq!(lines.len(), 3, "stops at ret");
+    assert_eq!(lines[0].ip, 0x1000);
+    assert!(lines[0].text.contains("mov") && lines[0].text.contains("eax"), "{}", lines[0].text);
+    assert!(lines[1].text.starts_with("add"), "{}", lines[1].text);
+    assert!(lines[2].text.starts_with("ret"), "{}", lines[2].text);
+}
+
+#[test]
+fn sqlite_schema_is_read() {
+    use coturbo_rea::sqlite;
+    // A real SQLite file built by hand would be large; instead verify the
+    // reader rejects non-SQLite data and accepts the magic header shape.
+    assert!(sqlite::inspect(b"not a database").is_err());
+    let mut fake = vec![0u8; 512];
+    fake[..16].copy_from_slice(b"SQLite format 3\0");
+    fake[16] = 0x02; // page size 512
+    fake[28] = 0; fake[29] = 0; fake[30] = 0; fake[31] = 1; // 1 page
+    let r = sqlite::inspect(&fake).unwrap();
+    assert!(r.contains("SQLite database: page size 512"), "{r}");
+}
+
+/// A minimal ZIP (APK) with the given entries, stored (no compression).
+fn zip_stored(files: &[(&str, &[u8])]) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut central = Vec::new();
+    let mut offsets = Vec::new();
+    for (name, data) in files {
+        let crc = {
+            let mut c: u32 = 0xffff_ffff;
+            for &b in *data {
+                c ^= b as u32;
+                for _ in 0..8 {
+                    c = if c & 1 == 1 { (c >> 1) ^ 0xedb8_8320 } else { c >> 1 };
+                }
+            }
+            !c
+        };
+        offsets.push(out.len() as u32);
+        out.extend_from_slice(&0x0403_4b50u32.to_le_bytes());
+        out.extend_from_slice(&[20, 0, 0, 0, 0, 0, 0, 0, 0, 0]); // ver, flags, method, time, date
+        out.extend_from_slice(&crc.to_le_bytes());
+        out.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        out.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        out.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes());
+        out.extend_from_slice(name.as_bytes());
+        out.extend_from_slice(data);
+    }
+    let cd_start = out.len() as u32;
+    for (i, (name, data)) in files.iter().enumerate() {
+        central.extend_from_slice(&0x0201_4b50u32.to_le_bytes());
+        central.extend_from_slice(&[20, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        let crc = {
+            let mut c: u32 = 0xffff_ffff;
+            for &b in *data { c ^= b as u32; for _ in 0..8 { c = if c & 1 == 1 { (c >> 1) ^ 0xedb8_8320 } else { c >> 1 }; } }
+            !c
+        };
+        central.extend_from_slice(&crc.to_le_bytes());
+        central.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        central.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        central.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        central.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        central.extend_from_slice(&offsets[i].to_le_bytes());
+        central.extend_from_slice(name.as_bytes());
+    }
+    let cd_len = central.len() as u32;
+    out.extend_from_slice(&central);
+    out.extend_from_slice(&0x0605_4b50u32.to_le_bytes());
+    out.extend_from_slice(&[0, 0, 0, 0]);
+    out.extend_from_slice(&(files.len() as u16).to_le_bytes());
+    out.extend_from_slice(&(files.len() as u16).to_le_bytes());
+    out.extend_from_slice(&cd_len.to_le_bytes());
+    out.extend_from_slice(&cd_start.to_le_bytes());
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out
+}
+
+#[test]
+fn apk_structure_and_permissions() {
+    use coturbo_rea::apk;
+    // AndroidManifest as UTF-16LE text (permission + component names).
+    let manifest: Vec<u8> = "com.example.notes android.permission.INTERNET android.permission.CAMERA MainActivity SyncService"
+        .encode_utf16()
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    let dex = b"Lcom/example/notes/SearchIndex;->query noteList classes".to_vec();
+    let apk = zip_stored(&[
+        ("AndroidManifest.xml", &manifest),
+        ("classes.dex", &dex),
+        ("lib/arm64-v8a/libnative.so", b"x"),
+        ("resources.arsc", b"r"),
+    ]);
+    let r = apk::inspect(&apk, "search").unwrap();
+    assert!(r.contains("Android APK") && r.contains("1 DEX"), "{r}");
+    assert!(r.contains("arm64-v8a"), "{r}");
+    assert!(r.contains("android.permission.INTERNET") && r.contains("CAMERA"), "{r}");
+    assert!(r.contains("MainActivity") && r.contains("SyncService"), "{r}");
+    assert!(r.contains("SearchIndex"), "dex names matching the question: {r}");
+    assert!(apk::inspect(b"not a zip", "").is_err());
+}

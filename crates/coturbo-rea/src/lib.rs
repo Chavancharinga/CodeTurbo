@@ -5,9 +5,12 @@
 //! bundles) and native binaries (PE, ELF, Mach-O, WebAssembly). If the
 //! external REA is installed, the agent can still call it through bash.
 
+pub mod apk;
 pub mod binary;
+pub mod disasm;
 pub mod js;
 pub mod site;
+pub mod sqlite;
 
 use std::path::{Path, PathBuf};
 
@@ -52,8 +55,22 @@ pub async fn investigate(root: &Path, target: &str, question: &str) -> Result<Re
         js::inspect_asar(&data, question)?
     } else if [".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx"].iter().any(|e| lower.ends_with(e)) {
         js::inspect_files(&[(path.to_string_lossy().into_owned(), String::from_utf8_lossy(&data).into_owned())], None, question)
+    } else if lower.ends_with(".apk") {
+        apk::inspect(&data, question)?
+    } else if data.len() >= 16 && &data[..16] == b"SQLite format 3\0" {
+        sqlite::inspect(&data)?
     } else {
-        binary::inspect(&data, question)?
+        // A native binary: static facts, plus the disassembly of the
+        // functions related to the question when the symbols allow it.
+        let mut text = binary::inspect(&data, question)?;
+        if let Ok(file) = object::File::parse(&data[..]) {
+            let code = disasm::functions(&file, question);
+            if !code.is_empty() {
+                text.push_str("\n\n");
+                text.push_str(&code);
+            }
+        }
+        text
     };
     Ok(Report { text, images: Vec::new() })
 }
