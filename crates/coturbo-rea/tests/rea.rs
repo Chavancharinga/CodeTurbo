@@ -186,3 +186,16 @@ fn apk_structure_and_permissions() {
     assert!(r.contains("SearchIndex"), "dex names matching the question: {r}");
     assert!(apk::inspect(b"not a zip", "").is_err());
 }
+
+#[test]
+fn external_rea_suggestions_depend_on_install() {
+    use coturbo_rea::external;
+    let s = external::suggestions("site", "https://exemplo.com");
+    if external::installed() {
+        assert!(s.contains("rea analyze-web-bundle https://exemplo.com"), "{s}");
+        assert!(external::suggestions("binary", "a.exe").contains("rea function a.exe"), "binary cmds");
+        assert!(external::suggestions("js", "/app").contains("rea analyze-javascript-application /app"));
+    } else {
+        assert!(s.is_empty(), "sem rea instalado, nada é sugerido");
+    }
+}

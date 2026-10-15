@@ -105,9 +105,6 @@ pub fn inspect(data: &[u8], question: &str) -> Result<String, String> {
             .collect();
         r.push_str(&format!("Strings matching {:?} ({} shown):\n{}\n", terms, hits.len(), hits.join("\n")));
     }
-    r.push_str(
-        "Unknowns: control flow and algorithms need a disassembler (Ghidra, IDA or Hopper via the external REA); \
-         these are static facts only.",
-    );
+    r.push_str("Unknowns: control flow and full C pseudocode need a decompiler.");
     Ok(r)
 }

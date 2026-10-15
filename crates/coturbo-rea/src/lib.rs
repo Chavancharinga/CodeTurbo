@@ -2,11 +2,13 @@
 //! does something, from evidence, to explain it or build something like
 //! it. Native Rust, read-only, no external tools: websites (rendered in the
 //! installed browser), JavaScript and Electron apps (folders, `.asar`,
-//! bundles) and native binaries (PE, ELF, Mach-O, WebAssembly). If the
-//! external REA is installed, the agent can still call it through bash.
+//! bundles) and native binaries (PE, ELF, Mach-O, WebAssembly). When the
+//! external REA (`morluto/rea`) is installed, each report also lists the exact
+//! `rea` commands for deeper analysis (decompilation, runtime capture).
 
 pub mod apk;
 pub mod binary;
+pub mod external;
 pub mod disasm;
 pub mod js;
 pub mod site;
@@ -43,22 +45,25 @@ pub fn terms(question: &str) -> Vec<String> {
 pub async fn investigate(root: &Path, target: &str, question: &str) -> Result<Report, String> {
     let t = target.trim();
     if t.starts_with("http://") || t.starts_with("https://") {
-        return site::inspect(root, t, question).await;
+        let mut report = site::inspect(root, t, question).await?;
+        report.text.push_str(&external::suggestions("site", t));
+        return Ok(report);
     }
     let path = if Path::new(t).is_absolute() { PathBuf::from(t) } else { root.join(t) };
     if path.is_dir() {
-        return Ok(Report { text: js::inspect_dir(&path, question), images: Vec::new() });
+        let text = js::inspect_dir(&path, question) + &external::suggestions("js", &path.to_string_lossy());
+        return Ok(Report { text, images: Vec::new() });
     }
     let data = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     let lower = path.to_string_lossy().to_lowercase();
-    let text = if lower.ends_with(".asar") {
-        js::inspect_asar(&data, question)?
+    let (mut text, kind) = if lower.ends_with(".asar") {
+        (js::inspect_asar(&data, question)?, "js")
     } else if [".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx"].iter().any(|e| lower.ends_with(e)) {
-        js::inspect_files(&[(path.to_string_lossy().into_owned(), String::from_utf8_lossy(&data).into_owned())], None, question)
+        (js::inspect_files(&[(path.to_string_lossy().into_owned(), String::from_utf8_lossy(&data).into_owned())], None, question), "js")
     } else if lower.ends_with(".apk") {
-        apk::inspect(&data, question)?
+        (apk::inspect(&data, question)?, "other")
     } else if data.len() >= 16 && &data[..16] == b"SQLite format 3\0" {
-        sqlite::inspect(&data)?
+        (sqlite::inspect(&data)?, "other")
     } else {
         // A native binary: static facts, plus the disassembly of the
         // functions related to the question when the symbols allow it.
@@ -70,7 +75,8 @@ pub async fn investigate(root: &Path, target: &str, question: &str) -> Result<Re
                 text.push_str(&code);
             }
         }
-        text
+        (text, "binary")
     };
+    text.push_str(&external::suggestions(kind, &path.to_string_lossy()));
     Ok(Report { text, images: Vec::new() })
 }
