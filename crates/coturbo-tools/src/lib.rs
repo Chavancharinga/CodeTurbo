@@ -224,6 +224,9 @@ impl Tools {
              Composition plan for this project (follow it, in this order; it is unique to this project):\n{}\n\
              Fonts:\n{}\nTokens:\n{}\n\
              Base kit (already passes the design check; include it and build on its classes):\n{}\n\
+             Motion is built in and respects prefers-reduced-motion: add class `reveal` to sections and this script to animate them on scroll: \
+             <script>addEventListener('DOMContentLoaded',()=>{{const o=new IntersectionObserver((es)=>es.forEach(e=>e.isIntersecting&&e.target.classList.add('in')),{{threshold:0.12}});document.querySelectorAll('.reveal').forEach(el=>o.observe(el))}})</script> \
+             Use `card` (hover lift), `float` (gentle float), `link-underline` and `data-animate=\"rise\"` for tasteful motion.\n\
              Project ornament (inline SVG, colored by `color`):\n{}\nSection divider:\n{}\n\
              No stock imagery: draw product screens and illustrations in HTML/CSS or SVG.",
             contract::FILE,

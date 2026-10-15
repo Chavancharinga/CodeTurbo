@@ -205,6 +205,18 @@ a {{ color: var(--color-primary-ink, var(--color-primary)); text-underline-offse
 .divider {{ color: var(--color-surface); display: block; width: 100%; height: clamp(var(--space-8), 6vw, var(--space-9)); }}
 .sr-only {{ position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }}
 :focus-visible {{ outline: 3px solid var(--color-accent); outline-offset: 3px; }}
+.card {{ transition: transform 0.2s ease, box-shadow 0.2s ease; }}
+.link-underline {{ background-image: linear-gradient(currentColor, currentColor); background-size: 0% 2px; background-position: 0 100%; background-repeat: no-repeat; transition: background-size 0.25s ease; }}
+.link-underline:hover {{ background-size: 100% 2px; }}
+@media (prefers-reduced-motion: no-preference) {{
+  .reveal {{ opacity: 0; transform: translateY(20px); transition: opacity 0.6s ease, transform 0.6s ease; }}
+  .reveal.in {{ opacity: 1; transform: none; }}
+  .card:hover {{ transform: translateY(-4px); box-shadow: var(--shadow-2); }}
+  .float {{ animation: ct-float 6s ease-in-out infinite; }}
+  @keyframes ct-float {{ 0%, 100% {{ transform: translateY(0); }} 50% {{ transform: translateY(-10px); }} }}
+  @keyframes ct-fade-rise {{ from {{ opacity: 0; transform: translateY(16px); }} to {{ opacity: 1; transform: none; }} }}
+  [data-animate="rise"] {{ animation: ct-fade-rise 0.7s ease both; }}
+}}
 @media (max-width: 640px) {{ .cluster > .btn {{ flex: 1 1 100%; }} }}
 @media (prefers-reduced-motion: reduce) {{ *, *::before, *::after {{ animation: none !important; transition: none !important; scroll-behavior: auto !important; }} }}"#
     )
