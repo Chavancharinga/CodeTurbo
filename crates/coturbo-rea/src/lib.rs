@@ -8,6 +8,7 @@
 
 pub mod apk;
 pub mod binary;
+pub mod demangle;
 pub mod external;
 pub mod disasm;
 pub mod js;

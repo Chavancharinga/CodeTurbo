@@ -65,7 +65,7 @@ pub fn inspect(data: &[u8], question: &str) -> Result<String, String> {
         let mut by_lib: std::collections::BTreeMap<String, Vec<String>> = Default::default();
         for i in &imports {
             let lib = String::from_utf8_lossy(i.library()).into_owned();
-            by_lib.entry(lib).or_default().push(String::from_utf8_lossy(i.name()).into_owned());
+            by_lib.entry(lib).or_default().push(crate::demangle::demangle_short(&String::from_utf8_lossy(i.name())));
         }
         if !by_lib.is_empty() {
             r.push_str("Imports:\n");
@@ -76,7 +76,7 @@ pub fn inspect(data: &[u8], question: &str) -> Result<String, String> {
         }
     }
     if let Ok(exports) = file.exports() {
-        let names: Vec<String> = exports.iter().take(30).map(|e| String::from_utf8_lossy(e.name()).into_owned()).collect();
+        let names: Vec<String> = exports.iter().take(30).map(|e| crate::demangle::demangle_short(&String::from_utf8_lossy(e.name()))).collect();
         if !names.is_empty() {
             r.push_str(&format!("Exports ({}): {}\n", exports.len(), names.join(", ")));
         }
