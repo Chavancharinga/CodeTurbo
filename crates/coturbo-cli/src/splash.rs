@@ -523,6 +523,14 @@ pub fn pixels_mood(snail: usize, typed: usize, width: usize, mood: Mood) -> Vec<
     canvas_mood(SNAIL, snail, track_for(SNAIL, width), (typed / 2).min(NAME.len()), mood)
 }
 
+/// Only the snail and its trail, `cols` pixels wide at most, for screens too
+/// narrow for the whole logo (a phone in portrait).
+pub fn snail_only(snail: usize, cols: usize, mood: Mood) -> Vec<Vec<Option<(u8, u8, u8)>>> {
+    let track = cols.clamp(SNAIL.width, TRAIL_LEN + SNAIL.width);
+    let t0 = word_width() + GAP;
+    canvas_mood(SNAIL, snail, track, 0, mood).into_iter().map(|row| row[t0..].to_vec()).collect()
+}
+
 /// Frames in one seamless loop of the running snail once the name is shown
 /// (the wave, spiral, trail and dust all repeat after this many).
 pub const LOOP_FRAMES: usize = 40;

@@ -189,9 +189,11 @@ impl Session {
     fn status(&self, agent_usage: Usage) {
         let mut total = self.spent;
         total += agent_usage;
+        // A provider that cannot work yet (no key, program missing) is not shown as if it were in use.
+        let ready = self.provider().is_ok();
         self.send(Out::Status(Status {
-            provider: self.cfg.provider.clone(),
-            model: self.cfg.model.clone(),
+            provider: if ready { self.cfg.provider.clone() } else { "no provider".into() },
+            model: if ready { self.cfg.model.clone() } else { "use /provider".into() },
             approval: approval_label(&self.cfg.approval_mode),
             plan: self.plan,
             usage: status_line(&total, self.pricer().cost(&total)),
@@ -556,9 +558,18 @@ impl Session {
         }
         let Some(info) = settings::provider(&id) else { return false };
         if info.key_var.is_some() && settings::api_key(&id, &self.creds).is_none() && !self.ask_key(&id).await {
+            let hint = match id.as_str() {
+                "gemini" => " Create a free one at https://aistudio.google.com/apikey and paste it.",
+                "openrouter" => " Create one at https://openrouter.ai/keys and paste it.",
+                _ => "",
+            };
+            self.warn(format!("{} was not connected: it needs an API key.{hint}", info.label));
             return false;
         }
-        let Some(model) = self.pick_model(&id, "").await else { return false };
+        let Some(model) = self.pick_model(&id, "").await else {
+            self.warn(format!("{} was not connected: no model was chosen.", info.label));
+            return false;
+        };
         let changed = id != self.cfg.provider;
         self.cfg.provider.clone_from(&id);
         self.cfg.model.clone_from(&model);
@@ -623,7 +634,12 @@ impl Session {
             })
             .collect();
         let label = settings::provider(provider).map_or(provider, |p| p.label);
-        self.select(format!("Model · {label} · {count} available · type to search"), options, true).await
+        let title = if count == 0 {
+            format!("Model · {label} · the list did not load: type the model name and press Enter")
+        } else {
+            format!("Model · {label} · {count} available · type to search")
+        };
+        self.select(title, options, true).await
     }
 
     async fn set_key(&mut self) -> bool {

@@ -900,6 +900,20 @@ fn green_goes_back_to_white_after_ten_idle_minutes() {
 }
 
 #[test]
+fn on_a_phone_width_the_snail_still_runs_beside_the_name() {
+    let mut h = harness();
+    use ratatui::{Terminal, backend::TestBackend};
+    let mut term = Terminal::new(TestBackend::new(50, 40)).unwrap();
+    term.draw(|f| h.app.draw(f)).unwrap();
+    let buf = term.backend().buffer().clone();
+    let rows: Vec<String> = (0..6).map(|y| (0..50).map(|x| buf[(x, y)].symbol().to_string()).collect()).collect();
+    let all = rows.join("\n");
+    assert!(all.contains("codeturbo"), "the name in text:\n{all}");
+    let snail_cells = (0..6).flat_map(|y| (12..50).map(move |x| (x, y))).filter(|&(x, y)| matches!(buf[(x, y)].symbol(), "▀" | "▄")).count();
+    assert!(snail_cells > 10, "the snail is drawn beside the name:\n{all}");
+}
+
+#[test]
 fn a_task_that_fails_leaves_the_snail_yellow_not_green() {
     use coturbo_cli::splash::Mood;
     use std::time::{Duration, Instant};

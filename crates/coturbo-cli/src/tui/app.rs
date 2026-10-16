@@ -995,7 +995,8 @@ impl App {
         self.last_draw = Instant::now();
         self.phase += dt.as_secs_f32() / splash::FRAME.as_secs_f32() * mood.speed();
         let frame = self.phase as usize;
-        let logo = area.width as usize >= splash::logo_width() + 2 && area.height as usize >= splash::ROWS + 12;
+        // Narrower than the whole logo (a phone), the snail still runs beside the name in text.
+        let logo = area.width >= 34 && area.height as usize >= splash::ROWS + 12;
         let header_h = if logo { splash::ROWS as u16 + 1 } else { 2 };
 
         let asking = self.asking.as_ref();
@@ -1207,9 +1208,34 @@ impl App {
 /// The logo with the snail at frame `i`, drawn with half blocks: the same
 /// pixels as the terminal intro.
 fn draw_logo(buf: &mut Buffer, area: Rect, snail: usize, ms: u128, working: bool, mood: Mood) {
+    // Too narrow for the pixel word (a phone): the name in text, the snail beside it.
+    if (area.width as usize) < splash::logo_width() + 2 {
+        return draw_logo_compact(buf, area, snail, ms, working, mood);
+    }
     // The whole picture, which then slides in from outside the terminal and
     // gets a glint across it while the agent works.
     let whole = splash::pixels_mood(snail, usize::MAX / 2, area.width as usize, mood);
+    paint_pixels(buf, area, 1, whole, ms, working);
+}
+
+/// The narrow logo: `codeturbo` as text on the snail's foot line, then the
+/// running snail with as much trail as fits.
+fn draw_logo_compact(buf: &mut Buffer, area: Rect, snail: usize, ms: u128, working: bool, mood: Mood) {
+    const NAME_COLS: u16 = 10;
+    let px = splash::snail_only(snail, area.width.saturating_sub(NAME_COLS + 2) as usize, mood);
+    let rows = px.len().div_ceil(2) as u16;
+    let foot = area.y + rows.min(area.height).saturating_sub(1);
+    if foot < area.bottom() {
+        let (r, g, b) = mood.body();
+        buf.set_string(area.x + 1, foot, "code", Style::new().fg(Color::Rgb(220, 224, 232)).add_modifier(Modifier::BOLD));
+        buf.set_string(area.x + 5, foot, "turbo", Style::new().fg(Color::Rgb(r, g, b)).add_modifier(Modifier::BOLD));
+    }
+    paint_pixels(buf, area, NAME_COLS + 1, px, ms, working);
+}
+
+/// Draws pixels with half blocks from column `left` of `area`, sliding in at
+/// the start and glinting while the agent works.
+fn paint_pixels(buf: &mut Buffer, area: Rect, left: u16, whole: super::fx::Grid, ms: u128, working: bool) {
     let mut px = super::fx::slide_in(&whole, ms);
     if working && ms >= super::fx::INTRO_MS {
         super::fx::highlight(&mut px, ms);
@@ -1220,7 +1246,7 @@ fn draw_logo(buf: &mut Buffer, area: Rect, snail: usize, ms: u128, working: bool
             break;
         }
         for (col, (top, bottom)) in pair[0].iter().zip(&pair[1]).enumerate() {
-            let x = area.x + 1 + col as u16;
+            let x = area.x + left + col as u16;
             if x >= area.right() {
                 break;
             }
