@@ -345,7 +345,13 @@ impl BrowserView {
             return;
         }
         if let Some(Native { page: Some(proto), .. }) = self.native.as_mut() {
-            f.render_stateful_widget(StatefulImage::default().resize(Resize::Fit(Some(FilterType::Lanczos3))), Self::page_in(rect), proto);
+            let page = Self::page_in(rect);
+            let resize = Resize::Fit(Some(FilterType::Lanczos3));
+            // The picture keeps its shape, so it may not fill the page's width: centre it.
+            let fit = proto.size_for(resize.clone(), page.as_size());
+            let (w, h) = (fit.width.min(page.width), fit.height.min(page.height));
+            let area = Rect { x: page.x + (page.width - w) / 2, y: page.y, width: w, height: h };
+            f.render_stateful_widget(StatefulImage::default().resize(resize), area, proto);
         }
     }
 

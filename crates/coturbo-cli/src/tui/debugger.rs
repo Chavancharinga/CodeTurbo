@@ -101,19 +101,15 @@ pub fn render(findings: &[Finding], root: &Path, width: usize) -> Vec<Line<'stat
     if findings.is_empty() {
         return Vec::new();
     }
-    let width = width.max(30);
+    let outer = width.max(34);
+    // The box takes two columns of border and one of air on each side.
+    let width = outer - 4;
     let errors: Vec<u32> = findings.iter().filter(|f| f.error).map(|f| f.line).collect();
     let all: Vec<u32> = findings.iter().map(|f| f.line).collect();
     let (kind, lines) = if errors.is_empty() { ("avisos", &all) } else { ("erros", &errors) };
     let list = lines.iter().take(8).map(u32::to_string).collect::<Vec<_>>().join(", ");
     let header_color = if errors.is_empty() { YELLOW } else { RED };
-    let mut out = vec![
-        Line::default(),
-        Line::from(vec![
-            Span::styled(" DEBUGGER ", Style::new().fg(Color::Black).bg(header_color).add_modifier(Modifier::BOLD)),
-            Span::styled(format!("  {kind} nas linhas {list}"), Style::new().fg(header_color).add_modifier(Modifier::BOLD)),
-        ]),
-    ];
+    let mut out: Vec<Line<'static>> = Vec::new();
     for f in findings.iter().take(MAX_FINDINGS) {
         let color = if f.error { RED } else { YELLOW };
         out.push(Line::styled(format!("  {}:{}:{}", f.path, f.line, f.col), Style::new().fg(DIM)));
@@ -150,5 +146,31 @@ pub fn render(findings: &[Finding], root: &Path, width: usize) -> Vec<Line<'stat
     if findings.len() > MAX_FINDINGS {
         out.push(Line::styled(format!("  … e mais {} problema(s)", findings.len() - MAX_FINDINGS), Style::new().fg(DIM)));
     }
+    boxed(out, outer, header_color, &format!("  {kind} nas linhas {list}"))
+}
+
+/// `body` inside a dashed box of the given colour, with the DEBUGGER tag and
+/// `summary` in the top edge, so it reads apart from the conversation.
+fn boxed(body: Vec<Line<'static>>, width: usize, color: Color, summary: &str) -> Vec<Line<'static>> {
+    let edge = Style::new().fg(color);
+    let inner = width - 2;
+    let tag = " DEBUGGER ";
+    let used = 1 + tag.chars().count() + summary.chars().count();
+    let fill = inner.saturating_sub(used + 1);
+    let mut out = vec![Line::default()];
+    out.push(Line::from(vec![
+        Span::styled("┌", edge),
+        Span::styled(tag, Style::new().fg(Color::Black).bg(color).add_modifier(Modifier::BOLD)),
+        Span::styled(summary.to_string(), edge.add_modifier(Modifier::BOLD)),
+        Span::styled(format!(" {}┐", "┄".repeat(fill)), edge),
+    ]));
+    for line in body {
+        let shown: usize = line.spans.iter().map(|s| s.content.chars().count()).sum();
+        let mut spans = vec![Span::styled("┆ ", edge)];
+        spans.extend(line.spans);
+        spans.push(Span::styled(format!("{} ┆", " ".repeat((inner - 2).saturating_sub(shown))), edge));
+        out.push(Line::from(spans));
+    }
+    out.push(Line::styled(format!("└{}┘", "┄".repeat(inner)), edge));
     out
 }

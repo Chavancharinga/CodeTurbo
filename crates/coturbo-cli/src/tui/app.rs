@@ -961,11 +961,12 @@ impl App {
         let now = Instant::now();
         self.browser.set_idle(self.busy.is_none());
         let work_lines = if area.height >= 22 && self.work.visible(self.busy.is_some(), now) {
-            self.work.lines(area.width as usize, now, tick.as_millis())
+            self.work.lines((area.width as usize).saturating_sub(6), now, tick.as_millis())
         } else {
             Vec::new()
         };
-        let work_h = (work_lines.len() as u16).min(area.height / 3);
+        // In a box of its own, so it never runs into the line with the spinner.
+        let work_h = if work_lines.is_empty() { 0 } else { (work_lines.len() as u16 + 2).min(area.height / 3) };
         let [header, body, work, panel, hint, input, status] = Layout::vertical([
             Constraint::Length(header_h),
             Constraint::Min(1),
@@ -1013,7 +1014,14 @@ impl App {
             self.browser.draw_native(f, r, now);
         }
         if work_h > 0 {
-            f.render_widget(Paragraph::new(work_lines), work);
+            let block = Block::bordered()
+                .border_type(BorderType::LightQuadrupleDashed)
+                .border_style(Style::new().fg(BORDER))
+                .title(Span::styled(" trabalho ", Style::new().fg(BLUE).add_modifier(Modifier::BOLD)));
+            let rect = Rect { x: work.x + 1, width: work.width.saturating_sub(2), ..work };
+            let inner = block.inner(rect);
+            f.render_widget(block, rect);
+            f.render_widget(Paragraph::new(work_lines), Rect { x: inner.x + 1, width: inner.width.saturating_sub(1), ..inner });
         }
 
         if let Some((title, lines)) = question {

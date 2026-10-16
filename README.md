@@ -48,6 +48,14 @@ testado, com o menor consumo de tokens possível em cada tarefa.
   servidores externos para funcionar. A análise de código é embutida no próprio
   executável; servidores de linguagem instalados na máquina são aproveitados
   quando disponíveis.
+- **Navegador dentro do terminal.** O agente abre páginas de verdade, clica,
+  preenche formulários e testa menus enquanto você acompanha numa mini janela:
+  a página aparece como imagem nítida (Kitty, iTerm2, Sixel, Windows Terminal),
+  com o ponteiro do agente e o clique desenhados. Em outros terminais, abre uma
+  janela real ao lado ou desenha em blocos.
+
+  ![O agente testando uma loja numa mini janela dentro do terminal](docs/navegador-no-terminal.png)
+
 - **Controle sobre cada ação.** Modos de aprovação, regras por ferramenta e por
   comando, e a alteração exibida antes de ser aplicada. O modo plano permite
   revisar e aprovar a estratégia antes de qualquer modificação no projeto.
