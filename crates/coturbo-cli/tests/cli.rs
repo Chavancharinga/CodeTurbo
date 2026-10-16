@@ -454,6 +454,7 @@ fn every_supported_platform_has_a_release_asset() {
     assert_eq!(asset_name_for("windows", "aarch64").as_deref(), Some("codeturbo-x86_64-pc-windows-msvc.tar.gz"));
     assert_eq!(asset_name_for("linux", "x86_64").as_deref(), Some("codeturbo-x86_64-unknown-linux-musl.tar.gz"));
     assert_eq!(asset_name_for("linux", "aarch64").as_deref(), Some("codeturbo-aarch64-unknown-linux-musl.tar.gz"));
+    assert_eq!(asset_name_for("android", "aarch64").as_deref(), Some("codeturbo-aarch64-linux-android.tar.gz"));
     assert_eq!(asset_name_for("macos", "aarch64").as_deref(), Some("codeturbo-aarch64-apple-darwin.tar.gz"));
     assert_eq!(asset_name_for("macos", "x86_64").as_deref(), Some("codeturbo-x86_64-apple-darwin.tar.gz"));
     assert_eq!(asset_name_for("freebsd", "x86_64"), None);

@@ -4,13 +4,19 @@
 set -eu
 
 repo="Chavancharinga/CodeTurbo"
-case "$(uname -s)-$(uname -m)" in
+# Termux (Android) reports Linux but needs the Android build.
+os="$(uname -s)"
+case "${PREFIX:-}" in
+    *com.termux*) os=Android ;;
+esac
+case "$os-$(uname -m)" in
+    Android-aarch64 | Android-arm64) target=aarch64-linux-android ;;
     Linux-x86_64 | Linux-amd64) target=x86_64-unknown-linux-musl ;;
     Linux-aarch64 | Linux-arm64) target=aarch64-unknown-linux-musl ;;
     Darwin-arm64) target=aarch64-apple-darwin ;;
     Darwin-x86_64) target=x86_64-apple-darwin ;;
     *)
-        echo "There is no prebuilt binary for $(uname -s) $(uname -m)." >&2
+        echo "There is no prebuilt binary for $os $(uname -m)." >&2
         echo "Install from source: cargo install --locked --git https://github.com/$repo coturbo-cli" >&2
         exit 1
         ;;

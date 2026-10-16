@@ -30,6 +30,8 @@ pub fn asset_name_for(os: &str, arch: &str) -> Option<String> {
         ("windows", "x86_64" | "aarch64") => "x86_64-pc-windows-msvc",
         ("linux", "x86_64") => "x86_64-unknown-linux-musl",
         ("linux", "aarch64") => "aarch64-unknown-linux-musl",
+        // Termux: a build for Android itself, which only runs PIE programs.
+        ("android", "aarch64") => "aarch64-linux-android",
         ("macos", "aarch64") => "aarch64-apple-darwin",
         ("macos", "x86_64") => "x86_64-apple-darwin",
         _ => return None,

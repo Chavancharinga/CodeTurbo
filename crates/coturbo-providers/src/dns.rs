@@ -16,6 +16,7 @@ pub fn client_builder() -> reqwest::ClientBuilder {
 }
 
 fn needs_own_resolver() -> bool {
+    // The Android build uses the system's own lookup (bionic), which works.
     cfg!(target_os = "linux") && !std::path::Path::new("/etc/resolv.conf").exists()
 }
 
