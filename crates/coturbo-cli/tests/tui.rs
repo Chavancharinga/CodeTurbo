@@ -1167,3 +1167,24 @@ fn esc_closes_the_mini_browser_when_nothing_is_running() {
     std::thread::sleep(Duration::from_millis(650));
     assert!(screen_rows(&mut narrow, 80, 30).join("\n").contains("index.html"));
 }
+
+#[test]
+fn every_hosted_provider_has_a_key_and_an_endpoint_or_is_local() {
+    use coturbo_cli::settings::{PROVIDERS, provider};
+    for id in ["gemini", "groq", "deepseek", "mistral", "xai", "together", "openrouter"] {
+        let p = provider(id).unwrap_or_else(|| panic!("{id} missing"));
+        assert!(p.key_var.is_some() && p.base_url.is_some_and(|u| u.starts_with("https://")), "{id}");
+    }
+    let lm = provider("lmstudio").expect("lmstudio");
+    assert!(lm.key_var.is_none() && lm.base_url.is_some_and(|u| u.contains("localhost")));
+    let mut ids: Vec<_> = PROVIDERS.iter().map(|p| p.id).collect();
+    ids.sort_unstable();
+    ids.dedup();
+    assert_eq!(ids.len(), PROVIDERS.len(), "duplicate provider ids");
+}
+
+#[test]
+fn model_ids_lose_the_gemini_prefix() {
+    let ids = parse_ids("gemini", &json!({"data": [{"id": "models/gemini-2.5-pro"}]}));
+    assert_eq!(ids, ["gemini-2.5-pro"]);
+}

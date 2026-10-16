@@ -224,7 +224,15 @@ pub fn make_provider(cfg: &Config, key: Option<String>) -> Result<Box<dyn Provid
             Some(url) => Box::new(OpenAiCompat::new(url.clone(), key.clone())),
             None => Box::new(OpenAiCompat::new("https://api.openai.com/v1", Some(need("OPENAI_API_KEY")?))),
         },
-        "openrouter" => Box::new(OpenAiCompat::new("https://openrouter.ai/api/v1", Some(need("OPENROUTER_API_KEY")?))),
+        id if crate::settings::provider(id).is_some_and(|i| i.base_url.is_some()) => {
+            let info = crate::settings::provider(id).expect("checked above");
+            let url = cfg.base_url.clone().or_else(|| info.base_url.map(str::to_string)).expect("has a default endpoint");
+            let key = match info.key_var {
+                Some(var) => Some(need(var)?),
+                None => None,
+            };
+            Box::new(OpenAiCompat::new(url, key))
+        }
         "ollama" => match &cfg.base_url {
             Some(url) => Box::new(OpenAiCompat::new(url.clone(), None)),
             None => Box::new(OpenAiCompat::ollama()),
@@ -240,7 +248,7 @@ pub fn make_provider(cfg: &Config, key: Option<String>) -> Result<Box<dyn Provid
             }
             Box::new(CliProvider::new(tool))
         }
-        p => return Err(format!("provedor desconhecido: `{p}` (anthropic, openai, openrouter, ollama, claude-code, codex)")),
+        p => return Err(format!("provedor desconhecido: `{p}` (anthropic, openai, gemini, openrouter, groq, deepseek, mistral, xai, together, lmstudio, ollama, claude-code, codex)")),
     })
 }
 

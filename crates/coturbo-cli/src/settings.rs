@@ -11,15 +11,28 @@ pub struct ProviderInfo {
     pub label: &'static str,
     /// Environment variable holding its API key; `None` needs no key.
     pub key_var: Option<&'static str>,
+    /// Default endpoint of a provider that speaks the OpenAI protocol.
+    pub base_url: Option<&'static str>,
 }
 
-pub const PROVIDERS: [ProviderInfo; 6] = [
-    ProviderInfo { id: "anthropic", label: "Anthropic (Claude)", key_var: Some("ANTHROPIC_API_KEY") },
-    ProviderInfo { id: "openai", label: "OpenAI", key_var: Some("OPENAI_API_KEY") },
-    ProviderInfo { id: "openrouter", label: "OpenRouter (centenas de modelos)", key_var: Some("OPENROUTER_API_KEY") },
-    ProviderInfo { id: "ollama", label: "Ollama (modelos locais, sem chave)", key_var: None },
-    ProviderInfo { id: "claude-code", label: "Claude Code (seu plano Claude, pelo app oficial)", key_var: None },
-    ProviderInfo { id: "codex", label: "Codex (seu plano ChatGPT, pelo app oficial)", key_var: None },
+const fn p(id: &'static str, label: &'static str, key_var: Option<&'static str>, base_url: Option<&'static str>) -> ProviderInfo {
+    ProviderInfo { id, label, key_var, base_url }
+}
+
+pub const PROVIDERS: &[ProviderInfo] = &[
+    p("claude-code", "Claude Code (seu plano Claude, pelo app oficial)", None, None),
+    p("codex", "Codex (seu plano ChatGPT, pelo app oficial)", None, None),
+    p("anthropic", "Anthropic (Claude)", Some("ANTHROPIC_API_KEY"), None),
+    p("openai", "OpenAI (ou qualquer servidor compatível, com base_url)", Some("OPENAI_API_KEY"), None),
+    p("gemini", "Google Gemini (Antigravity, AI Studio)", Some("GEMINI_API_KEY"), Some("https://generativelanguage.googleapis.com/v1beta/openai")),
+    p("openrouter", "OpenRouter (centenas de modelos, vários grátis)", Some("OPENROUTER_API_KEY"), Some("https://openrouter.ai/api/v1")),
+    p("groq", "Groq (muito rápido)", Some("GROQ_API_KEY"), Some("https://api.groq.com/openai/v1")),
+    p("deepseek", "DeepSeek", Some("DEEPSEEK_API_KEY"), Some("https://api.deepseek.com/v1")),
+    p("mistral", "Mistral", Some("MISTRAL_API_KEY"), Some("https://api.mistral.ai/v1")),
+    p("xai", "xAI (Grok)", Some("XAI_API_KEY"), Some("https://api.x.ai/v1")),
+    p("together", "Together AI", Some("TOGETHER_API_KEY"), Some("https://api.together.xyz/v1")),
+    p("lmstudio", "LM Studio (modelos locais, sem chave)", None, Some("http://localhost:1234/v1")),
+    p("ollama", "Ollama (modelos locais, sem chave)", None, None),
 ];
 
 pub fn provider(id: &str) -> Option<&'static ProviderInfo> {

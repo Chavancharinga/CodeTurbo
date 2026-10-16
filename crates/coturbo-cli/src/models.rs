@@ -20,7 +20,7 @@ pub fn parse_ids(provider: &str, body: &Value) -> Vec<String> {
         .flatten()
         .filter_map(|m| m[field].as_str())
         .filter(|id| provider != "openai" || !NOT_CHAT.iter().any(|n| id.contains(n)))
-        .map(str::to_string)
+        .map(|id| id.strip_prefix("models/").unwrap_or(id).to_string())
         .collect();
     // Anthropic lists newest first; the others are easier to scan sorted.
     if provider != "anthropic" {
@@ -82,7 +82,15 @@ pub async fn list(provider: &str, key: Option<&str>, base_url: Option<&str>) -> 
             let root = base.unwrap_or_else(|| "https://api.openai.com/v1".into());
             client.get(format!("{root}/models")).bearer_auth(key)
         }
-        "openrouter" => client.get("https://openrouter.ai/api/v1/models"),
+        id if crate::settings::provider(id).is_some_and(|i| i.base_url.is_some()) => {
+            let info = crate::settings::provider(id).expect("checked above");
+            let root = base.unwrap_or_else(|| info.base_url.unwrap_or_default().to_string());
+            let req = client.get(format!("{root}/models"));
+            match key {
+                Some(k) => req.bearer_auth(k),
+                None => req,
+            }
+        }
         "ollama" => client.get(format!("{}/api/tags", ollama_root(base_url))),
         // The official tools take their own model names.
         "claude-code" => {
@@ -100,6 +108,8 @@ pub async fn list(provider: &str, key: Option<&str>, base_url: Option<&str>) -> 
     let resp = req.send().await.map_err(|e| {
         if provider == "ollama" {
             format!("o Ollama não respondeu em {} ({e})", ollama_root(base_url))
+        } else if provider == "lmstudio" {
+            format!("o LM Studio não respondeu ({e}); abra o app e ligue o servidor local")
         } else {
             e.to_string()
         }
