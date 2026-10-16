@@ -276,8 +276,10 @@ pub fn sees_images(provider: &str, model: &str) -> bool {
     let m = model.to_lowercase();
     let any = |keys: &[&str]| keys.iter().any(|k| m.contains(k));
     match provider {
-        // The text protocol carries no images.
-        "claude-code" | "codex" => false,
+        // Claude Code reads the images CodeTurbo saves for it; the Codex
+        // text protocol carries none.
+        "claude-code" => true,
+        "codex" => false,
         "anthropic" => true,
         "openai" => any(&["gpt-4o", "gpt-4.1", "gpt-5", "o3", "o4"]),
         _ => any(&[

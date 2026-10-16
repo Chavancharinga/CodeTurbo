@@ -12,6 +12,7 @@ pub mod demangle;
 pub mod external;
 pub mod disasm;
 pub mod js;
+pub mod observe;
 pub mod replicate;
 pub mod site;
 pub mod sqlite;

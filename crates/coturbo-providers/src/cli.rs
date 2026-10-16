@@ -72,9 +72,21 @@ pub fn protocol_system(req: &Request) -> String {
 /// The conversation as one text prompt.
 pub fn protocol_prompt(req: &Request) -> String {
     let mut out = String::new();
+    let total = image_count(req);
+    let mut seen = 0usize;
     for m in &req.messages {
         for b in &m.content {
             match (m.role, b) {
+                (_, ContentBlock::Image { .. }) => {
+                    seen += 1;
+                    // Only the latest images are kept: each one costs a read.
+                    if total - seen < MAX_IMAGES {
+                        let name = image_name(seen - 1);
+                        out.push_str(&format!("\n[image attached: ./{name} - look at it with your own built-in Read tool (not a <tool_call>) before answering]\n"));
+                    } else {
+                        out.push_str("\n[an earlier image was omitted]\n");
+                    }
+                }
                 (Role::User, ContentBlock::Text { text }) => out.push_str(&format!("\n[user]\n{text}\n")),
                 (Role::Assistant, ContentBlock::Text { text }) => out.push_str(&format!("\n[assistant]\n{text}\n")),
                 (_, ContentBlock::ToolUse { name, input, .. }) => {
@@ -90,6 +102,38 @@ pub fn protocol_prompt(req: &Request) -> String {
     }
     out.push_str("\n[assistant]\n");
     out
+}
+
+/// How many of the latest images stay visible to the model.
+const MAX_IMAGES: usize = 4;
+
+fn image_count(req: &Request) -> usize {
+    req.messages.iter().flat_map(|m| &m.content).filter(|b| matches!(b, ContentBlock::Image { .. })).count()
+}
+
+fn image_name(i: usize) -> String {
+    format!("vision-{}-{i}.png", std::process::id())
+}
+
+/// The images of the conversation (the latest ones), decoded, with the file
+/// name each is referenced by in the prompt.
+pub fn prompt_images(req: &Request) -> Vec<(String, Vec<u8>)> {
+    use base64::Engine;
+    let all: Vec<&str> = req
+        .messages
+        .iter()
+        .flat_map(|m| &m.content)
+        .filter_map(|b| match b {
+            ContentBlock::Image { data, .. } => Some(data.as_str()),
+            _ => None,
+        })
+        .collect();
+    let first_kept = all.len().saturating_sub(MAX_IMAGES);
+    all.iter()
+        .enumerate()
+        .skip(first_kept)
+        .filter_map(|(i, d)| base64::engine::general_purpose::STANDARD.decode(d).ok().map(|b| (image_name(i), b)))
+        .collect()
 }
 
 /// Tool calls and plain text of a reply in the text protocol.
@@ -197,12 +241,21 @@ impl Provider for CliProvider {
             let work = std::env::temp_dir().join("codeturbo-cli");
             let _ = std::fs::create_dir_all(&work);
             let last = work.join(format!("ultima-{}.txt", std::process::id()));
+            // Claude Code can look at images through its Read tool, limited
+            // to this work folder; it stays off when there is nothing to see.
+            let images = if self.tool == Tool::ClaudeCode { prompt_images(req) } else { Vec::new() };
+            for (name, bytes) in &images {
+                let _ = std::fs::write(work.join(name), bytes);
+            }
             let mut cmd = tokio::process::Command::new(self.tool.program());
             match self.tool {
                 Tool::ClaudeCode => {
-                    cmd.args(["-p", "--output-format", "json", "--tools", "", "--no-session-persistence", "--strict-mcp-config"])
-                        .arg("--system-prompt")
-                        .arg(&system);
+                    let tools = if images.is_empty() { "" } else { "Read" };
+                    cmd.args(["-p", "--output-format", "json", "--tools", tools, "--no-session-persistence", "--strict-mcp-config"]);
+                    if !images.is_empty() {
+                        cmd.args(["--allowedTools", "Read(./**)"]);
+                    }
+                    cmd.arg("--system-prompt").arg(&system);
                     if !req.model.is_empty() && req.model != "padrao" {
                         cmd.arg("--model").arg(&req.model);
                     }

@@ -270,3 +270,25 @@ fn claude_native_invoke_format_is_parsed() {
     let js = parse_reply("<tool_call>{\"name\": \"read_file\", \"input\": {\"path\": \"x\"}}</tool_call>", 3);
     assert!(matches!(&js[0], ContentBlock::ToolUse { name, .. } if name == "read_file"));
 }
+
+#[test]
+fn the_subscription_provider_shows_only_the_latest_images() {
+    use coturbo_providers::cli::{prompt_images, protocol_prompt};
+    let mut req = request();
+    for i in 0..6 {
+        // "aGk=" is base64 for "hi".
+        req.messages.push(Message {
+            role: Role::User,
+            content: vec![ContentBlock::Image { media_type: "image/png".into(), data: "aGk=".into() }, ContentBlock::Text { text: format!("shot {i}") }],
+        });
+    }
+    let prompt = protocol_prompt(&req);
+    assert_eq!(prompt.matches("[image attached:").count(), 4, "{prompt}");
+    assert_eq!(prompt.matches("[an earlier image was omitted]").count(), 2, "{prompt}");
+    assert!(prompt.contains("Read tool"));
+    let files = prompt_images(&req);
+    assert_eq!(files.len(), 4);
+    assert!(files.iter().all(|(name, bytes)| name.ends_with(".png") && bytes == b"hi"));
+    // The files are named exactly as the prompt refers to them.
+    assert!(files.iter().all(|(name, _)| prompt.contains(&format!("./{name}"))), "{prompt}");
+}

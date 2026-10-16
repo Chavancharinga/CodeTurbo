@@ -34,7 +34,10 @@ pub fn guidance(kind: &str, report: &str) -> String {
      (lista de um lado, detalhe em destaque do outro), a ação principal com seus estados, \
      as filas e barras de progresso e a barra de status — com a mesma densidade de \
      informação do original. Só depois torne a marca, o código e os visuais próprios. \
-     Uma grade de blocos genéricos não é uma réplica; estude a estrutura, não só os rótulos."
+     Uma grade de blocos genéricos não é uma réplica; estude a estrutura, não só os rótulos. \
+     Os nomes de funções e textos acima não mostram o visual: use observe_app no programa original \
+     para ver a tela de verdade (ícones, densidade, controles, cores) e, depois de construir, \
+     use observe_app no seu resultado e compare os dois lado a lado até a diferença sumir."
         .to_string()
 }
 

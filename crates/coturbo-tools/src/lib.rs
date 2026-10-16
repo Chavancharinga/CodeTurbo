@@ -171,8 +171,21 @@ impl Tools {
             ),
             spec(
                 "investigate",
-                "Reverse-engineer how existing software does something, from evidence (read-only): a website URL (rendered, with structure, technology, design system and screenshots), a local app folder, an Electron .asar, a JS bundle, or a native binary (exe/dll/so/dylib/wasm: imports, exports, strings). Use it to learn from a reference before building something similar. When recreating an app with an interface, reproduce the real layout faithfully — its navigation, lists, master-detail panels, primary actions and states — grounded in what the report shows, not a simplified demo. For an app whose UI lives in resources (e.g. Electron/CEF), also investigate that UI folder, not only the launcher binary.",
+                "Reverse-engineer how existing software does something, from evidence (read-only): a website URL (rendered, with structure, technology, design system and screenshots), a local app folder, an Electron .asar, a JS bundle, or a native binary (exe/dll/so/dylib/wasm: imports, exports, strings). Use it to learn from a reference before building something similar. When recreating an app with an interface, reproduce the real layout faithfully — its navigation, lists, master-detail panels, primary actions and states — grounded in what the report shows, not a simplified demo. For an app whose UI lives in resources (e.g. Electron/CEF), also investigate that UI folder, not only the launcher binary. Symbols and strings do not show the look: pair it with observe_app to see the running program.",
                 obj(json!({"target": s("URL, or path to a folder or file (absolute paths allowed)"), "question": s("what you want to understand, e.g. how search works")}), &["target"]),
+            ),
+            spec(
+                "observe_app",
+                "Look at a program running: opens an executable, captures its window as a screenshot (you see the image) and closes it. Use it on the REFERENCE app before recreating it, to see its real layout, density, controls and states instead of guessing from symbol names; and on the app YOU built, to compare it side by side with the reference and fix what differs. Windows only. Maximizes the window by default so the whole interface shows.",
+                obj(
+                    json!({
+                        "target": s("path to the .exe (absolute, or relative to the project) or a command such as mspaint.exe"),
+                        "title": s("optional text the window title must contain"),
+                        "seconds": json!({"type": "integer", "description": "how long to wait for the window to appear (default 8)"}),
+                        "maximize": json!({"type": "boolean", "description": "maximize the window (default true)"})
+                    }),
+                    &["target"],
+                ),
             ),
             spec("propose_plan", "Plan mode only: submit .codeturbo/plans/<slug>-plan.md for the user's approval.", obj(json!({"slug": s("plan slug")}), &["slug"])),
         ];
@@ -187,6 +200,33 @@ impl Tools {
         }
         v.sort_by(|a, b| a.name.cmp(&b.name));
         v
+    }
+
+    /// Opens a program, captures its window and returns the screenshot.
+    async fn observe_app(&self, input: &Value) -> Res {
+        let raw = arg(input, "target")?;
+        // A path that exists under the project is made absolute; a bare
+        // command (`mspaint.exe`) is left for the system to resolve.
+        let local = self.root.join(raw);
+        let target = if !Path::new(raw).is_absolute() && local.is_file() { local.to_string_lossy().into_owned() } else { raw.to_string() };
+        let seconds = input["seconds"].as_u64().unwrap_or(8);
+        let maximize = input["maximize"].as_bool().unwrap_or(true);
+        let dir = self.root.join(".codeturbo/observe");
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+        let shot = dir.join(format!("{}-{stamp}.png", coturbo_rea::observe::process_name(&target).replace(' ', "_")));
+        let title = input["title"].as_str().filter(|t| !t.is_empty());
+        let info = coturbo_rea::observe::observe(&target, title, seconds, maximize, &shot).await?.info;
+        let mut out = ToolOutput::ok(format!(
+            "Captured the window of {target}: {info}. Screenshot saved at {}. Look at it as a demanding designer: \
+             the exact arrangement of regions, the density of controls, how groups are labelled, the colours, \
+             the type and the states of the controls. Describe what you see before building or fixing.",
+            self.display(&shot)
+        ));
+        if let Ok(png) = std::fs::read(&shot) {
+            use base64::Engine;
+            out.images.push(("image/png".into(), base64::engine::general_purpose::STANDARD.encode(png)));
+        }
+        Ok(out)
     }
 
     /// Compiles the brief into tokens and locks them in `DESIGN.md`.
@@ -404,6 +444,7 @@ impl Tools {
                     Err(e) => Err(e),
                 }
             }
+            "observe_app" => self.observe_app(input).await,
             _ => Err(format!("unknown tool: {name}")),
         };
         let mut out = r.unwrap_or_else(ToolOutput::err);
