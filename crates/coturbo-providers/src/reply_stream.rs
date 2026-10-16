@@ -80,7 +80,9 @@ impl ReplyStream {
                     continue;
                 }
                 // Hold back a tail that may be the start of a marker.
-                let hold = (1..=rest.len().min(INVOKE.len()))
+                // Long enough for the longest marker minus its last character.
+                let longest = MARKERS.iter().map(|m| m.len()).max().unwrap_or(1) - 1;
+                let hold = (1..=rest.len().min(longest))
                     .rev()
                     .find(|&k| rest.is_char_boundary(rest.len() - k) && MARKERS.iter().any(|m| m.starts_with(&rest[rest.len() - k..])))
                     .unwrap_or(0);
@@ -230,5 +232,43 @@ mod tests {
             })
             .collect();
         assert_eq!(prose.split_whitespace().collect::<Vec<_>>(), parsed.split_whitespace().collect::<Vec<_>>());
+    }
+}
+
+#[cfg(test)]
+mod split_tests {
+    use super::*;
+
+    /// Feeds `reply` in two pieces, cut at `at`; returns the prose shown.
+    fn shown(reply: &str, at: usize) -> String {
+        let mut s = ReplyStream::default();
+        let mut prose = String::new();
+        let mut take = |ds: Vec<Delta>| {
+            for d in ds {
+                if let Delta::Text(t) = d {
+                    prose.push_str(&t);
+                }
+            }
+        };
+        take(s.push(&reply[..at]));
+        take(s.push(&reply[at..]));
+        take(s.finish());
+        prose
+    }
+
+    #[test]
+    fn no_cut_of_the_reply_leaks_a_piece_of_a_tool_call() {
+        let replies = [
+            "Vou abrir a pagina.\n\n<tool_call>{\"name\":\"browse\",\"input\":{\"actions\":[{\"do\":\"open\",\"url\":\"https://github.com\"}]}}</tool_call>",
+            "Certo.\n<invoke name=\"edit_file\"><parameter name=\"path\">a.rs</parameter></invoke>",
+            "Duas:\n<tool_call>{\"name\":\"a\",\"input\":{}}</tool_call>\n<tool_call>{\"name\":\"b\",\"input\":{}}</tool_call>",
+        ];
+        for reply in replies {
+            for at in (0..=reply.len()).filter(|&i| reply.is_char_boundary(i)) {
+                let prose = shown(reply, at);
+                assert!(!prose.contains("tool_call") && !prose.contains("invoke") && !prose.contains('{'), "cut at {at}: {prose:?}");
+                assert!(prose.starts_with(reply.split('<').next().unwrap().trim_end()), "cut at {at}: {prose:?}");
+            }
+        }
     }
 }
