@@ -305,7 +305,7 @@ impl Session {
         // The pages the agent uses in `browse` are shown in the mini browser as it goes.
         let screen = self.out.clone();
         let tools = config::make_tools(&self.root, self.mode, &self.cfg)
-            .with_browse_window(config::browser_window_enabled())
+            .with_browse_window_when(config::browser_window_enabled)
             .with_browse_sink(Arc::new(move |frame| {
                 let _ = screen.send(Out::Browser(frame));
             }));

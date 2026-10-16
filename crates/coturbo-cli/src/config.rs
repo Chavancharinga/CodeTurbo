@@ -259,10 +259,15 @@ pub fn make_provider(cfg: &Config, key: Option<String>) -> Result<Box<dyn Provid
 /// The tools for `root`, with the diagnostics and language servers `cfg` enables.
 /// Whether `browse` opens a real window for the user to watch. It does on a
 /// desktop; `CODETURBO_BROWSER=headless` keeps it windowless, `window` forces it.
+/// Set by the screen once it knows the terminal draws real pictures.
+pub static NATIVE_GRAPHICS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 pub fn browser_window_enabled() -> bool {
     match std::env::var("CODETURBO_BROWSER").ok().as_deref() {
         Some("headless" | "off" | "0") => false,
         Some("window" | "1") => true,
+        // A terminal that draws pictures shows the page itself.
+        _ if NATIVE_GRAPHICS.load(std::sync::atomic::Ordering::Relaxed) => false,
         _ => cfg!(windows) || cfg!(target_os = "macos") || std::env::var_os("DISPLAY").is_some() || std::env::var_os("WAYLAND_DISPLAY").is_some(),
     }
 }

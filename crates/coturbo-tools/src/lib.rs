@@ -85,7 +85,7 @@ pub struct Tools {
     /// there for the next steps. It closes after a while with no use.
     browse_live: Arc<tokio::sync::Mutex<Option<LiveBrowser>>>,
     /// `browse` opens a real window the user watches, not one without a window.
-    browse_window: bool,
+    browse_window: Arc<dyn Fn() -> bool + Send + Sync>,
 }
 
 struct LiveBrowser {
@@ -126,13 +126,20 @@ fn arg<'a>(input: &'a Value, key: &str) -> Result<&'a str, String> {
 impl Tools {
     pub fn new(root: &Path, mode: Mode) -> Self {
         let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
-        Self { root, mode, lsp: None, native_checks: false, seen: std::sync::Mutex::new(std::collections::HashMap::new()), browse_sink: None, browse_live: Arc::default(), browse_window: false }
+        Self { root, mode, lsp: None, native_checks: false, seen: std::sync::Mutex::new(std::collections::HashMap::new()), browse_sink: None, browse_live: Arc::default(), browse_window: Arc::new(|| false) }
     }
 
     /// Makes `browse` open a real window beside the terminal, with the agent's
     /// pointer drawn on the page, so the user sees the actual page.
     pub fn with_browse_window(mut self, on: bool) -> Self {
-        self.browse_window = on;
+        self.browse_window = Arc::new(move || on);
+        self
+    }
+
+    /// Like [`Self::with_browse_window`], decided when the browser opens: the
+    /// screen may only find out later what the terminal can draw.
+    pub fn with_browse_window_when(mut self, decide: impl Fn() -> bool + Send + Sync + 'static) -> Self {
+        self.browse_window = Arc::new(decide);
         self
     }
 
@@ -281,7 +288,7 @@ impl Tools {
         let mut guard = self.browse_live.lock().await;
         for attempt in 0..2 {
             if guard.is_none() {
-                let browser = coturbo_browse::Browser::open_with(path, (880, 560), self.browse_window).await?;
+                let browser = coturbo_browse::Browser::open_with(path, (880, 560), (self.browse_window)()).await?;
                 *guard = Some(LiveBrowser { browser, last_used: std::time::Instant::now() });
                 self.watch_browser();
             }
@@ -309,7 +316,7 @@ impl Tools {
     fn watch_browser(&self) {
         let live = self.browse_live.clone();
         // A window someone is watching stays longer than one nobody sees.
-        let idle = if self.browse_window { BROWSER_IDLE * 3 } else { BROWSER_IDLE };
+        let idle = if (self.browse_window)() { BROWSER_IDLE * 3 } else { BROWSER_IDLE };
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(10)).await;

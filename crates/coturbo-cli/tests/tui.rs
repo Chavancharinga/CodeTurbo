@@ -1230,3 +1230,14 @@ fn with_a_picture_protocol_the_page_is_one_picture_with_the_pointer_in_it() {
     let any_blue = (0..24).flat_map(|y| (0..60).map(move |x| (x, y))).any(|(x, y)| buf[(x, y)].fg == blue || buf[(x, y)].bg == blue);
     assert!(any_blue, "the page's header is in the picture:\n{text}");
 }
+
+#[test]
+fn a_new_task_keeps_the_terminals_picture_protocol() {
+    use coturbo_cli::tui::browser::BrowserView;
+    let mut v = BrowserView::default();
+    v.set_picker(ratatui_image::picker::Picker::halfblocks());
+    v.apply(browser_frame(None, false), std::time::Instant::now());
+    v.clear();
+    assert!(v.has_native(), "clearing the window for a new task must not forget how the terminal draws pictures");
+    assert!(!v.visible(std::time::Instant::now()), "but the old page is gone");
+}

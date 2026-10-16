@@ -13,7 +13,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Widget};
 use ratatui_image::picker::Picker;
 use ratatui_image::protocol::StatefulProtocol;
-use ratatui_image::{Resize, StatefulImage};
+use ratatui_image::{FilterType, Resize, StatefulImage};
 use std::time::{Duration, Instant};
 
 const BLUE: Color = Color::Rgb(47, 123, 255);
@@ -280,7 +280,9 @@ impl BrowserView {
     }
 
     pub fn clear(&mut self) {
-        *self = Self::default();
+        // What the terminal can draw does not change with the task.
+        let native = self.native.take().map(|n| Native { page: None, ..n });
+        *self = Self { native, ..Self::default() };
     }
 
     pub fn set_idle(&mut self, idle: bool) {
@@ -343,7 +345,7 @@ impl BrowserView {
             return;
         }
         if let Some(Native { page: Some(proto), .. }) = self.native.as_mut() {
-            f.render_stateful_widget(StatefulImage::default().resize(Resize::Fit(None)), Self::page_in(rect), proto);
+            f.render_stateful_widget(StatefulImage::default().resize(Resize::Fit(Some(FilterType::Lanczos3))), Self::page_in(rect), proto);
         }
     }
 

@@ -1154,7 +1154,15 @@ fn graphics() -> Option<ratatui_image::picker::Picker> {
     if matches!(std::env::var("CODETURBO_GRAPHICS").as_deref(), Ok("off" | "0" | "blocks")) {
         return None;
     }
-    ratatui_image::picker::Picker::from_query_stdio().ok().filter(|p| p.protocol_type() != ProtocolType::Halfblocks)
+    let found = ratatui_image::picker::Picker::from_query_stdio();
+    if let Some(file) = std::env::var_os("CODETURBO_DEBUG_GRAPHICS") {
+        let what = match &found {
+            Ok(p) => format!("{:?}", p.protocol_type()),
+            Err(e) => format!("erro: {e}"),
+        };
+        let _ = std::fs::write(file, what);
+    }
+    found.ok().filter(|p| p.protocol_type() != ProtocolType::Halfblocks)
 }
 
 /// Runs the screen until the user quits or the agent side hangs up.
@@ -1165,6 +1173,7 @@ pub fn run(mut app: App, out: Receiver<Out>) -> std::io::Result<()> {
     let _ = execute!(std::io::stdout(), EnableBracketedPaste, EnableMouseCapture);
     // Asked once, before any key is read: the terminal answers on its input.
     if let Some(picker) = graphics() {
+        crate::config::NATIVE_GRAPHICS.store(true, std::sync::atomic::Ordering::Relaxed);
         app.set_graphics(picker);
     }
     let result = (|| -> std::io::Result<()> {
