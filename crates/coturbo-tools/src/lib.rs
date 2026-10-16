@@ -347,8 +347,11 @@ impl Tools {
             if let Action::Open(u) = a {
                 let url = resolve_url(&self.root, u);
                 if let Some(p) = url.strip_prefix("file:///").or_else(|| url.strip_prefix("file://")) {
-                    let path = std::path::PathBuf::from(p.replace("%20", " "));
-                    let inside = path.canonicalize().is_ok_and(|c| c.starts_with(&self.root));
+                    // `file:///C:/x` is `C:/x`; `file:///tmp/x` is `/tmp/x`.
+                    let p = p.replace("%20", " ");
+                    let path = std::path::PathBuf::from(if cfg!(windows) { p } else { format!("/{p}") });
+                    let root = self.root.canonicalize().unwrap_or_else(|_| self.root.clone());
+                    let inside = path.canonicalize().is_ok_and(|c| c.starts_with(&root));
                     if !inside {
                         return Err(format!("{u}: a página precisa estar dentro do projeto"));
                     }
