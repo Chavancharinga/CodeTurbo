@@ -120,6 +120,8 @@ pub enum Out {
     Busy(Option<String>),
     /// A picture of the page the agent is using, with its pointer (the mini browser).
     Browser(coturbo_browse::Frame),
+    /// The code the model is writing right now: a title and its last lines.
+    Live(Option<(String, Vec<Line<'static>>)>),
     /// A stage of the work changed (the bars above the text box).
     Stage(StageUpdate),
     /// The model's checklist for the job, whole.

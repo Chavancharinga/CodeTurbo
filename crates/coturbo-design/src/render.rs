@@ -191,12 +191,12 @@ pub fn judge(p: &Page) -> Vec<Finding> {
         }
         if !m.under.is_empty() {
             add(Severity::P2, "render-ornamento-sobre-texto", format!(
-                "ornamento decorativo passando sobre o conteúdo {at}: {}; afaste-o do texto ou reduza a opacidade",
+                "decorative ornament over the content {at}: {}; move it away from the text or lower its opacity",
                 sample(&m.under)
             ));
         }
         if !m.tight.is_empty() {
-            add(Severity::P1, "render-colados", format!("elementos colados, sem espaço entre si, {at}: {}", sample(&m.tight)));
+            add(Severity::P1, "render-colados", format!("elements touching, with no space between them, {at}: {}", sample(&m.tight)));
         }
         if !m.cut.is_empty() {
             add(Severity::P0, "render-conteudo-cortado", format!(
@@ -205,42 +205,42 @@ pub fn judge(p: &Page) -> Vec<Finding> {
             ));
         }
         if !m.scrollers.is_empty() {
-            add(Severity::P1, "render-barra-de-rolagem", format!("barra de rolagem visível {at}: {}", sample(&m.scrollers)));
+            add(Severity::P1, "render-barra-de-rolagem", format!("visible scrollbar {at}: {}", sample(&m.scrollers)));
         }
     }
     let broken = if p.desktop.broken.is_empty() { &p.mobile.broken } else { &p.desktop.broken };
     if !broken.is_empty() {
         add(Severity::P0, "render-imagem-quebrada", format!(
-            "imagem que não carrega: {}; sem um arquivo real, troque por uma ilustração em SVG embutido ou por um bloco feito em HTML e CSS, ou remova",
+            "image that does not load: {}; without a real file, replace it with an inline SVG illustration or a block made in HTML and CSS, or remove it",
             sample(broken)
         ));
     }
     if !p.mobile.edge.is_empty() {
         add(Severity::P1, "render-sem-margem", format!(
-            "texto encostado na borda da tela no celular: {}; dê margem lateral (padding-inline) aos contêineres",
+            "text touching the screen edge on the phone: {}; give the containers side padding (padding-inline)",
             sample(&p.mobile.edge)
         ));
     }
     if p.mobile.hscroll {
-        add(Severity::P1, "render-sem-responsividade", "a página rola para o lado no celular (390px): não é responsiva".into());
+        add(Severity::P1, "render-sem-responsividade", "the page scrolls sideways on the phone (390px): it is not responsive".into());
     }
     for (m, at) in [(&p.desktop, "no computador"), (&p.laptop, "no notebook (1280px)"), (&p.tablet, "no tablet (768px)")] {
         if m.hscroll {
-            add(Severity::P1, "render-rolagem-lateral", format!("a página rola para o lado {at}"));
+            add(Severity::P1, "render-rolagem-lateral", format!("the page scrolls sideways {at}"));
         }
     }
     if p.mobile.small >= 3 {
-        add(Severity::P1, "render-alvo-pequeno", format!("{} botões ou links menores que 32px no celular", p.mobile.small));
+        add(Severity::P1, "render-alvo-pequeno", format!("{} buttons or links smaller than 32px on the phone", p.mobile.small));
     }
     if p.mobile.tiny >= 3 {
         add(Severity::P2, "render-texto-pequeno", format!("{} blocos de texto abaixo de 14px no celular", p.mobile.tiny));
     }
     let m = &p.desktop;
     if m.rows >= 3 {
-        add(Severity::P2, "render-grades-iguais", format!("{} fileiras de blocos idênticos na página renderizada", m.rows));
+        add(Severity::P2, "render-grades-iguais", format!("{} rows of identical blocks in the rendered page", m.rows));
     }
     if m.rounded >= 6 && m.radii == 1 {
-        add(Severity::P1, "render-raio-unico", format!("{} elementos renderizados com um único raio", m.rounded));
+        add(Severity::P1, "render-raio-unico", format!("{} elements rendered with a single radius", m.rounded));
     }
     if m.text >= 8 && m.centered * 10 >= m.text * 7 {
         add(Severity::P1, "render-centralizado", format!("{} de {} blocos de texto centralizados", m.centered, m.text));
@@ -277,7 +277,7 @@ async fn run(browser: &Path, size: (u32, u32), args: &[String]) -> Result<String
         .kill_on_drop(true);
     let out = tokio::time::timeout(Duration::from_secs(40), cmd.output())
         .await
-        .map_err(|_| "o navegador não respondeu em 40s".to_string())?
+        .map_err(|_| "the browser did not answer in 40s".to_string())?
         .map_err(|e| e.to_string())?;
     let _ = std::fs::remove_dir_all(&profile);
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
@@ -321,7 +321,7 @@ async fn measure_at(browser: &Path, html: &Path, shot: &Path, size: (u32, u32)) 
     let n = LOGS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     let log = std::env::temp_dir().join(format!("codeturbo-render-{}-{n}.log", std::process::id()));
     let _ = std::fs::remove_file(&log);
-    let mut dom = Err("a página não pôde ser medida".to_string());
+    let mut dom = Err("the page could not be measured".to_string());
     for wait in [12, 20] {
         let _ = std::fs::remove_file(&log);
         let out = run(
@@ -359,7 +359,7 @@ async fn measure_at(browser: &Path, html: &Path, shot: &Path, size: (u32, u32)) 
     for name in ["medir", "ver"] {
         let _ = std::fs::remove_file(html.with_file_name(format!(".codeturbo-render-{stem}-{name}.html")));
     }
-    parse_metrics(&dom?).ok_or_else(|| "a página não pôde ser medida".to_string())
+    parse_metrics(&dom?).ok_or_else(|| "the page could not be measured".to_string())
 }
 
 /// Phone screenshot path for a desktop one: `index.png` → `index-celular.png`.
@@ -399,5 +399,5 @@ pub async fn screenshot(browser: &Path, url: &str, shot: &Path, size: (u32, u32)
     if let Some(dir) = shot.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    if shoot(browser, size, "6000", url, &shot).await { Ok(()) } else { Err("o navegador não salvou a captura".into()) }
+    if shoot(browser, size, "6000", url, &shot).await { Ok(()) } else { Err("the browser did not save the screenshot".into()) }
 }

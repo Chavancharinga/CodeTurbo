@@ -183,9 +183,9 @@ async fn review_renders_in_the_installed_browser() {
     assert!(coturbo_design::review(dir.path(), &["main.rs".into()]).await.is_none());
     let r = coturbo_design::review(dir.path(), &["index.html".into()]).await.unwrap();
     assert!(!r.ok);
-    assert!(r.summary.starts_with("✗ design recusado"), "{}", r.summary);
+    assert!(r.summary.starts_with("✗ design refused"), "{}", r.summary);
     if coturbo_design::render::find_browser().is_some() {
-        assert!(r.summary.contains("página renderizada"), "{}", r.summary);
+        assert!(r.summary.contains("rendered page"), "{}", r.summary);
         assert!(dir.path().join(".codeturbo/design/index.png").exists(), "desktop screenshot saved");
         assert!(dir.path().join(".codeturbo/design/index-celular.png").exists(), "phone screenshot saved");
         assert!(dir.path().join(".codeturbo/design/index-tablet.png").exists(), "tablet screenshot saved");

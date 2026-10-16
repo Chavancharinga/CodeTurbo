@@ -638,7 +638,7 @@ fn the_snail_changes_color_on_screen() {
         (0..8).flat_map(|y| (62..100).map(move |x| (x, y))).map(|(x, y)| (buf[(x, y)].fg, buf[(x, y)].bg)).collect::<Vec<_>>()
     };
     let has = |cs: &[(Color, Color)], c: Color| cs.iter().any(|&(f, b)| f == c || b == c);
-    let (white, blue, green) = (Color::Rgb(225, 232, 245), Color::Rgb(47, 123, 255), Color::Rgb(86, 204, 128));
+    let (white, blue, green) = (Color::Rgb(225, 232, 245), Color::Rgb(47, 123, 255), Color::Rgb(30, 150, 78));
     let (yellow, red) = (Color::Rgb(255, 196, 38), Color::Rgb(240, 70, 60));
     let calm = snail(Mood::Calm);
     assert!(has(&calm, white) && !has(&calm, blue) && !has(&calm, green), "white before anything");
@@ -665,8 +665,8 @@ fn state_labels_use_the_tool_names_in_english() {
     assert_eq!(action_label("investigate", &json!({"target": "steam.exe"})), "investigate steam.exe");
     assert_eq!(action_label("observe_app", &json!({"target": "mspaint.exe"})), "observe_app mspaint.exe");
     assert_eq!(action_label("list_files", &json!({})), "list_files");
-    assert!(design_refused("design index.html: 2 bloqueante(s), 1 aviso(s)\n- P0 ..."));
-    assert!(!design_refused("design index.html: 0 bloqueante(s), 3 aviso(s)"));
+    assert!(design_refused("design index.html: 2 blocking, 1 warning(s)\n- P0 ..."));
+    assert!(!design_refused("design index.html: 0 blocking, 3 warning(s)"));
     assert!(!design_refused("check src/lib.rs: clean"));
 }
 
@@ -921,7 +921,8 @@ fn browser_frame(cursor: Option<(f32, f32)>, clicked: bool) -> coturbo_browse::F
     coturbo_browse::Frame {
         png: page_png(400, 260),
         url: "file:///C:/proj/index.html".into(),
-        title: "Loja".into(),
+        title: "Shop".into(),
+        window: 0,
         cursor,
         clicked,
         size: (400, 260),
@@ -963,7 +964,7 @@ fn the_mini_browser_draws_the_page_the_address_and_what_the_agent_does() {
     assert!(!v.visible(t0 + Duration::from_secs(700)), "only a window forgotten for ten minutes goes away");
     let buf = draw_browser(&v, t0 + Duration::from_secs(1));
     let text = buffer_text(&buf);
-    assert!(text.contains("C:/proj/index.html") && !text.contains("file://"), "the address, without the scheme:\n{text}");
+    assert!(text.contains("index.html") && !text.contains("file://") && !text.contains("C:/proj"), "the address, without the scheme:\n{text}");
     assert!(text.contains("clicando \"Sobre\""), "what the agent is doing:\n{text}");
     // The page is there in half blocks, in its own colours: the blue header on top, white below.
     use ratatui::style::Color;
@@ -1025,10 +1026,10 @@ fn the_conversation_makes_room_for_the_mini_browser() {
     std::thread::sleep(std::time::Duration::from_millis(700));
     let rows = screen_rows(&mut h, 130, 36);
     let all = rows.join("\n");
-    assert!(all.contains("C:/proj/index.html") && all.contains("clicando"), "the window is on screen:\n{all}");
+    assert!(all.contains("index.html") && all.contains("clicando"), "the window is on screen:\n{all}");
     // It sits on the right, and the text stays on the left.
     let addr = rows.iter().find(|r| r.contains("index.html")).unwrap();
-    assert!(addr.find("C:/proj").unwrap() > 70, "{addr}");
+    assert!(addr.find("index.html").unwrap() > 60, "{addr}");
     assert!(rows.iter().any(|r| r.contains("uma linha longa") && r.find("uma linha").unwrap() < 5));
     assert!(!wide.join("\n").contains("index.html"));
     // A small terminal keeps the text instead.
@@ -1065,7 +1066,7 @@ fn the_mini_browser_opens_from_the_corner_page_on_top_to_bottom_and_closes_back(
     // It grows from the top right corner: the left edge of the frame travels to the left.
     let left = |t: u64| find_symbol(&draw_browser(&v, t0 + ms(t)), "╭").first().map(|c| c.0);
     let (a, b, c) = (left(120).unwrap(), left(280).unwrap(), left(700).unwrap());
-    assert!(a > b && b > c && c == 0, "{a} {b} {c}");
+    assert!(a > b && b > c && c <= 6, "{a} {b} {c}");
     let top = |t: u64| find_symbol(&draw_browser(&v, t0 + ms(t)), "╭").first().map(|c| c.1);
     assert_eq!(top(120), Some(0), "anchored at the top");
     // The page is not there while the frame opens; it then appears from the top down.
@@ -1240,4 +1241,76 @@ fn a_new_task_keeps_the_terminals_picture_protocol() {
     v.clear();
     assert!(v.has_native(), "clearing the window for a new task must not forget how the terminal draws pictures");
     assert!(!v.visible(std::time::Instant::now()), "but the old page is gone");
+}
+
+#[test]
+fn the_code_being_written_shows_in_a_box_while_it_is_written() {
+    use ratatui::text::Line;
+    let mut h = harness();
+    h.app.apply(Out::Busy(Some("write_file app.js · 300 chars".into())));
+    h.app.apply(Out::Live(Some(("writing app.js".into(), vec![Line::raw("  const total = items.length;"), Line::raw("  render(total);")]))));
+    let rows = screen_rows(&mut h, 100, 34).join("\n");
+    assert!(rows.contains("writing app.js") && rows.contains("const total = items.length;"), "{rows}");
+    // A finished call clears it.
+    h.app.apply(Out::Live(None));
+    assert!(!screen_rows(&mut h, 100, 34).join("\n").contains("const total"));
+}
+
+#[test]
+fn several_pages_share_the_space_of_one_window_with_only_the_address_on_top() {
+    use coturbo_cli::tui::browser::BrowserView;
+    use std::time::{Duration, Instant};
+    let t0 = Instant::now();
+    let frame = |window: usize, url: &str| {
+        let mut f = browser_frame(None, false);
+        f.window = window;
+        f.url = url.into();
+        f
+    };
+    let mut one = BrowserView::default();
+    one.apply(frame(0, "file:///site/index.html"), t0);
+    let mut four = BrowserView::default();
+    for (i, page) in ["index", "about", "menu", "contact"].iter().enumerate() {
+        four.apply(frame(i, &format!("file:///site/{page}.html")), t0);
+    }
+    assert_eq!((one.windows(), four.windows()), (1, 4));
+    // Four pages fit in the room of one: the window is not four times taller.
+    assert!(four.rows_for(60) <= one.rows_for(60) * 2, "{} vs {}", four.rows_for(60), one.rows_for(60));
+    let later = t0 + Duration::from_secs(2);
+    let area = ratatui::layout::Rect::new(0, 0, 60, 24);
+    let mut buf = ratatui::buffer::Buffer::empty(area);
+    four.draw(&mut buf, area, later);
+    let text = buffer_text(&buf);
+    for page in ["index.html", "about.html", "menu.html", "contact.html"] {
+        assert!(text.contains(page), "{page} on screen:\n{text}");
+    }
+    // Like a browser: the address, no coloured dots, and no page title.
+    assert!(!text.contains('●') && !text.contains("Shop"), "{text}");
+    // Each caption says which window it is.
+    assert!(text.contains("1 · ") && text.contains("4 · "), "{text}");
+    // Six at most, and a seventh frame lands in the last one.
+    let mut six = BrowserView::default();
+    for i in 0..9 {
+        six.apply(frame(i, &format!("file:///p{i}.html")), t0);
+    }
+    assert_eq!(six.windows(), 6);
+}
+
+#[test]
+fn the_frame_hugs_the_page_and_the_caption_sits_below_it_outside() {
+    use coturbo_cli::tui::browser::BrowserView;
+    let t0 = std::time::Instant::now();
+    let mut v = BrowserView::default();
+    v.apply(browser_frame(None, false), t0);
+    let buf = draw_browser(&v, t0 + std::time::Duration::from_secs(2));
+    let text = buffer_text(&buf);
+    let rows: Vec<&str> = text.lines().collect();
+    let bottom = rows.iter().position(|r| r.contains('╰')).expect("the frame's bottom edge");
+    let caption = rows.iter().position(|r| r.contains("clicando")).expect("the caption");
+    assert!(caption > bottom, "the caption is under the frame, not inside it:\n{text}");
+    // The frame is as wide as the picture: no empty bars at its sides.
+    let top = rows.iter().find(|r| r.contains('╭')).unwrap();
+    let page_row = rows.iter().find(|r| r.contains('▀')).unwrap();
+    assert_eq!(top.find('╭'), page_row.find('│'), "frame and page share their left edge:\n{text}");
+    assert!(!rows[..bottom].iter().any(|r| r.contains("clicando")));
 }

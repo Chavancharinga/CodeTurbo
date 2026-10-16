@@ -77,9 +77,9 @@ pub async fn review(root: &Path, files: &[String]) -> Option<Review> {
             report.push(fiscal::render(rel, &findings));
         }
     }
-    let how = if rendered > 0 { "regras e página renderizada" } else { "regras" };
+    let how = if rendered > 0 { "rules and rendered page" } else { "rules" };
     let summary = if blocking == 0 {
-        let mut s = format!("✓ design aprovado ({how})");
+        let mut s = format!("✓ design approved ({how})");
         if !report.is_empty() {
             s.push('\n');
             s.push_str(&report.join("\n"));
@@ -87,7 +87,7 @@ pub async fn review(root: &Path, files: &[String]) -> Option<Review> {
         s
     } else {
         format!(
-            "✗ design recusado ({how}): {blocking} problema(s) bloqueante(s). Corrija mantendo o contrato do DESIGN.md.\n{}",
+            "✗ design refused ({how}): {blocking} blocking problem(s). Fix them while keeping the DESIGN.md contract.\n{}",
             report.join("\n")
         )
     };

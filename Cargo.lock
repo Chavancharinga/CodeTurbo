@@ -482,6 +482,7 @@ dependencies = [
  "coturbo-providers",
  "coturbo-rea",
  "coturbo-verify",
+ "futures-util",
  "ignore",
  "regex",
  "serde_json",

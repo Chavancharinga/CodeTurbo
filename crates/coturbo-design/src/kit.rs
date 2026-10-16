@@ -37,27 +37,27 @@ impl Rng {
 }
 
 const HEROES: [&str; 6] = [
-    "Abertura dividida assimétrica (7/5): título em escala de exibição à esquerda, o elemento de assinatura à direita ultrapassando a grade",
-    "Abertura tipográfica: o título ocupa a largura inteira em escala de exibição; frase de apoio e chamada alinhadas à esquerda abaixo, com o ornamento ao fundo",
-    "Abertura com o produto em uso: uma tela do produto desenhada em HTML e CSS (não imagem), levemente inclinada, com dois rótulos de dados reais",
-    "Abertura editorial: um número ou dado grande como âncora visual, texto em coluna estreita ao lado e uma linha fina separando",
-    "Abertura em faixa de cor chapada da marca com recorte curvo na base (use o divisor SVG), título em contraste máximo",
-    "Abertura em duas camadas: texto sobre um painel de superfície deslocado, com o ornamento SVG atravessando os dois",
+    "Asymmetric split opening (7/5): display-scale title on the left, the signature element on the right breaking the grid",
+    "Typographic opening: the title takes the full width at display scale; supporting line and call to action left-aligned below, with the ornament behind",
+    "Opening with the product in use: a product screen drawn in HTML and CSS (not an image), slightly tilted, with two real data labels",
+    "Editorial opening: a large number or figure as the visual anchor, narrow text column beside it and a thin separating line",
+    "Opening as a flat brand-colour band with a curved cut at the bottom (use the SVG divider), title at maximum contrast",
+    "Two-layer opening: text on an offset surface panel, with the SVG ornament crossing both",
 ];
 
 const SECTIONS: [&str; 12] = [
-    "Benefícios como lista numerada grande (01, 02, 03) em duas colunas, sem cartões",
-    "Mosaico de blocos de tamanhos diferentes: um grande com demonstração, dois médios e um estreito com um número",
+    "Benefits as a large numbered list (01, 02, 03) in two columns, without cards",
+    "Mosaic of blocks of different sizes: one large with a demo, two medium and one narrow with a number",
     "Como funciona em linha do tempo horizontal que vira vertical no celular, com conectores finos",
-    "Comparação antes e depois em duas colunas com contraste de cor entre elas",
-    "Uma única citação forte em destaque tipográfico grande, com nome e contexto (não três cartões de depoimento)",
-    "Prova em números: três ou quatro dados grandes em linha, cada um com legenda curta",
-    "Planos em tabela tipográfica: linhas, colunas e o plano indicado destacado por cor de fundo, não cartões iguais",
-    "Perguntas frequentes em duas colunas: pergunta em fonte de exibição à esquerda, resposta à direita",
+    "Before and after comparison in two columns with a colour contrast between them",
+    "A single strong quote in large typographic emphasis, with name and context (not three testimonial cards)",
+    "Proof in numbers: three or four large figures in a row, each with a short caption",
+    "Plans in a typographic table: rows, columns and the recommended plan highlighted by background colour, not identical cards",
+    "Frequently asked questions in two columns: question in display type on the left, answer on the right",
     "Faixa de destaque em cor da marca com uma frase curta e o elemento de assinatura repetido",
-    "Detalhe ampliado: um recorte do produto em escala grande com anotações apontando partes reais",
-    "Manifesto: três frases curtas em escala grande, alternando alinhamento, separadas por linhas",
-    "Casos de uso em abas ou alternância de conteúdo, com o conteúdo trocando ao lado (sem rolagem lateral)",
+    "Zoomed detail: a crop of the product at large scale with annotations pointing at real parts",
+    "Manifesto: three short sentences at large scale, alternating alignment, separated by lines",
+    "Use cases in tabs or a content switch, with the content changing beside it (no sideways scrolling)",
 ];
 
 /// The composition plan for this project: an opening and four sections
@@ -70,7 +70,7 @@ pub fn blueprint(t: &Tokens) -> Vec<String> {
         let i = rng.below(pool.len());
         plan.push(pool.remove(i).to_string());
     }
-    plan.push("Fechamento: chamada final curta em bloco de cor da marca e rodapé enxuto com o essencial".into());
+    plan.push("Closing: a short final call to action in a brand-colour block and a lean footer with the essentials".into());
     plan
 }
 

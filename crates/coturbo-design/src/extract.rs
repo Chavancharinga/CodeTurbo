@@ -212,10 +212,10 @@ pub fn summary(e: &Existing) -> String {
         lines.push(format!("raios: {}", e.radii.iter().map(|r| format!("{r}px")).collect::<Vec<_>>().join(", ")));
     }
     if !e.spacing.is_empty() {
-        lines.push(format!("espaçamentos mais usados: {}", e.spacing.iter().map(|r| format!("{r}px")).collect::<Vec<_>>().join(", ")));
+        lines.push(format!("most used spacings: {}", e.spacing.iter().map(|r| format!("{r}px")).collect::<Vec<_>>().join(", ")));
     }
     if !e.tokens.is_empty() {
-        lines.push(format!("{} variáveis de design já definidas", e.tokens.len()));
+        lines.push(format!("{} design variables already defined", e.tokens.len()));
     }
     if !e.frameworks.is_empty() {
         lines.push(format!("bibliotecas: {}", e.frameworks.join(", ")));

@@ -277,7 +277,7 @@ fn claude_usage(v: &Value) -> Usage {
 async fn read_claude(child: &mut tokio::process::Child, on_text: &mut TextSink<'_>) -> Result<(String, Usage, bool), ProviderError> {
     use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
     let other = |e: String| ProviderError::Other(e);
-    let stdout = child.stdout.take().ok_or_else(|| other("o claude não abriu a saída".into()))?;
+    let stdout = child.stdout.take().ok_or_else(|| other("claude did not open its output".into()))?;
     let mut lines = BufReader::new(stdout).lines();
     let mut stream = ReplyStream::default();
     let mut shown = false;
@@ -285,7 +285,7 @@ async fn read_claude(child: &mut tokio::process::Child, on_text: &mut TextSink<'
     let deadline = tokio::time::Instant::now() + Duration::from_secs(600);
     loop {
         let line = match tokio::time::timeout_at(deadline, lines.next_line()).await {
-            Err(_) => return Err(other("a ferramenta oficial não respondeu em 10 minutos".into())),
+            Err(_) => return Err(other("the official tool did not answer in 10 minutes".into())),
             Ok(Err(e)) => return Err(other(e.to_string())),
             Ok(Ok(None)) => break,
             Ok(Ok(Some(l))) => l,
@@ -338,7 +338,7 @@ async fn read_claude(child: &mut tokio::process::Child, on_text: &mut TextSink<'
 pub fn parse_antigravity(body: &str) -> Result<(String, Usage), String> {
     let v: Value = serde_json::from_str(body.trim()).map_err(|_| "resposta inesperada".to_string())?;
     if v["status"].as_str().is_some_and(|s| s != "SUCCESS") || v["error"].is_string() {
-        return Err(v["error"].as_str().unwrap_or("a execução falhou").to_string());
+        return Err(v["error"].as_str().unwrap_or("the run failed").to_string());
     }
     let n = |k: &str| v["usage"][k].as_u64().unwrap_or(0);
     let usage = Usage { input: n("input_tokens").saturating_sub(n("cache_read_tokens")), cache_write: 0, cache_read: n("cache_read_tokens"), output: n("output_tokens") };
@@ -385,7 +385,7 @@ impl Provider for CliProvider {
                     let text = if full.len() > 24_000 {
                         std::fs::write(&last, &full).map_err(|e| ProviderError::Other(e.to_string()))?;
                         format!(
-                            "Leia o arquivo {} (instruções e conversa) e responda a ele seguindo exatamente o formato pedido; não use outras ferramentas.",
+                            "Read the file {} (instructions and conversation) and answer it following exactly the format it asks for; do not use other tools.",
                             last.display()
                         )
                     } else {
@@ -406,7 +406,7 @@ impl Provider for CliProvider {
             }
             cmd.current_dir(&work).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
             let mut child = cmd.spawn().map_err(|e| {
-                ProviderError::Other(format!("não foi possível iniciar `{}` ({e}); instale e faça login na ferramenta oficial", self.tool.program()))
+                ProviderError::Other(format!("could not start `{}` ({e}); install the official tool and sign in to it", self.tool.program()))
             })?;
             let input = match self.tool {
                 Tool::ClaudeCode if streaming => stream_message(&prompt, &images),
@@ -422,7 +422,7 @@ impl Provider for CliProvider {
                 Tool::Antigravity => {
                     let out = tokio::time::timeout(Duration::from_secs(600), child.wait_with_output())
                         .await
-                        .map_err(|_| ProviderError::Other("o Antigravity não respondeu em 10 minutos".into()))?
+                        .map_err(|_| ProviderError::Other("Antigravity did not answer in 10 minutes".into()))?
                         .map_err(|e| ProviderError::Other(e.to_string()))?;
                     let _ = std::fs::remove_file(&last);
                     let body = String::from_utf8_lossy(&out.stdout).into_owned();
@@ -433,7 +433,7 @@ impl Provider for CliProvider {
                 Tool::Codex => {
                     let out = tokio::time::timeout(Duration::from_secs(600), child.wait_with_output())
                         .await
-                        .map_err(|_| ProviderError::Other("a ferramenta oficial não respondeu em 10 minutos".into()))?
+                        .map_err(|_| ProviderError::Other("the official tool did not answer in 10 minutes".into()))?
                         .map_err(|e| ProviderError::Other(e.to_string()))?;
                     let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
                     let text = std::fs::read_to_string(&last).unwrap_or(stdout);

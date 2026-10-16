@@ -28,7 +28,7 @@ codeturbo
 ```
 
 <p align="center">
-  <img src="docs/navegador-no-terminal.png" alt="O agente testando uma loja numa mini janela de navegador dentro do terminal" width="860">
+  <img src="docs/screens/browser-windows.png" alt="O agente verificando as quatro páginas de um site ao mesmo tempo, cada uma numa mini janela de navegador" width="900">
 </p>
 
 ## Recursos
@@ -51,7 +51,8 @@ O agente abre páginas reais, clica, preenche formulários e testa menus enquant
 você acompanha numa mini janela. Em terminais que desenham imagens (Kitty,
 iTerm2, Sixel, Windows Terminal) a página é uma imagem nítida, com o ponteiro e
 os cliques do agente desenhados; nos demais, abre uma janela real ao lado do
-terminal ou usa blocos.
+terminal ou usa blocos. Para verificar um site com várias páginas, o agente abre
+até seis mini janelas de uma vez e as controla juntas.
 
 **Motor de design**
 Páginas e interfaces são revisadas em desktop e celular contra regras de design
@@ -81,6 +82,36 @@ CodeTurbo mexer nela.
 Sem Node.js, Python ou serviços externos. A análise de código é embutida;
 servidores de linguagem já instalados são aproveitados. Atualização com um
 comando.
+
+## Em ação
+
+Tudo abaixo é a tela real, não uma maquete.
+
+**Um navegador de verdade, no terminal.** O agente abre a sua página, clica e
+preenche formulários como uma pessoa, com o ponteiro dele desenhado na página.
+
+<p align="center"><img src="docs/screens/browser-window.png" alt="Uma página aberta no mini navegador com o ponteiro do agente" width="900"></p>
+
+**Até seis páginas ao mesmo tempo.** O agente abre as páginas de um site lado a
+lado, cada uma em seu mini navegador, e verifica todas juntas.
+
+<p align="center"><img src="docs/screens/browser-windows.png" alt="Quatro janelas de navegador no terminal" width="900"></p>
+
+**O código aparece enquanto é escrito.**
+
+<p align="center"><img src="docs/screens/live-code.png" alt="Código sendo escrito ao vivo numa caixa" width="900"></p>
+
+**Um debugger que aponta a linha exata.**
+
+<p align="center"><img src="docs/screens/debugger.png" alt="O debugger mostrando a linha e a coluna do erro" width="900"></p>
+
+**Uma verificação que roda até ficar verde.**
+
+<p align="center"><img src="docs/screens/verification.png" alt="Barras de escrita, checagem, correção, clippy e testes" width="900"></p>
+
+**Concluído significa verificado.**
+
+<p align="center"><img src="docs/screens/done.png" alt="Todas as etapas concluídas, o caracol fica verde" width="900"></p>
 
 ## Instalação
 

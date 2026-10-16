@@ -9,14 +9,13 @@ use coturbo_browse::{Frame, Label};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span};
+use ratatui::text::Line;
 use ratatui::widgets::{Block, BorderType, Borders, Widget};
 use ratatui_image::picker::Picker;
 use ratatui_image::protocol::StatefulProtocol;
 use ratatui_image::{FilterType, Resize, StatefulImage};
 use std::time::{Duration, Instant};
 
-const BLUE: Color = Color::Rgb(47, 123, 255);
 const DIM: Color = Color::Rgb(110, 125, 150);
 const BORDER: Color = Color::Rgb(36, 66, 130);
 /// How long the window stays after the last picture: until the user closes it
@@ -91,10 +90,9 @@ impl Pixels {
     }
 }
 
-/// The terminal's way of showing real pictures, and the page in it.
+/// The terminal's way of showing real pictures.
 struct Native {
     picker: Picker,
-    page: Option<StatefulProtocol>,
 }
 
 impl std::fmt::Debug for Native {
@@ -157,13 +155,16 @@ fn bake_pointer(px: &mut Pixels, at: (f32, f32), size: (u32, u32), clicked: bool
     }
 }
 
+/// The most pages shown at once.
+pub const MAX_WINDOWS: usize = 6;
+
+/// A page in the window: its picture, its texts and its pointer.
 #[derive(Debug, Default)]
-pub struct BrowserView {
-    /// The terminal draws real pictures: the page is one, not blocks.
-    native: Option<Native>,
+struct Tab {
     pixels: Option<Pixels>,
+    /// The page as a real picture, when the terminal draws them.
+    page: Option<Page>,
     url: String,
-    title: String,
     caption: String,
     /// The page's window in page pixels.
     size: (u32, u32),
@@ -172,11 +173,27 @@ pub struct BrowserView {
     to: Option<(f32, f32)>,
     moved_at: Option<Instant>,
     clicked_at: Option<Instant>,
+    /// The texts of the page, drawn over the picture so it can be read.
+    labels: Vec<Label>,
+}
+
+struct Page(StatefulProtocol);
+
+impl std::fmt::Debug for Page {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Page")
+    }
+}
+
+/// The mini browser: one page, or up to six side by side in the same space.
+#[derive(Debug, Default)]
+pub struct BrowserView {
+    /// The terminal draws real pictures: pages are pictures, not blocks.
+    native: Option<Native>,
+    tabs: Vec<Tab>,
     touched: Option<Instant>,
     /// When the window began to open.
     opened_at: Option<Instant>,
-    /// The texts of the page, drawn over the picture so it can be read.
-    labels: Vec<Label>,
     /// Nothing is running: the caption says how to close the window.
     idle: bool,
     steps: usize,
@@ -193,7 +210,66 @@ fn readable_on(bg: (u8, u8, u8)) -> Color {
     if lum > 140.0 { Color::Rgb(24, 24, 28) } else { Color::Rgb(245, 245, 248) }
 }
 
-impl BrowserView {
+/// Columns and rows of the grid for `n` pages in a window `width` wide: a
+/// page needs about twenty columns to be worth showing.
+fn grid(n: usize, width: u16) -> (usize, usize) {
+    let wanted = match n {
+        0 | 1 => 1,
+        2..=4 => 2,
+        _ => 3,
+    };
+    let cols = wanted.min((width as usize / 20).max(1));
+    (cols, n.max(1).div_ceil(cols))
+}
+
+/// The cell of each of `n` pages inside `rect`, row by row.
+fn cells(rect: Rect, n: usize) -> Vec<Rect> {
+    let (cols, rows) = grid(n, rect.width);
+    let (cw, ch) = (rect.width / cols as u16, rect.height / rows as u16);
+    (0..n)
+        .map(|i| {
+            let (c, r) = ((i % cols) as u16, (i / cols) as u16);
+            // The last column and row take what is left over.
+            let w = if c as usize == cols - 1 { rect.width - cw * c } else { cw };
+            let h = if r as usize == rows - 1 { rect.height - ch * r } else { ch };
+            Rect { x: rect.x + cw * c, y: rect.y + ch * r, width: w, height: h }
+        })
+        .collect()
+}
+
+/// Where everything goes in the cell `cell`: the frame (as small as the
+/// page's shape allows, so it hugs the picture), the page inside it, and
+/// the line under the frame that says what the agent is doing.
+fn geometry_of(size: &(u32, u32), cell: Rect) -> (Rect, Rect, Rect) {
+let (vw, vh) = (size.0.max(1) as f32, size.1.max(1) as f32);
+    // Room for the page: the frame takes two columns and three rows (borders and
+    // address), and the caption one row. A cell is one pixel wide and two tall.
+    let (room_w, room_h) = (cell.width.saturating_sub(2).max(1), cell.height.saturating_sub(4).max(1));
+    let scale = (room_w as f32 / vw).min(room_h as f32 * 2.0 / vh);
+    let w = ((vw * scale).round() as u16).clamp(1, room_w);
+    let h = (((vh * scale / 2.0).round()) as u16).clamp(1, room_h);
+    let frame = Rect { x: cell.x + (cell.width - (w + 2)) / 2, y: cell.y, width: w + 2, height: h + 3 };
+    let page = Rect { x: frame.x + 1, y: frame.y + 2, width: w, height: h };
+    let caption = Rect { x: frame.x, y: frame.bottom(), width: cell.width - (frame.x - cell.x), height: 1 };
+    (frame, page, caption)
+}
+
+
+/// The address as a person reads it: the file's name for a local page, the
+/// host and path for the web.
+fn address(url: &str) -> String {
+    if url.is_empty() {
+        return "about:blank".into();
+    }
+    if let Some(path) = url.strip_prefix("file:///").or_else(|| url.strip_prefix("file://")) {
+        return path.rsplit('/').next().unwrap_or(path).to_string();
+    }
+    let bare = url.split_once("://").map_or(url, |(_, rest)| rest);
+    bare.strip_prefix("www.").unwrap_or(bare).trim_end_matches('/').to_string()
+}
+
+
+impl Tab {
     /// Writes the page's own texts over the picture, where they are on the
     /// page and in colours that read on what is behind them: a headline, a
     /// button, a menu. The picture alone is only a blur of colours.
@@ -235,88 +311,8 @@ impl BrowserView {
         }
     }
 
-    /// The terminal can show real pictures: use them for the page.
-    pub fn set_picker(&mut self, picker: Picker) {
-        self.native = Some(Native { picker, page: None });
-    }
-
-    pub fn has_native(&self) -> bool {
-        self.native.is_some()
-    }
-
-    pub fn apply(&mut self, f: Frame, now: Instant) {
-        if let Some(p) = decode(&f.png) {
-            if let Some(n) = self.native.as_mut() {
-                let mut shot = p.clone();
-                if let Some(c) = f.cursor {
-                    bake_pointer(&mut shot, c, f.size, f.clicked);
-                }
-                if let Some(img) = image::RgbImage::from_raw(shot.w as u32, shot.h as u32, shot.rgb) {
-                    n.page = Some(n.picker.new_resize_protocol(image::DynamicImage::ImageRgb8(img)));
-                }
-            }
-            self.pixels = Some(p);
-        }
-        self.url = f.url;
-        self.title = f.title;
-        self.caption = f.caption;
-        self.size = f.size;
-        self.labels = f.labels;
-        // The pointer sets off from where it is drawn now.
-        let here = self.pointer(now);
-        if f.cursor != self.to {
-            self.from = here.or(f.cursor);
-            self.to = f.cursor;
-            self.moved_at = Some(now);
-        }
-        if f.clicked {
-            self.clicked_at = Some(now);
-        }
-        // A window that is not on screen opens; one that is closing opens again from where it is.
-        let p = self.progress(now);
-        self.opened_at = Some(if p >= 1.0 { self.opened_at.unwrap_or(now) } else { now.checked_sub(OPEN.mul_f32(p)).unwrap_or(now) });
-        self.touched = Some(now);
-        self.steps += 1;
-    }
-
-    pub fn clear(&mut self) {
-        // What the terminal can draw does not change with the task.
-        let native = self.native.take().map(|n| Native { page: None, ..n });
-        *self = Self { native, ..Self::default() };
-    }
-
-    pub fn set_idle(&mut self, idle: bool) {
-        self.idle = idle;
-    }
-
-    /// The user closes the window: it shrinks away.
-    pub fn dismiss(&mut self, now: Instant) {
-        if self.visible(now) {
-            self.touched = now.checked_sub(LINGER);
-        }
-    }
-
-    /// Whether the window is on screen: a while after the last picture, and
-    /// the moment it takes to close.
-    pub fn visible(&self, now: Instant) -> bool {
-        self.pixels.is_some() && self.touched.is_some_and(|t| now.saturating_duration_since(t) < LINGER + CLOSE)
-    }
-
-    /// How open the window is, 0 to 1: it opens from the corner, stays, and closes.
-    pub fn progress(&self, now: Instant) -> f32 {
-        let (Some(opened), Some(touched)) = (self.opened_at, self.touched) else { return 0.0 };
-        if self.pixels.is_none() {
-            return 0.0;
-        }
-        let idle = now.saturating_duration_since(touched);
-        if idle >= LINGER {
-            return 1.0 - ease((idle - LINGER).as_secs_f32() / CLOSE.as_secs_f32());
-        }
-        ease(now.saturating_duration_since(opened).as_secs_f32() / OPEN.as_secs_f32())
-    }
-
     /// Where the pointer is drawn at `now`, in page pixels.
-    pub fn pointer(&self, now: Instant) -> Option<(f32, f32)> {
+    fn pointer(&self, now: Instant) -> Option<(f32, f32)> {
         let to = self.to?;
         let (from, at) = (self.from.unwrap_or(to), self.moved_at?);
         let t = now.saturating_duration_since(at).as_secs_f32() / TRAVEL.as_secs_f32();
@@ -324,79 +320,41 @@ impl BrowserView {
         Some((from.0 + (to.0 - from.0) * e, from.1 + (to.1 - from.1) * e))
     }
 
-    /// Rows the window needs to show the page whole at `cols` columns.
-    pub fn rows_for(&self, cols: u16) -> u16 {
+    /// Rows a window needs to show this page whole at `cols` columns.
+    fn rows_for(&self, cols: u16) -> u16 {
         let (w, h) = (self.size.0.max(1) as f32, self.size.1.max(1) as f32);
         let inner = cols.saturating_sub(2) as f32;
         // Two pixels per row, plus the address bar, the caption and the frame.
         (inner * h / w / 2.0).ceil() as u16 + 4
     }
 
-    /// The area of the page inside the window drawn at `rect`.
-    fn page_in(rect: Rect) -> Rect {
-        let inner = Block::new().borders(Borders::ALL).inner(rect);
-        Rect { x: inner.x, y: inner.y + 1, width: inner.width, height: inner.height.saturating_sub(2) }
-    }
-
-    /// With real pictures: once the window is fully open, the page is drawn as
-    /// one (the cells below it stay as the frame).
-    pub fn draw_native(&mut self, f: &mut ratatui::Frame, rect: Rect, now: Instant) {
-        if self.progress(now) < 1.0 || rect.width < 12 || rect.height < 6 {
-            return;
-        }
-        if let Some(Native { page: Some(proto), .. }) = self.native.as_mut() {
-            let page = Self::page_in(rect);
-            let resize = Resize::Fit(Some(FilterType::Lanczos3));
-            // The picture keeps its shape, so it may not fill the page's width: centre it.
-            let fit = proto.size_for(resize.clone(), page.as_size());
-            let (w, h) = (fit.width.min(page.width), fit.height.min(page.height));
-            let area = Rect { x: page.x + (page.width - w) / 2, y: page.y, width: w, height: h };
-            f.render_stateful_widget(StatefulImage::default().resize(resize), area, proto);
-        }
-    }
-
-    /// Draws the window into `rect`, as open as it is at `now`.
-    pub fn draw(&self, buf: &mut Buffer, rect: Rect, now: Instant) {
-        let p = self.progress(now);
-        if p <= 0.0 || rect.width < 12 || rect.height < 6 {
-            return;
-        }
-        // It grows from the top right corner; the page appears top to bottom once the frame is there.
-        let (w, h) = (((rect.width as f32 * p).round() as u16).max(12).min(rect.width), ((rect.height as f32 * p).round() as u16).max(6).min(rect.height));
-        let rect = Rect { x: rect.right() - w, y: rect.y, width: w, height: h };
+    /// Draws the page in its cell `cell`: the framed address and page, and under
+    /// it what the agent is doing. `p` is how open the window is.
+    fn draw(&self, buf: &mut Buffer, cell: Rect, now: Instant, p: f32, (tag, tail): (&str, &str), native: bool) {
         let reveal = if p >= 1.0 { 1.0 } else { ((p - PAGE_FROM) / (1.0 - PAGE_FROM)).clamp(0.0, 1.0) };
+        let (frame, page, caption_row) = geometry_of(&self.size, cell);
         let block = Block::new().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::new().fg(BORDER));
-        let inner = block.inner(rect);
-        block.render(rect, buf);
-        // The title bar: three dots and the address.
-        let shown = if self.url.is_empty() { "about:blank".to_string() } else { self.url.replace("file:///", "").replace("file://", "") };
-        let room = inner.width.saturating_sub(7) as usize;
+        let inner = block.inner(frame);
+        block.render(frame, buf);
+        // The address bar: only the address, as in a browser.
+        let shown = address(&self.url);
+        let room = inner.width.saturating_sub(1) as usize;
         let addr: String = if shown.chars().count() > room { format!("…{}", shown.chars().rev().take(room.saturating_sub(1)).collect::<Vec<_>>().into_iter().rev().collect::<String>()) } else { shown };
-        Line::from(vec![
-            Span::styled("● ", Style::new().fg(Color::Rgb(255, 95, 86))),
-            Span::styled("● ", Style::new().fg(Color::Rgb(255, 189, 46))),
-            Span::styled("● ", Style::new().fg(Color::Rgb(39, 201, 63))),
-            Span::styled(addr, Style::new().fg(DIM)),
-        ])
-        .render(Rect { height: 1, ..inner }, buf);
-        let page = Rect { x: inner.x, y: inner.y + 1, width: inner.width, height: inner.height.saturating_sub(2) };
-        // The caption under the page.
-        let caption_row = Rect { x: inner.x, y: inner.bottom().saturating_sub(1), width: inner.width, height: 1 };
-        let caption = if self.idle { format!("{} · Esc closes", self.caption) } else { self.caption.clone() };
-        let cap: String = caption.chars().take(inner.width as usize).collect();
-        Line::styled(cap, Style::new().fg(BLUE).add_modifier(Modifier::BOLD)).render(caption_row, buf);
+        Line::styled(format!(" {addr}"), Style::new().fg(DIM)).render(Rect { height: 1, ..inner }, buf);
+        // What the agent is doing, small, under the frame and outside it.
+        let cap: String = format!("{tag}{}{tail}", self.caption).chars().take(caption_row.width as usize).collect();
+        Line::styled(cap, Style::new().fg(DIM)).render(caption_row, buf);
         let Some(px) = &self.pixels else { return };
         // A real picture takes the page once the window is open.
-        if p >= 1.0 && self.native.as_ref().is_some_and(|n| n.page.is_some()) {
+        if p >= 1.0 && native && self.page.is_some() {
             return;
         }
-        // Fit the page in the space, keeping its shape: a cell is one pixel wide and two tall.
         let (vw, vh) = (self.size.0.max(1) as f32, self.size.1.max(1) as f32);
-        let scale = (page.width as f32 / vw).min(page.height as f32 * 2.0 / vh);
-        let out_w = ((vw * scale).round() as usize).clamp(1, page.width as usize);
-        let out_h = (((vh * scale).round() as usize).clamp(2, page.height as usize * 2)) & !1;
+        let scale = page.width as f32 / vw;
+        let (out_w, out_h) = (page.width as usize, (page.height as usize * 2).max(2) & !1);
+        let _ = vh;
         let grid = px.scaled(out_w, out_h);
-        let (ox, oy) = (page.x + ((page.width as usize - out_w) / 2) as u16, page.y);
+        let (ox, oy) = (page.x, page.y);
         let shown_rows = ((out_h / 2) as f32 * reveal).ceil() as usize;
         for row in 0..shown_rows.min(out_h / 2) {
             for col in 0..out_w {
@@ -437,6 +395,168 @@ impl BrowserView {
         // The arrow's body, so it reads against any page.
         if let Some((x, y)) = at(0, 0) {
             buf[(x, y)].set_bg(Color::Black).set_style(Style::new().add_modifier(Modifier::BOLD));
+        }
+    }
+}
+
+impl BrowserView {
+    /// The terminal can show real pictures: use them for the pages.
+    pub fn set_picker(&mut self, picker: Picker) {
+        self.native = Some(Native { picker });
+    }
+
+    pub fn has_native(&self) -> bool {
+        self.native.is_some()
+    }
+
+    /// How many pages are open.
+    pub fn windows(&self) -> usize {
+        self.tabs.iter().filter(|t| t.pixels.is_some()).count().max(1)
+    }
+
+    pub fn apply(&mut self, f: Frame, now: Instant) {
+        let i = f.window.min(MAX_WINDOWS - 1);
+        if self.tabs.len() <= i {
+            self.tabs.resize_with(i + 1, Tab::default);
+        }
+        let here = self.tabs[i].pointer(now);
+        let tab = &mut self.tabs[i];
+        if let Some(p) = decode(&f.png) {
+            if let Some(n) = self.native.as_ref() {
+                let mut shot = p.clone();
+                if let Some(c) = f.cursor {
+                    bake_pointer(&mut shot, c, f.size, f.clicked);
+                }
+                if let Some(img) = image::RgbImage::from_raw(shot.w as u32, shot.h as u32, shot.rgb) {
+                    tab.page = Some(Page(n.picker.new_resize_protocol(image::DynamicImage::ImageRgb8(img))));
+                }
+            }
+            tab.pixels = Some(p);
+        }
+        tab.url = f.url;
+        let tab = &mut self.tabs[i];
+        tab.caption = f.caption;
+        tab.size = f.size;
+        tab.labels = f.labels;
+        // The pointer sets off from where it is drawn now.
+        if f.cursor != tab.to {
+            tab.from = here.or(f.cursor);
+            tab.to = f.cursor;
+            tab.moved_at = Some(now);
+        }
+        if f.clicked {
+            tab.clicked_at = Some(now);
+        }
+        // A window that is not on screen opens; one that is closing opens again from where it is.
+        let p = self.progress(now);
+        self.opened_at = Some(if p >= 1.0 { self.opened_at.unwrap_or(now) } else { now.checked_sub(OPEN.mul_f32(p)).unwrap_or(now) });
+        self.touched = Some(now);
+        self.steps += 1;
+    }
+
+    pub fn clear(&mut self) {
+        // What the terminal can draw does not change with the task.
+        let native = self.native.take();
+        *self = Self { native, ..Self::default() };
+    }
+
+    pub fn set_idle(&mut self, idle: bool) {
+        self.idle = idle;
+    }
+
+    /// The user closes the window: it shrinks away.
+    pub fn dismiss(&mut self, now: Instant) {
+        if self.visible(now) {
+            self.touched = now.checked_sub(LINGER);
+        }
+    }
+
+    fn has_pixels(&self) -> bool {
+        self.tabs.iter().any(|t| t.pixels.is_some())
+    }
+
+    /// Whether the window is on screen: a while after the last picture, and
+    /// the moment it takes to close.
+    pub fn visible(&self, now: Instant) -> bool {
+        self.has_pixels() && self.touched.is_some_and(|t| now.saturating_duration_since(t) < LINGER + CLOSE)
+    }
+
+    /// How open the window is, 0 to 1: it opens from the corner, stays, and closes.
+    pub fn progress(&self, now: Instant) -> f32 {
+        let (Some(opened), Some(touched)) = (self.opened_at, self.touched) else { return 0.0 };
+        if !self.has_pixels() {
+            return 0.0;
+        }
+        let idle = now.saturating_duration_since(touched);
+        if idle >= LINGER {
+            return 1.0 - ease((idle - LINGER).as_secs_f32() / CLOSE.as_secs_f32());
+        }
+        ease(now.saturating_duration_since(opened).as_secs_f32() / OPEN.as_secs_f32())
+    }
+
+    /// Where the first page's pointer is drawn at `now`, in page pixels.
+    pub fn pointer(&self, now: Instant) -> Option<(f32, f32)> {
+        self.tabs.first().and_then(|t| t.pointer(now))
+    }
+
+    /// Rows the window needs to show its pages whole at `cols` columns: with
+    /// several pages, the same space is shared between them.
+    pub fn rows_for(&self, cols: u16) -> u16 {
+        let n = self.windows();
+        let (c, r) = grid(n, cols);
+        let cell = cols / c as u16;
+        let one = self.tabs.iter().find(|t| t.pixels.is_some()).map_or(4, |t| t.rows_for(cell));
+        one * r as u16
+    }
+
+    /// The pages that are open, with the cell of each in a window at `rect`.
+    fn placed(&self, rect: Rect) -> Vec<(usize, Rect)> {
+        let open: Vec<usize> = (0..self.tabs.len()).filter(|&i| self.tabs[i].pixels.is_some()).collect();
+        open.iter().copied().zip(cells(rect, open.len())).collect()
+    }
+
+    /// With real pictures: once the window is fully open, each page is drawn as
+    /// one (the cells below it stay as the frame).
+    pub fn draw_native(&mut self, f: &mut ratatui::Frame, rect: Rect, now: Instant) {
+        if self.progress(now) < 1.0 || rect.width < 12 || rect.height < 6 {
+            return;
+        }
+        for (i, cell) in self.placed(rect) {
+            if cell.width < 12 || cell.height < 6 {
+                continue;
+            }
+            let (_, page, _) = geometry_of(&self.tabs[i].size, cell);
+            if let Some(Page(proto)) = self.tabs[i].page.as_mut() {
+                let resize = Resize::Fit(Some(FilterType::Lanczos3));
+                // The picture keeps its shape, so it may not fill the page's width: centre it.
+                let fit = proto.size_for(resize.clone(), page.as_size());
+                let (w, h) = (fit.width.min(page.width), fit.height.min(page.height));
+                let area = Rect { x: page.x + (page.width - w) / 2, y: page.y, width: w, height: h };
+                f.render_stateful_widget(StatefulImage::default().resize(resize), area, proto);
+            }
+        }
+    }
+
+    /// Draws the window into `rect`, as open as it is at `now`.
+    pub fn draw(&self, buf: &mut Buffer, rect: Rect, now: Instant) {
+        let p = self.progress(now);
+        if p <= 0.0 || rect.width < 12 || rect.height < 6 {
+            return;
+        }
+        // It grows from the top right corner; the page appears top to bottom once the frame is there.
+        let (w, h) = (((rect.width as f32 * p).round() as u16).max(12).min(rect.width), ((rect.height as f32 * p).round() as u16).max(6).min(rect.height));
+        let rect = Rect { x: rect.right() - w, y: rect.y, width: w, height: h };
+        let native = self.native.is_some();
+        let placed = self.placed(rect);
+        let alone = placed.len() == 1;
+        for (i, cell) in placed {
+            if cell.width < 12 || cell.height < 6 {
+                continue;
+            }
+            let tail = if self.idle && alone { " · Esc closes" } else { "" };
+            // With several pages, each caption says which window it is.
+            let tag = if alone { String::new() } else { format!("{} · ", i + 1) };
+            self.tabs[i].draw(buf, cell, now, p, (&tag, tail), native);
         }
     }
 }

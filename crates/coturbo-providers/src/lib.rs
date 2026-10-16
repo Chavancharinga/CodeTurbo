@@ -120,7 +120,9 @@ pub enum Delta {
     Limits(Vec<(String, String)>),
     /// A tool call being generated: its name, the `path` argument once it
     /// has streamed in, and the arguments' size so far.
-    Composing { tool: String, path: Option<String>, chars: usize },
+    /// `code` is the end of what is being written (the last lines of the
+    /// file's content), so the screen can show the code as it appears.
+    Composing { tool: String, path: Option<String>, chars: usize, code: Option<String> },
     /// Something the user should know (a retry after a rate limit).
     Notice(String),
 }
@@ -133,6 +135,48 @@ pub fn partial_path(json: &str) -> Option<String> {
     let rest = rest.trim_start().strip_prefix(':')?.trim_start().strip_prefix('"')?;
     let end = rest.find('"')?;
     Some(rest[..end].to_string())
+}
+
+/// How many lines of the code being written are shown live.
+const LIVE_LINES: usize = 14;
+
+/// The last lines of the content a tool call is writing (`content` or `new`),
+/// from its arguments as they stream: JSON, or the `<invoke>` parameter form.
+pub fn partial_code(call: &str) -> Option<String> {
+    let raw = ["content", "new"].iter().find_map(|key| {
+        let tag = format!("<parameter name=\"{key}\">");
+        if let Some(i) = call.find(&tag) {
+            let rest = &call[i + tag.len()..];
+            return Some(rest[..rest.find("</parameter>").unwrap_or(rest.len())].to_string());
+        }
+        let k = format!("\"{key}\"");
+        let rest = call[call.find(&k)? + k.len()..].trim_start().strip_prefix(':')?.trim_start().strip_prefix('"')?;
+        let mut out = String::new();
+        let mut chars = rest.chars();
+        while let Some(c) = chars.next() {
+            match c {
+                '\\' => match chars.next() {
+                    Some('n') => out.push('\n'),
+                    Some('t') => out.push('\t'),
+                    Some('r') => {}
+                    Some('u') => {
+                        let hex: String = chars.by_ref().take(4).collect();
+                        out.push(u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32).unwrap_or('?'));
+                    }
+                    Some(other) => out.push(other),
+                    None => break,
+                },
+                '"' => break,
+                c => out.push(c),
+            }
+        }
+        Some(out)
+    })?;
+    let lines: Vec<&str> = raw.lines().collect();
+    if lines.is_empty() {
+        return None;
+    }
+    Some(lines[lines.len().saturating_sub(LIVE_LINES)..].join("\n"))
 }
 
 pub type TextSink<'a> = dyn FnMut(Delta) + Send + 'a;

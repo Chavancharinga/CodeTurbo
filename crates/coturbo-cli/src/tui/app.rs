@@ -31,6 +31,7 @@ const fn rgb((r, g, b): (u8, u8, u8)) -> Color {
 const BLUE: Color = rgb(splash::BLUE);
 const SOFT: Color = rgb(splash::SOFT);
 const BORDER: Color = Color::Rgb(36, 66, 130);
+const GREEN_BORDER: Color = Color::Rgb(30, 100, 62);
 const YELLOW: Color = Color::Rgb(240, 190, 80);
 const PANEL: Color = Color::Rgb(16, 22, 36);
 /// The text box grows with its content up to this many rows.
@@ -140,7 +141,7 @@ impl Transcript {
     /// `∴`, the answer as text; both rendered from markdown.
     pub fn stream(&mut self, kind: StreamKind, delta: &str) {
         let (style, first, indent) = match kind {
-            StreamKind::Thinking => (Style::new().add_modifier(Modifier::DIM | Modifier::ITALIC), "∴ ", "  "),
+            StreamKind::Thinking => (Style::new().fg(Color::Rgb(140, 152, 175)).add_modifier(Modifier::ITALIC), "∴ ", "  "),
             StreamKind::Text => (Style::new(), "", ""),
         };
         if self.stream != Some(kind) {
@@ -263,6 +264,8 @@ pub struct App {
     work: Work,
     /// The mini browser: the page the agent is using, with its pointer.
     browser: BrowserView,
+    /// The code being written right now: its title and last lines.
+    live: Option<(String, Vec<Line<'static>>)>,
     flash: Option<(Mood, Instant)>,
     phase: f32,
     last_draw: Instant,
@@ -297,6 +300,7 @@ impl App {
             done_at: None,
             work: Work::default(),
             browser: BrowserView::default(),
+            live: None,
             flash: None,
             phase: 0.0,
             last_draw: Instant::now(),
@@ -388,6 +392,7 @@ impl App {
                 self.browser.clear();
             }
             Out::Browser(f) => self.browser.apply(f, Instant::now()),
+            Out::Live(l) => self.live = l,
             Out::Mood(m) if m.is_flash() => self.flash = Some((m, Instant::now())),
             Out::Mood(m) => self.mood = m,
             Out::Status(s) => self.status = s,
@@ -967,9 +972,17 @@ impl App {
         };
         // In a box of its own, so it never runs into the line with the spinner.
         let work_h = if work_lines.is_empty() { 0 } else { (work_lines.len() as u16 + 2).min(area.height / 3) };
-        let [header, body, work, panel, hint, input, status] = Layout::vertical([
+        // The code being written, in a box above the work panel.
+        let live_h = match &self.live {
+            Some((_, lines)) if area.height >= 24 && self.busy.is_some() => (lines.len() as u16 + 2).min(area.height / 3),
+            _ => 0,
+        };
+        let air = u16::from(live_h + work_h > 0);
+        let [header, body, _air, live, work, panel, hint, input, status] = Layout::vertical([
             Constraint::Length(header_h),
             Constraint::Min(1),
+            Constraint::Length(air),
+            Constraint::Length(live_h),
             Constraint::Length(work_h),
             Constraint::Length(q_h),
             Constraint::Length(1),
@@ -1012,6 +1025,21 @@ impl App {
         if let Some(r) = browser_rect {
             self.browser.draw(f.buffer_mut(), r, now);
             self.browser.draw_native(f, r, now);
+        }
+        if live_h > 0
+            && let Some((title, lines)) = &self.live
+        {
+            let block = Block::bordered()
+                .border_type(BorderType::LightQuadrupleDashed)
+                .border_style(Style::new().fg(GREEN_BORDER))
+                .title(Span::styled(format!(" {title} "), Style::new().fg(Color::Rgb(86, 204, 128)).add_modifier(Modifier::BOLD)));
+            let rect = Rect { x: live.x + 1, width: live.width.saturating_sub(2), ..live };
+            let inner = block.inner(rect);
+            f.render_widget(block, rect);
+            // The newest lines are the ones that matter: show the end.
+            let room = inner.height as usize;
+            let shown: Vec<Line> = lines[lines.len().saturating_sub(room)..].to_vec();
+            f.render_widget(Paragraph::new(shown), inner);
         }
         if work_h > 0 {
             let block = Block::bordered()

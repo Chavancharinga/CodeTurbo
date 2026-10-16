@@ -65,11 +65,11 @@ fn is_heavy(tool: &str) -> bool {
 }
 
 /// Whether a tool result carries a design check with blocking findings
-/// (`design <path>: 2 bloqueante(s), 1 aviso(s)`).
+/// (`design <path>: 2 blocking, 1 warning(s)`).
 pub fn design_refused(text: &str) -> bool {
     text.lines().any(|l| {
         l.starts_with("design ")
-            && l.find(" bloqueante(s)").is_some_and(|i| l[..i].rsplit(' ').next().and_then(|n| n.parse::<u32>().ok()).is_some_and(|n| n > 0))
+            && l.find(" blocking,").is_some_and(|i| l[..i].rsplit(' ').next().and_then(|n| n.parse::<u32>().ok()).is_some_and(|n| n > 0))
     })
 }
 
@@ -230,6 +230,7 @@ impl Host for TuiHost {
             }
             Event::Limits(headers) => self.limits = view::limits_summary(headers),
             Event::ToolStart { name, input } => {
+                self.send(Out::Live(None));
                 self.composing_path = None;
                 self.produced = true;
                 self.tools += 1;
@@ -303,7 +304,7 @@ impl Host for TuiHost {
                 lines.extend(summary.map(|l| Line::styled(l.to_string(), Style::new().add_modifier(Modifier::DIM))));
                 self.lines(lines);
             }
-            Event::Composing { tool, path, chars } => {
+            Event::Composing { tool, path, chars, code } => {
                 if let Some(p) = path {
                     self.composing_path = Some(p.to_string());
                 }
@@ -315,6 +316,16 @@ impl Host for TuiHost {
                 let target = self.composing_path.clone().unwrap_or_default();
                 let size = if chars >= 1000 { format!("{:.1}k chars", chars as f64 / 1000.0) } else { format!("{chars} chars") };
                 self.busy(format!("{tool} {target} · {size}").replace("  ", " "));
+                // The code appears as it is written.
+                if is_edit(tool)
+                    && let Some(code) = code
+                {
+                    let lines = code
+                        .lines()
+                        .map(|l| Line::styled(format!("  {}", l.chars().take(self.width.saturating_sub(8).max(20)).collect::<String>()), Style::new().fg(Color::Rgb(190, 200, 215))))
+                        .collect();
+                    self.send(Out::Live(Some((format!("writing {target}"), lines))));
+                }
             }
             Event::Step { name, phase, index, total, secs, expected } => {
                 let stage = name.to_uppercase();

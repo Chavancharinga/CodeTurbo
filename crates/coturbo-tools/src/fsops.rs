@@ -160,7 +160,7 @@ impl Tools {
         let mut content = format!("{} ({len} bytes)", out.content);
         if let Some(rel) = conflict {
             content.push_str(&format!(
-                "\n! conflito: {rel} mudou no disco desde a última leitura (ou não foi lido antes);                  se não era a intenção, releia o arquivo e refaça a alteração"
+                "\n! conflict: {rel} changed on disk since the last read (or was never read);                  if that was not intended, read the file again and redo the change"
             ));
         }
         if let Ok(abs) = self.resolve(arg(input, "path")?) {

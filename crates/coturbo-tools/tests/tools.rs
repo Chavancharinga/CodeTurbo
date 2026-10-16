@@ -324,23 +324,23 @@ async fn overwriting_an_unread_or_changed_file_warns() {
     let t = Tools::new(dir.path(), Mode::Naive);
     // Never read: overwriting warns of a possible clobber.
     let out = t.call("write_file", &json!({"path": "a.txt", "content": "novo\n"})).await;
-    assert!(out.content.contains("conflito"), "unread overwrite warns: {}", out.content);
+    assert!(out.content.contains("conflict"), "unread overwrite warns: {}", out.content);
     // Now it was just written (recorded): overwriting again is clean.
     let out = t.call("write_file", &json!({"path": "a.txt", "content": "novo2\n"})).await;
-    assert!(!out.content.contains("conflito"), "known file, no warning: {}", out.content);
+    assert!(!out.content.contains("conflict"), "known file, no warning: {}", out.content);
     // External change after our write: next overwrite warns again.
     fs::write(dir.path().join("a.txt"), "mexido por fora\n").unwrap();
     let out = t.call("write_file", &json!({"path": "a.txt", "content": "novo3\n"})).await;
-    assert!(out.content.contains("conflito"), "external change warns: {}", out.content);
+    assert!(out.content.contains("conflict"), "external change warns: {}", out.content);
     // Reading refreshes the record: then overwriting is clean.
     t.call("read_file", &json!({"path": "a.txt"})).await;
     fs::write(dir.path().join("a.txt"), "x\n").unwrap();
     // changed again after read -> warns
     let out = t.call("write_file", &json!({"path": "a.txt", "content": "y\n"})).await;
-    assert!(out.content.contains("conflito"), "changed after read warns: {}", out.content);
+    assert!(out.content.contains("conflict"), "changed after read warns: {}", out.content);
     // A brand-new file never warns.
     let out = t.call("write_file", &json!({"path": "novo.txt", "content": "z"})).await;
-    assert!(!out.content.contains("conflito"), "new file is fine: {}", out.content);
+    assert!(!out.content.contains("conflict"), "new file is fine: {}", out.content);
 }
 
 #[tokio::test]
@@ -389,7 +389,7 @@ async fn browse_drives_a_page_shows_every_step_and_stays_in_the_project() {
 
     // Pages outside the project are refused before any browser opens.
     let outside = t.call("browse", &json!({"actions": [{"do": "open", "url": "../fora.html"}]})).await;
-    assert!(outside.is_error && outside.content.contains("dentro do projeto"), "{outside:?}");
+    assert!(outside.is_error && outside.content.contains("inside the project"), "{outside:?}");
     // Bad input is explained.
     let bad = t.call("browse", &json!({"actions": [{"do": "click"}]})).await;
     assert!(bad.is_error && bad.content.contains("action 1"), "{bad:?}");
@@ -433,5 +433,54 @@ async fn browse_keeps_the_page_between_calls_until_the_session_ends() {
     t.shutdown().await;
     let third = t.call("browse", &json!({"actions": [{"do": "click", "text": "Dizer"}]})).await;
     assert!(third.content.contains("ERROR: could not find"), "a new browser starts on a blank page: {third:?}");
+    t.shutdown().await;
+}
+
+#[tokio::test]
+async fn browse_windows_are_limited_and_numbered_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let t = Tools::new(dir.path(), Mode::Naive);
+    let one = json!({"actions": [{"do": "wait", "ms": 1}]});
+    let seven: Vec<_> = (0..7).map(|i| json!({"window": i, "actions": one["actions"]})).collect();
+    let too_many = t.call("browse", &json!({"windows": seven})).await;
+    assert!(too_many.is_error && too_many.content.contains("at most 6"), "{too_many:?}");
+    let twice = t.call("browse", &json!({"windows": [{"window": 1, "actions": one["actions"]}, {"window": 1, "actions": one["actions"]}]})).await;
+    assert!(twice.is_error && twice.content.contains("each is used once"), "{twice:?}");
+    let far = t.call("browse", &json!({"window": 9, "actions": one["actions"]})).await;
+    assert!(far.is_error && far.content.contains("0 to 5"), "{far:?}");
+    // Each window's own mistakes are named by window.
+    let bad = t.call("browse", &json!({"windows": [{"actions": [{"do": "click"}]}]})).await;
+    assert!(bad.is_error && bad.content.contains("window 1"), "{bad:?}");
+}
+
+#[tokio::test]
+async fn browse_shows_several_pages_at_once_each_in_its_own_window() {
+    use std::sync::{Arc, Mutex};
+    let dir = tempfile::tempdir().unwrap();
+    for (name, title) in [("a.html", "Alpha"), ("b.html", "Beta"), ("c.html", "Gamma")] {
+        std::fs::write(dir.path().join(name), format!("<!doctype html><title>{title}</title><h1>{title}</h1><button>Go</button>")).unwrap();
+    }
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let sink = seen.clone();
+    let t = Tools::new(dir.path(), Mode::Naive).with_browse_sink(Arc::new(move |f| sink.lock().unwrap().push((f.window, f.url))));
+    if coturbo_design::render::find_browser().is_none() {
+        return;
+    }
+    let out = t
+        .call("browse", &json!({"windows": [
+            {"window": 0, "actions": [{"do": "open", "url": "a.html"}, {"do": "click", "text": "Go"}]},
+            {"window": 1, "actions": [{"do": "open", "url": "b.html"}]},
+            {"window": 2, "actions": [{"do": "open", "url": "c.html"}]}
+        ]}))
+        .await;
+    assert!(!out.is_error, "{out:?}");
+    assert!(out.content.contains("window 0:") && out.content.contains("window 1:") && out.content.contains("window 2:"), "{}", out.content);
+    assert_eq!(out.images.len(), 3, "a picture of each page goes to the model");
+    {
+        let seen = seen.lock().unwrap();
+        for (window, page) in [(0, "a.html"), (1, "b.html"), (2, "c.html")] {
+            assert!(seen.iter().any(|(w, u)| *w == window && u.ends_with(page)), "window {window} showed {page}: {seen:?}");
+        }
+    }
     t.shutdown().await;
 }

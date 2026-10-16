@@ -83,7 +83,8 @@ pub struct Tools {
     browse_sink: Option<BrowseSink>,
     /// The browser `browse` keeps open between calls, so the page is still
     /// there for the next steps. It closes after a while with no use.
-    browse_live: Arc<tokio::sync::Mutex<Option<LiveBrowser>>>,
+    /// One kept browser per window the user watches (see [`MAX_BROWSE_WINDOWS`]).
+    browse_live: Arc<Vec<Arc<tokio::sync::Mutex<Option<LiveBrowser>>>>>,
     /// `browse` opens a real window the user watches, not one without a window.
     browse_window: Arc<dyn Fn() -> bool + Send + Sync>,
 }
@@ -94,6 +95,29 @@ struct LiveBrowser {
 }
 
 /// How long an unused browser stays open.
+/// The `actions` list of the `browse` tool, as the model sees it.
+fn browse_actions_schema() -> Value {
+    json!({
+    "type": "array",
+    "description": "steps in order, at most 40",
+    "items": {"type": "object", "properties": {
+        "do": {"type": "string", "enum": ["open", "snapshot", "click", "fill", "press", "scroll", "wait", "back", "viewport", "text", "shot"]},
+        "url": {"type": "string", "description": "open: a project file (index.html), localhost:3000 or a full address"},
+        "ref": {"type": "string", "description": "click, fill, text: the @e7 that snapshot gave"},
+        "text": {"type": "string", "description": "click, text: the visible text of the element"},
+        "selector": {"type": "string", "description": "click, fill, text: a CSS selector"},
+        "label": {"type": "string", "description": "fill: the field's label or placeholder"},
+        "value": {"type": "string", "description": "fill: what to type"},
+        "key": {"type": "string", "description": "press: Enter, Tab, Escape, ArrowDown..."},
+        "y": {"type": "integer", "description": "scroll: pixels, negative goes up"},
+        "ms": {"type": "integer", "description": "wait: milliseconds, at most 10000"},
+        "width": {"type": "integer"}, "height": {"type": "integer"}
+    }, "required": ["do"]}
+                        })
+}
+
+/// The most pages `browse` shows at once, each in its own small window.
+pub const MAX_BROWSE_WINDOWS: usize = 6;
 const BROWSER_IDLE: std::time::Duration = std::time::Duration::from_secs(120);
 
 /// Receives the pictures of a `browse` session as they are taken.
@@ -126,7 +150,7 @@ fn arg<'a>(input: &'a Value, key: &str) -> Result<&'a str, String> {
 impl Tools {
     pub fn new(root: &Path, mode: Mode) -> Self {
         let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
-        Self { root, mode, lsp: None, native_checks: false, seen: std::sync::Mutex::new(std::collections::HashMap::new()), browse_sink: None, browse_live: Arc::default(), browse_window: Arc::new(|| false) }
+        Self { root, mode, lsp: None, native_checks: false, seen: std::sync::Mutex::new(std::collections::HashMap::new()), browse_sink: None, browse_live: Arc::new((0..MAX_BROWSE_WINDOWS).map(|_| Arc::default()).collect()), browse_window: Arc::new(|| false) }
     }
 
     /// Makes `browse` open a real window beside the terminal, with the agent's
@@ -228,28 +252,14 @@ impl Tools {
             ),
             spec(
                 "browse",
-                "Use a page like a person would, in a real browser the user watches in a small window: open it, then `snapshot` to list what can be clicked (@e1, @e2...), click with a real mouse, fill fields, press keys, scroll, go back, resize to a phone, read text, take a photo. Actions run in order and stop at the first one that fails. It tells you what a person would notice: a click that lands on something else, console errors, images and files that do not load. After building a page or app, go through EVERY menu, link, button and form with it, on desktop and at phone size, and fix what fails.",
+                "Use a page like a person would, in a real browser the user watches in a small window: open it, then `snapshot` to list what can be clicked (@e1, @e2...), click with a real mouse, fill fields, press keys, scroll, go back, resize to a phone, read text, take a photo. Actions run in order and stop at the first one that fails. It tells you what a person would notice: a click that lands on something else, console errors, images and files that do not load. After building a page or app, go through EVERY menu, link, button and form with it, on desktop and at phone size, and fix what fails. To check several pages at the same time (the pages of a site, or desktop next to phone), pass `windows`: each entry has its own `window` number and `actions`, and each page appears in its own small square in the user's view. Choose how many you need, from 1 to 6; the pages share the same space, so use more only when they help.",
                 obj(
                     json!({
-                        "actions": json!({
-                            "type": "array",
-                            "description": "steps in order, at most 40",
-                            "items": {"type": "object", "properties": {
-                                "do": {"type": "string", "enum": ["open", "snapshot", "click", "fill", "press", "scroll", "wait", "back", "viewport", "text", "shot"]},
-                                "url": {"type": "string", "description": "open: a project file (index.html), localhost:3000 or a full address"},
-                                "ref": {"type": "string", "description": "click, fill, text: the @e7 that snapshot gave"},
-                                "text": {"type": "string", "description": "click, text: the visible text of the element"},
-                                "selector": {"type": "string", "description": "click, fill, text: a CSS selector"},
-                                "label": {"type": "string", "description": "fill: the field's label or placeholder"},
-                                "value": {"type": "string", "description": "fill: what to type"},
-                                "key": {"type": "string", "description": "press: Enter, Tab, Escape, ArrowDown..."},
-                                "y": {"type": "integer", "description": "scroll: pixels, negative goes up"},
-                                "ms": {"type": "integer", "description": "wait: milliseconds, at most 10000"},
-                                "width": {"type": "integer"}, "height": {"type": "integer"}
-                            }, "required": ["do"]}
-                        })
+                        "actions": browse_actions_schema(),
+                        "window": json!({"type": "integer", "description": "with `actions`: which small window shows this page, 0 to 5 (default 0)"}),
+                        "windows": json!({"type": "array", "description": "several pages at once, at most 6: each has its own window number and actions", "items": {"type": "object", "properties": {"window": {"type": "integer"}, "actions": browse_actions_schema()}, "required": ["actions"]}})
                     }),
-                    &["actions"],
+                    &[],
                 ),
             ),
             spec(
@@ -282,15 +292,18 @@ impl Tools {
         v
     }
 
-    /// Runs `actions` in the browser kept open for `browse`, opening one if
-    /// there is none (or the old one stopped answering).
-    async fn run_live(&self, path: &Path, actions: &[coturbo_browse::Action], mut on_frame: impl FnMut(coturbo_browse::Frame) + Send) -> Result<coturbo_browse::Report, String> {
-        let mut guard = self.browse_live.lock().await;
+    /// Runs `actions` in window `slot`'s browser, kept open for `browse`,
+    /// opening one if there is none (or the old one stopped answering).
+    async fn run_live(&self, slot: usize, path: &Path, actions: &[coturbo_browse::Action], mut on_frame: impl FnMut(coturbo_browse::Frame) + Send) -> Result<coturbo_browse::Report, String> {
+        let cell = self.browse_live[slot].clone();
+        let mut guard = cell.lock().await;
         for attempt in 0..2 {
             if guard.is_none() {
-                let browser = coturbo_browse::Browser::open_with(path, (880, 560), (self.browse_window)()).await?;
+                // A real window beside the terminal is only for the first page.
+                let visible = slot == 0 && (self.browse_window)();
+                let browser = coturbo_browse::Browser::open_with(path, (880, 560), visible).await?;
                 *guard = Some(LiveBrowser { browser, last_used: std::time::Instant::now() });
-                self.watch_browser();
+                self.watch_browser(slot);
             }
             let live = guard.as_mut().expect("opened above");
             match live.browser.run(&self.root, actions, &mut on_frame).await {
@@ -309,12 +322,12 @@ impl Tools {
                 }
             }
         }
-        Err("o navegador não abriu".into())
+        Err("the browser did not open".into())
     }
 
-    /// Closes the kept browser once it has gone unused for a while.
-    fn watch_browser(&self) {
-        let live = self.browse_live.clone();
+    /// Closes window `slot`'s browser once it has gone unused for a while.
+    fn watch_browser(&self, slot: usize) {
+        let live = self.browse_live[slot].clone();
         // A window someone is watching stays longer than one nobody sees.
         let idle = if (self.browse_window)() { BROWSER_IDLE * 3 } else { BROWSER_IDLE };
         tokio::spawn(async move {
@@ -336,54 +349,100 @@ impl Tools {
         });
     }
 
-    /// Closes the browser `browse` keeps open (when the session ends).
+    /// Closes the browsers `browse` keeps open (when the session ends).
     pub async fn shutdown(&self) {
-        let live = self.browse_live.lock().await.take();
-        if let Some(l) = live {
-            l.browser.close().await;
+        for cell in self.browse_live.iter() {
+            let live = cell.lock().await.take();
+            if let Some(l) = live {
+                l.browser.close().await;
+            }
         }
     }
 
-    /// Drives a real browser through `actions`, showing every step.
+    /// Drives real browsers through `actions`, showing every step: one page,
+    /// or up to six at once, each in its own small window.
     async fn browse(&self, input: &Value) -> Res {
         use coturbo_browse::{Action, resolve_url};
-        let browser = coturbo_design::render::find_browser().ok_or("nenhum navegador encontrado (Edge ou Chrome); defina CODETURBO_BROWSER")?;
-        let actions = Action::parse_all(&input["actions"])?;
-        // A project file must stay inside the project, like every other tool.
-        for a in &actions {
-            if let Action::Open(u) = a {
-                let url = resolve_url(&self.root, u);
-                if let Some(p) = url.strip_prefix("file:///").or_else(|| url.strip_prefix("file://")) {
-                    // `file:///C:/x` is `C:/x`; `file:///tmp/x` is `/tmp/x`.
-                    let p = p.replace("%20", " ");
-                    let path = std::path::PathBuf::from(if cfg!(windows) { p } else { format!("/{p}") });
-                    let root = self.root.canonicalize().unwrap_or_else(|_| self.root.clone());
-                    let inside = path.canonicalize().is_ok_and(|c| c.starts_with(&root));
-                    if !inside {
-                        return Err(format!("{u}: a página precisa estar dentro do projeto"));
+        // `windows: [{window, actions}]` opens several pages together; plain
+        // `actions` (and an optional `window`) drives one.
+        let jobs: Vec<(usize, Vec<Action>)> = match input["windows"].as_array() {
+            Some(list) if !list.is_empty() => {
+                if list.len() > MAX_BROWSE_WINDOWS {
+                    return Err(format!("at most {MAX_BROWSE_WINDOWS} windows at once"));
+                }
+                let mut jobs = Vec::new();
+                for (i, w) in list.iter().enumerate() {
+                    let slot = w["window"].as_u64().map_or(i, |n| n as usize);
+                    jobs.push((slot, Action::parse_all(&w["actions"]).map_err(|e| format!("window {}: {e}", i + 1))?));
+                }
+                jobs
+            }
+            _ => vec![(input["window"].as_u64().unwrap_or(0) as usize, Action::parse_all(&input["actions"])?)],
+        };
+        let mut seen = std::collections::HashSet::new();
+        for (slot, actions) in &jobs {
+            if *slot >= MAX_BROWSE_WINDOWS || !seen.insert(*slot) {
+                return Err(format!("window numbers are 0 to {} and each is used once per call", MAX_BROWSE_WINDOWS - 1));
+            }
+            // A project file must stay inside the project, like every other tool.
+            for a in actions {
+                if let Action::Open(u) = a {
+                    let url = resolve_url(&self.root, u);
+                    if let Some(p) = url.strip_prefix("file:///").or_else(|| url.strip_prefix("file://")) {
+                        // `file:///C:/x` is `C:/x`; `file:///tmp/x` is `/tmp/x`.
+                        let p = p.replace("%20", " ");
+                        let path = std::path::PathBuf::from(if cfg!(windows) { p } else { format!("/{p}") });
+                        let root = self.root.canonicalize().unwrap_or_else(|_| self.root.clone());
+                        let inside = path.canonicalize().is_ok_and(|c| c.starts_with(&root));
+                        if !inside {
+                            return Err(format!("{u}: the page must be inside the project"));
+                        }
                     }
                 }
             }
         }
-        let sink = self.browse_sink.clone();
-        let report = self.run_live(&browser, &actions, move |f| {
-            if let Some(s) = &sink {
-                s(f);
+        let browser = coturbo_design::render::find_browser().ok_or("no browser found (Edge or Chrome); set CODETURBO_BROWSER")?;
+        // Every window works at the same time, each reporting its own steps.
+        let runs = jobs.iter().map(|(slot, actions)| {
+            let slot = *slot;
+            let sink = self.browse_sink.clone();
+            let browser = &browser;
+            async move {
+                let report = self
+                    .run_live(slot, browser, actions, move |mut f| {
+                        f.window = slot;
+                        if let Some(s) = &sink {
+                            s(f);
+                        }
+                    })
+                    .await;
+                (slot, actions.len(), report)
             }
-        })
-        .await?;
-        let mut text = format!("browser session, {} step(s):\n{}", actions.len(), report.log.join("\n"));
-        if report.problems.is_empty() {
-            text.push_str("\n\nNothing wrong was noticed.");
-        } else {
-            text.push_str("\n\nWhat a person would notice is wrong (fix these):\n");
-            text.push_str(&report.problems.iter().map(|p| format!("- {p}")).collect::<Vec<_>>().join("\n"));
+        });
+        let results = futures_util::future::join_all(runs).await;
+        let many = results.len() > 1;
+        let mut text = String::new();
+        let mut images = Vec::new();
+        for (slot, steps, report) in results {
+            let report = report?;
+            if many {
+                text.push_str(&format!("window {slot}: "));
+            }
+            text.push_str(&format!("browser session, {steps} step(s):\n{}", report.log.join("\n")));
+            if report.problems.is_empty() {
+                text.push_str("\n\nNothing wrong was noticed.\n\n");
+            } else {
+                text.push_str("\n\nWhat a person would notice is wrong (fix these):\n");
+                text.push_str(&report.problems.iter().map(|p| format!("- {p}")).collect::<Vec<_>>().join("\n"));
+                text.push_str("\n\n");
+            }
+            if let Some(png) = report.shots.last() {
+                use base64::Engine;
+                images.push(("image/png".to_string(), base64::engine::general_purpose::STANDARD.encode(png)));
+            }
         }
-        let mut out = ToolOutput::ok(text);
-        if let Some(png) = report.shots.last() {
-            use base64::Engine;
-            out.images.push(("image/png".into(), base64::engine::general_purpose::STANDARD.encode(png)));
-        }
+        let mut out = ToolOutput::ok(text.trim_end().to_string());
+        out.images = images;
         Ok(out)
     }
 
@@ -456,7 +515,7 @@ impl Tools {
         // Write a ready stylesheet so every page just links it and starts
         // with margins, focus, responsiveness and motion already right.
         let kit_css = format!(
-            "/* Gerado pelo CodeTurbo: tokens + kit base. Inclua em toda página:\n   <link rel=\"stylesheet\" href=\"codeturbo-kit.css\"> */\n{}\n\n{}\n",
+            "/* Generated by CodeTurbo: tokens + base kit. Include it in every page:\n   <link rel=\"stylesheet\" href=\"codeturbo-kit.css\"> */\n{}\n\n{}\n",
             contract::css(&tokens),
             coturbo_design::kit::base_css(&tokens)
         );

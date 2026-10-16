@@ -117,7 +117,7 @@ pub enum Event<'a> {
     Fixing { attempt: u32, of: u32 },
     /// The model is writing a tool call: which tool, the file once known,
     /// and how much it has written.
-    Composing { tool: &'a str, path: Option<&'a str>, chars: usize },
+    Composing { tool: &'a str, path: Option<&'a str>, chars: usize, code: Option<&'a str> },
 }
 
 /// Where a step of the final checks is.
@@ -248,7 +248,7 @@ fn system_prompt(mode: Mode) -> String {
          Work like a senior engineer: read the relevant code before editing, find the root cause of an error \
          instead of patching symptoms, run what you changed (build, tests, the program), read the output, \
          and keep iterating until it really works; decide and act instead of asking when the next step is clear. \
-         For any job with three or more steps, call tasks first with the full checklist, then update it as each step starts and finishes.          To learn how an existing site, app or binary does something, use investigate before building. \
+         For any job with three or more steps, call tasks first with the full checklist, then update it as each step starts and finishes. Write every checklist title in English, short and imperative.          To learn how an existing site, app or binary does something, use investigate before building. \
          When asked to recreate a program that has a window, you must SEE it: run observe_app on the real program \
          first and describe the layout, density, controls, icons and colours you see, then build, then run observe_app \
          on what you built and compare it with the reference, listing what still differs and fixing it; repeat until \
@@ -337,7 +337,7 @@ impl<'a> Agent<'a> {
     /// Puts back every file the last task changed, as it was before the
     /// task. Returns the files restored; the next task is told.
     pub fn undo(&mut self) -> Result<Vec<String>, String> {
-        let files = self.checkpoints.pop().ok_or("nenhuma alteração para desfazer")?;
+        let files = self.checkpoints.pop().ok_or("no change to undo")?;
         let mut restored = Vec::new();
         for (path, rel, before) in files.into_iter().rev() {
             match before {
@@ -598,8 +598,8 @@ impl<'a> Agent<'a> {
                     Delta::Thinking(t) => host.on_event(Event::Thinking(t)),
                     Delta::Limits(l) => host.on_event(Event::Limits(l)),
                     Delta::Notice(msg) => host.on_event(Event::Notice(msg)),
-                    Delta::Composing { tool, path, chars } => {
-                        host.on_event(Event::Composing { tool, path: path.as_deref(), chars: *chars })
+                    Delta::Composing { tool, path, chars, code } => {
+                        host.on_event(Event::Composing { tool, path: path.as_deref(), chars: *chars, code: code.as_deref() })
                     }
                 })
                 .await?;

@@ -177,6 +177,7 @@ impl StreamAcc {
                             tool: name.clone(),
                             path: crate::partial_path(json),
                             chars: json.len(),
+                            code: crate::partial_code(json),
                         }));
                     }
                     Some(Block::Opaque(v)) => {

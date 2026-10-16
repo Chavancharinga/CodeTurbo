@@ -45,6 +45,8 @@ pub struct Frame {
     pub caption: String,
     /// The texts of the page, to read it in a small picture.
     pub labels: Vec<Label>,
+    /// Which of the windows shown together this page is (0 to 5).
+    pub window: usize,
 }
 
 /// What the whole session found.
@@ -216,7 +218,7 @@ impl Session {
         self.refresh_state().await;
         let png = self.shoot().await;
         let labels = self.page_labels().await;
-        on_frame(Frame { png: png.clone(), url: self.url.clone(), title: self.title.clone(), cursor: self.cursor, clicked, size: self.size, caption: caption.to_string(), labels });
+        on_frame(Frame { png: png.clone(), url: self.url.clone(), title: self.title.clone(), cursor: self.cursor, clicked, size: self.size, caption: caption.to_string(), labels, window: 0 });
         png
     }
 
@@ -492,7 +494,7 @@ impl Browser {
             s.report.log.push(format!("{}. {}", i + 1, line));
         }
         // The state the page was left in.
-        let png = s.frame("fim", false, on_frame).await;
+        let png = s.frame("done", false, on_frame).await;
         if s.report.shots.last() != Some(&png) {
             s.report.shots.push(png);
         }

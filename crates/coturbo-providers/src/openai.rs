@@ -163,7 +163,7 @@ impl StreamAcc {
             if let Some(a) = tc["function"]["arguments"].as_str() {
                 c.args.push_str(a);
             }
-            composing = Some(Delta::Composing { tool: c.name.clone(), path: crate::partial_path(&c.args), chars: c.args.len() });
+            composing = Some(Delta::Composing { tool: c.name.clone(), path: crate::partial_path(&c.args), chars: c.args.len(), code: crate::partial_code(&c.args) });
         }
         // Reasoning models (DeepSeek, OpenRouter, ...) stream it beside content.
         let reasoning = d["reasoning_content"].as_str().or_else(|| d["reasoning"].as_str());

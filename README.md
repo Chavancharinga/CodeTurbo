@@ -28,7 +28,7 @@ codeturbo
 ```
 
 <p align="center">
-  <img src="docs/navegador-no-terminal.png" alt="The agent testing a shop in a mini browser inside the terminal" width="860">
+  <img src="docs/screens/browser-windows.png" alt="The agent checking the four pages of a site at the same time, each in its own small browser window" width="900">
 </p>
 
 ## Features
@@ -49,7 +49,8 @@ The agent opens real pages, clicks, fills forms and tests menus while you watch
 in a mini window. On terminals that draw images (Kitty, iTerm2, Sixel, Windows
 Terminal) the page is a crisp picture with the agent's pointer and clicks drawn
 on it; elsewhere it opens a real window beside the terminal or falls back to
-blocks.
+blocks. To check a site with many pages, the agent opens up to six small
+windows at once and drives them together.
 
 **Design engine**
 Pages and interfaces are reviewed on desktop and phone layouts against design
@@ -78,6 +79,36 @@ modified. A folder must be trusted once before CodeTurbo touches it.
 No Node.js, no Python, no external services. Code analysis is built in;
 language servers already installed on the machine are used when present.
 Updates are one command.
+
+## In action
+
+Everything below is the real screen, not a mockup.
+
+**A real browser, in the terminal.** The agent opens your page, clicks and fills
+forms like a person, with its pointer drawn on the page.
+
+<p align="center"><img src="docs/screens/browser-window.png" alt="One page open in the mini browser with the agent's pointer" width="900"></p>
+
+**Up to six pages at once.** The agent opens the pages of a site side by side,
+each in its own small browser, and checks them together.
+
+<p align="center"><img src="docs/screens/browser-windows.png" alt="Four browser windows in the terminal" width="900"></p>
+
+**The code appears as it is written.**
+
+<p align="center"><img src="docs/screens/live-code.png" alt="Code being written live in a box" width="900"></p>
+
+**A debugger that points at the exact line.**
+
+<p align="center"><img src="docs/screens/debugger.png" alt="The debugger showing the failing line and the column" width="900"></p>
+
+**A verification gate that runs until it is green.**
+
+<p align="center"><img src="docs/screens/verification.png" alt="Bars for write, check, fix, clippy and tests" width="900"></p>
+
+**Done means verified.**
+
+<p align="center"><img src="docs/screens/done.png" alt="All steps complete, the snail turns green" width="900"></p>
 
 ## Install
 

@@ -332,3 +332,20 @@ fn antigravity_json_gives_the_reply_and_tokens() {
     assert!(parse_antigravity(r#"{"status":"ERROR","error":"authentication required"}"#).unwrap_err().contains("authentication"));
     assert!(parse_antigravity("nada").is_err());
 }
+
+#[test]
+fn the_code_being_written_is_read_from_a_call_that_is_still_streaming() {
+    use coturbo_providers::partial_code;
+    // JSON, cut in the middle of the content: what has arrived is shown.
+    let json = r#"{"path": "app.js", "content": "const a = 1;\nconst b = \"two\";\nfunc"#;
+    assert_eq!(partial_code(json).as_deref(), Some("const a = 1;\nconst b = \"two\";\nfunc"));
+    // The native XML form.
+    let xml = "<invoke name=\"write_file\"><parameter name=\"path\">a.js</parameter><parameter name=\"content\">let x;\nlet y;";
+    assert_eq!(partial_code(xml).as_deref(), Some("let x;\nlet y;"));
+    // Nothing to show before the content starts, and only the end of a long file.
+    assert_eq!(partial_code(r#"{"path": "app.js"}"#), None);
+    let long = format!(r#"{{"content": "{}"}}"#, (1..=40).map(|i| format!("line{i}")).collect::<Vec<_>>().join("\n"));
+    let tail = partial_code(&long).unwrap();
+    assert_eq!(tail.lines().count(), 14);
+    assert!(tail.ends_with("line40") && tail.starts_with("line27"), "{tail}");
+}

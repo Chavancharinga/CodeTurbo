@@ -12,7 +12,7 @@ const INVOKE: &str = "<invoke ";
 const INVOKE_CLOSE: &str = "</invoke>";
 const MARKERS: [&str; 2] = [OPEN, INVOKE];
 /// Characters between two progress reports of the same call.
-const REPORT_EVERY: usize = 400;
+const REPORT_EVERY: usize = 120;
 
 /// A string value after `key` (`"name": "write_file"`), once its closing
 /// quote has arrived.
@@ -111,7 +111,8 @@ impl ReplyStream {
                 if first || new_path || chars >= self.reported + REPORT_EVERY {
                     self.reported = chars.max(1);
                     self.path_reported |= path.is_some();
-                    out.push(Delta::Composing { tool, path, chars });
+                    let code = crate::partial_code(seen);
+                    out.push(Delta::Composing { tool, path, chars, code });
                 }
             }
             if let Some(len) = closed {
@@ -147,7 +148,7 @@ mod tests {
             for d in ds {
                 match d {
                     Delta::Text(t) => prose.push_str(&t),
-                    Delta::Composing { tool, path, chars } => calls.push((tool, path, chars)),
+                    Delta::Composing { tool, path, chars, .. } => calls.push((tool, path, chars)),
                     _ => {}
                 }
             }
@@ -217,7 +218,7 @@ mod tests {
         for chunk in big.as_bytes().chunks(10) {
             reports += s.push(std::str::from_utf8(chunk).unwrap()).len();
         }
-        assert!((3..=12).contains(&reports), "{reports} reports for 2000 characters");
+        assert!((10..=24).contains(&reports), "{reports} reports for 2000 characters");
     }
 
     #[test]

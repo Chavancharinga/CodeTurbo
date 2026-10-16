@@ -75,15 +75,15 @@ pub fn font_link(t: &Tokens) -> String {
 /// Semantic colour roles for the Stitch-format palette table.
 pub fn color_roles(t: &Tokens) -> Vec<(&'static str, String, &'static str)> {
     let role = |n: &str| match n {
-        "bg" => "Fundo da página",
-        "surface" => "Superfícies elevadas (cartões, painéis)",
+        "bg" => "Page background",
+        "surface" => "Raised surfaces (cards, panels)",
         "ink" => "Texto principal",
-        "muted" => "Texto secundário",
-        "line" => "Bordas e divisórias",
-        "primary" => "Cor da marca; ações principais e preenchimentos",
-        "on-primary" => "Texto/ícone sobre a cor primária",
-        "primary-ink" => "A cor da marca usada como texto legível",
-        "accent" => "Destaque secundário",
+        "muted" => "Secondary text",
+        "line" => "Borders and dividers",
+        "primary" => "Brand colour; main actions and fills",
+        "on-primary" => "Text/icon on the primary colour",
+        "primary-ink" => "The brand colour used as readable text",
+        "accent" => "Secondary highlight",
         n if n.starts_with("gray") => "Escala neutra para hierarquia",
         _ => "",
     };

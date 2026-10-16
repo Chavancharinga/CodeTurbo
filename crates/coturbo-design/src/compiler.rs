@@ -53,7 +53,7 @@ impl Tone {
         match self {
             Tone::Editorial => "editorial",
             Tone::Playful => "expressivo",
-            Tone::Technical => "técnico",
+            Tone::Technical => "technical",
             Tone::Warm => "acolhedor",
             Tone::Balanced => "equilibrado",
         }
@@ -267,11 +267,11 @@ pub fn compile(b: &Brief) -> Tokens {
         ],
     };
     let layout = match tone {
-        Tone::Editorial => "coluna de leitura estreita (60–70 caracteres), títulos grandes alinhados à esquerda, divisórias finas, numerais e citações em destaque; nada de grade de cartões",
-        Tone::Playful => "composição assimétrica, blocos de cor chapada, elementos sobrepostos e rotacionados de leve, tipografia de exibição muito grande",
-        Tone::Technical => "grade rígida visível, monoespaçada para dados e rótulos, tabelas e listas densas em vez de cartões, contraste alto",
-        Tone::Warm => "seções com respiro largo, imagens ou ilustrações com cantos suaves, texto à esquerda, ritmo variado entre seções",
-        Tone::Balanced => "alinhamento à esquerda, uma seção de destaque fora da grade, alternância de larguras entre seções",
+        Tone::Editorial => "a narrow reading column (60–70 characters), large left-aligned headings, thin dividers, numerals and quotes in the spotlight; no card grid",
+        Tone::Playful => "asymmetric composition, flat colour blocks, slightly overlapping and rotated elements, very large display type",
+        Tone::Technical => "a visible rigid grid, monospace for data and labels, dense tables and lists instead of cards, high contrast",
+        Tone::Warm => "sections with generous breathing room, images or illustrations with soft corners, left-aligned text, varied rhythm between sections",
+        Tone::Balanced => "left alignment, one highlighted section breaking the grid, alternating widths between sections",
     };
     let brand = brand_roles(&b.brand).and_then(|r| brand_palette(&r, chroma));
     Tokens {

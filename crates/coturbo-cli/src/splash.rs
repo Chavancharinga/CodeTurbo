@@ -176,7 +176,7 @@ fn lerp(a: Rgb, b: Rgb, t: f32) -> Rgb {
 const YELLOW: Rgb = (255, 196, 38);
 const SPARK: Rgb = (255, 232, 96);
 const RED: Rgb = (240, 70, 60);
-const GREEN: Rgb = (86, 204, 128);
+const GREEN: Rgb = (30, 150, 78);
 
 /// How the snail feels: its colour, pace, trail and sparks follow what the
 /// agent is doing.
