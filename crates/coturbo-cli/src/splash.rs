@@ -523,6 +523,61 @@ pub fn pixels_mood(snail: usize, typed: usize, width: usize, mood: Mood) -> Vec<
     canvas_mood(SNAIL, snail, track_for(SNAIL, width), (typed / 2).min(NAME.len()), mood)
 }
 
+/// "codeturbo" in a 3×5 pixel font, for the phone-sized logo.
+fn mini_glyph(c: char) -> [&'static str; 5] {
+    match c.to_ascii_lowercase() {
+        'c' => [".##", "#..", "#..", "#..", ".##"],
+        'o' => [".#.", "#.#", "#.#", "#.#", ".#."],
+        'd' => ["..#", "..#", ".##", "#.#", ".##"],
+        'e' => [".#.", "#.#", "###", "#..", ".##"],
+        't' => [".#.", "###", ".#.", ".#.", "..#"],
+        'u' => ["...", "#.#", "#.#", "#.#", ".##"],
+        'r' => ["...", "#.#", "##.", "#..", "#.."],
+        'b' => ["#..", "#..", "##.", "#.#", "##."],
+        _ => ["...", "...", "...", "...", "..."],
+    }
+}
+
+/// Width in pixels of the small name.
+const MINI_W: usize = NAME.len() * 4 - 1;
+
+/// The phone-sized logo: the name in a small pixel font on the snail's foot
+/// line, then the snail with as much trail as fits in `width` columns.
+/// `None` when even that does not fit.
+pub fn compact_pixels(snail: usize, width: usize, mood: Mood) -> Option<Vec<Vec<Option<Rgb>>>> {
+    // One line when it fits; on a phone, "code" over "turbo", as tall as the snail.
+    let stacked = width < 2 + MINI_W + GAP + SNAIL.width;
+    let name_w = if stacked { (NAME.len() - SPLIT) * 4 - 1 } else { MINI_W };
+    let gap = if stacked { 2 } else { GAP };
+    let room = width.checked_sub(2 + name_w + gap)?;
+    if room < SNAIL.width {
+        return None;
+    }
+    let runner = snail_only(snail, room, mood);
+    let h = runner.len();
+    let mut px = vec![vec![None; name_w + gap]; h];
+    for (n, ch) in NAME.chars().enumerate() {
+        let color = if n < SPLIT { SOFT } else { mood.body() };
+        // Stacked: "code" on the top five rows, "turbo" on the next five.
+        let (top, col) = match (stacked, n < SPLIT) {
+            (false, _) => (h - 2 - 5, n * 4),
+            (true, true) => (h.saturating_sub(10), n * 4),
+            (true, false) => (h.saturating_sub(5), (n - SPLIT) * 4),
+        };
+        for (gy, row) in mini_glyph(ch).iter().enumerate() {
+            for (gx, c) in row.bytes().enumerate() {
+                if c == b'#' {
+                    px[top + gy][col + gx] = Some(color);
+                }
+            }
+        }
+    }
+    for (row, tail) in px.iter_mut().zip(runner) {
+        row.extend(tail);
+    }
+    Some(px)
+}
+
 /// Only the snail and its trail, `cols` pixels wide at most, for screens too
 /// narrow for the whole logo (a phone in portrait).
 pub fn snail_only(snail: usize, cols: usize, mood: Mood) -> Vec<Vec<Option<(u8, u8, u8)>>> {
@@ -894,5 +949,25 @@ mod mood_tests {
             (1..200).filter(|&i| shell(i) != shell(i - 1)).count()
         };
         assert!(changes(Mood::Calm) * 2 < changes(Mood::Run) && changes(Mood::Run) < changes(Mood::Turbo) + 1);
+    }
+}
+
+#[cfg(test)]
+mod compact_tests {
+    use super::*;
+
+    #[test]
+    fn the_phone_logo_stacks_the_name_and_fits() {
+        for width in [44, 50, 53, 60, 70] {
+            let px = compact_pixels(0, width, Mood::Calm).expect("fits");
+            assert!(px[0].len() <= width - 2, "width {width}: {} px", px[0].len());
+            if std::env::var_os("SHOW_LOGO").is_some() {
+                println!("width {width}:");
+                for row in &px {
+                    println!("{}", row.iter().map(|c| if c.is_some() { '#' } else { '.' }).collect::<String>());
+                }
+            }
+        }
+        assert!(compact_pixels(0, 40, Mood::Calm).is_none(), "too narrow even stacked");
     }
 }

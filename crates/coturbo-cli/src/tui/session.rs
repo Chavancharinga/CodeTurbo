@@ -251,7 +251,7 @@ impl Session {
             self.send(Out::Lines(lines));
             let title = "Allow these commands in this session?".to_string();
             if !self.ask(|reply| Question::Confirm { title, reply }, false).await {
-                self.warn("comandos do .codeturbo.toml ignorados");
+                self.warn("the .codeturbo.toml commands were not allowed");
                 return;
             }
         }
@@ -319,6 +319,8 @@ impl Session {
                     p.warm(&self.cfg.model, self.cfg.effort.as_deref());
                     Some(p)
                 }
+                // On the very first start nothing is set up yet: that is not an error.
+                Err(_) if first => None,
                 Err(e) => {
                     self.warn(e);
                     None
@@ -334,7 +336,7 @@ impl Session {
             self.status(usage_of(&agent));
             if std::mem::take(&mut first) && agent.is_none() {
                 // First run without a usable provider: go straight to choosing one.
-                self.info("Choose a provider to start. Ollama runs local models without an API key.");
+                self.info("Welcome! Choose the AI provider to use. Your keys stay on this device.");
                 if self.choose_provider(false).await {
                     continue 'session;
                 }
@@ -354,6 +356,17 @@ impl Session {
                     break false;
                 }
                 let restart = match commands::parse(&text) {
+                    // No provider yet: choose one, then the message runs.
+                    Parsed::Task if agent.is_none() => {
+                        self.send(Out::Lines(super::app::task_lines(&text)));
+                        self.info("Choose a provider first; your message runs right after.");
+                        if self.choose_provider(false).await {
+                            self.pending = Some(text);
+                            true
+                        } else {
+                            false
+                        }
+                    }
                     Parsed::Task => {
                         self.task(agent.as_mut(), &text, cancel).await;
                         false
@@ -409,12 +422,12 @@ impl Session {
                         }
                         Command::Export => {
                             let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
-                            self.send(Out::Export(self.root.join(".codeturbo/sessoes").join(format!("conversa-{secs}.md"))));
+                            self.send(Out::Export(self.root.join(".codeturbo/sessions").join(format!("conversation-{secs}.md"))));
                             false
                         }
                         Command::Shake => {
                             match agent.as_mut().map(|a| a.shake(2)) {
-                                Some(0) | None => self.info("Nada para enxugar."),
+                                Some(0) | None => self.info("Nothing to shrink."),
                                 Some(n) => self.info(format!("{n} old result(s) shrunk: fewer tokens on the next message.")),
                             }
                             false
@@ -447,7 +460,7 @@ impl Session {
                         }
                         Command::Clear => {
                             self.send(Out::Clear);
-                            self.info("Nova conversa iniciada.");
+                            self.info("New conversation started.");
                             true
                         }
                         Command::Update => {
@@ -546,14 +559,20 @@ impl Session {
             })
             .collect();
         options.push(Choice::new("__outro", "Connect another provider with an API key…"));
-        let Some(mut id) = self.select("Sign in to your providers · pick one to use".into(), options, false).await else { return false };
+        // Nothing found on this device (a phone, a fresh machine): straight to the full list.
+        let picked = if here.is_empty() {
+            Some("__outro".to_string())
+        } else {
+            self.select("Sign in to your providers · pick one to use".into(), options, false).await
+        };
+        let Some(mut id) = picked else { return false };
         if id == "__outro" {
             let rest: Vec<Choice> = PROVIDERS
                 .iter()
                 .filter(|p| !here.iter().any(|h| h.id == p.id) && (p.key_var.is_some() || p.base_url.is_some() || p.id == "ollama"))
                 .map(|p| Choice::new(p.id, p.label))
                 .collect();
-            let Some(other) = self.select("Connect a provider".into(), rest, false).await else { return false };
+            let Some(other) = self.select("Choose your AI provider · your key stays on this device".into(), rest, false).await else { return false };
             id = other;
         }
         let Some(info) = settings::provider(&id) else { return false };

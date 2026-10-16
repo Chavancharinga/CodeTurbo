@@ -47,9 +47,12 @@ pub fn build_body(req: &Request) -> Value {
                 let mut images = Vec::new();
                 for b in &m.content {
                     match b {
-                        ContentBlock::ToolResult { tool_use_id, content, .. } => messages.push(
-                            json!({"role": "tool", "tool_call_id": tool_use_id, "content": content}),
-                        ),
+                        // Some providers behind OpenRouter (Cohere) reject an empty tool result.
+                        ContentBlock::ToolResult { tool_use_id, content, .. } => messages.push(json!({
+                            "role": "tool",
+                            "tool_call_id": tool_use_id,
+                            "content": if content.trim().is_empty() { "(no output)" } else { content.as_str() }
+                        })),
                         ContentBlock::Text { text: t } => text.push_str(t),
                         ContentBlock::Image { media_type, data } => images.push(json!({
                             "type": "image_url", "image_url": {"url": format!("data:{media_type};base64,{data}")}

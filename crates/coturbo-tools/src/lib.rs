@@ -743,6 +743,15 @@ impl Tools {
             _ => Err(format!("unknown tool: {name}")),
         };
         let mut out = r.unwrap_or_else(ToolOutput::err);
+        // An empty result reads as a failure to the model, and some providers refuse it.
+        if out.content.trim().is_empty() && out.images.is_empty() {
+            out.content = match name {
+                "list_files" => "(no files)",
+                "grep" => "(no matches)",
+                _ => "(no output)",
+            }
+            .into();
+        }
         if self.native_checks
             && !out.is_error
             && EDIT_TOOLS.contains(&name)

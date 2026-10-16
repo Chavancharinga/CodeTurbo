@@ -1221,6 +1221,10 @@ fn draw_logo(buf: &mut Buffer, area: Rect, snail: usize, ms: u128, working: bool
 /// The narrow logo: `codeturbo` as text on the snail's foot line, then the
 /// running snail with as much trail as fits.
 fn draw_logo_compact(buf: &mut Buffer, area: Rect, snail: usize, ms: u128, working: bool, mood: Mood) {
+    // The name in small pixels, as tall as the snail's body, when it fits.
+    if let Some(px) = splash::compact_pixels(snail, area.width as usize, mood) {
+        return paint_pixels(buf, area, 1, px, ms, working);
+    }
     const NAME_COLS: u16 = 10;
     let px = splash::snail_only(snail, area.width.saturating_sub(NAME_COLS + 2) as usize, mood);
     let rows = px.len().div_ceil(2) as u16;

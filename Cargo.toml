@@ -6,7 +6,7 @@ exclude = ["sandbox", "bench"]
 
 [workspace.package]
 edition = "2024"
-version = "0.28.5"
+version = "0.28.6"
 license = "MIT OR Apache-2.0"
 rust-version = "1.94"
 
