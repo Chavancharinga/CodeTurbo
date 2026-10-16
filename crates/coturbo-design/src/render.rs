@@ -137,9 +137,9 @@ async fn wait_for(file: &Path, secs: u64) -> bool {
 
 /// Saves a screenshot of `url` to `shot`. Where the browser is started
 /// through a launcher that returns early, a start now and then goes nowhere
-/// (several at once), so a missing file earns one more try.
+/// (several at once, or a slow machine), so a missing file earns more tries.
 async fn shoot(browser: &Path, size: (u32, u32), budget: &str, url: &str, shot: &Path) -> bool {
-    for wait in [10, 20] {
+    for wait in [10, 20, 30] {
         let _ = std::fs::remove_file(shot);
         let _ = run(browser, size, &[format!("--virtual-time-budget={budget}"), format!("--screenshot={}", shot.display()), url.to_string()]).await;
         if wait_for(shot, wait).await {
