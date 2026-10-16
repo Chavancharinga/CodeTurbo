@@ -627,7 +627,7 @@ fn state_labels_use_the_tool_names_in_english() {
     use coturbo_cli::tui::host::{action_label, busy_label, design_refused};
     use serde_json::json;
     assert_eq!(busy_label("thinking"), "think");
-    assert_eq!(busy_label("verifying"), "verify: build, clippy, tests");
+    assert_eq!(busy_label("verifying"), "verify: clippy, tests");
     assert_eq!(action_label("read_file", &json!({"path": "src/main.rs"})), "read_file src/main.rs");
     assert_eq!(action_label("write_file", &json!({"path": "a.html"})), "write_file a.html");
     assert_eq!(action_label("edit_file", &json!({"path": "b.rs"})), "edit_file b.rs");
@@ -639,4 +639,201 @@ fn state_labels_use_the_tool_names_in_english() {
     assert!(design_refused("design index.html: 2 bloqueante(s), 1 aviso(s)\n- P0 ..."));
     assert!(!design_refused("design index.html: 0 bloqueante(s), 3 aviso(s)"));
     assert!(!design_refused("check src/lib.rs: clean"));
+}
+
+#[test]
+fn the_debugger_reads_compiler_and_test_lines() {
+    use coturbo_cli::tui::debugger::{Finding, parse};
+    let text = [
+        "✗ verification failed at `clippy` (`cargo clippy`): 2 error(s), 0 warning(s).",
+        "error[clippy::nonminimal_bool] src/app.rs:704:12: this boolean expression can be simplified",
+        "    if !x {",
+        r"- error[E0308] C:\proj\src\main.rs:38:9: mismatched types",
+        "warning unused_variables src/lib.rs:7:5: unused variable: `y`",
+        "error[clippy::x] src/app.rs:704:20: the same line again",
+        "---- tests::soma stdout ----",
+        "thread 'tests::soma' (4) panicked at tests/t.rs:12:5:",
+        "assertion `left == right` failed",
+    ]
+    .join("\n");
+    let f = parse(&text);
+    assert_eq!(f[0], Finding { error: true, path: "src/app.rs".into(), line: 704, col: 12, message: "this boolean expression can be simplified".into() });
+    assert_eq!((f[1].path.as_str(), f[1].line, f[1].col), (r"C:\proj\src\main.rs", 38, 9), "a drive letter does not confuse the path");
+    assert!(!f[2].error && f[2].line == 7, "warnings are told apart");
+    assert_eq!(f.iter().filter(|x| x.path == "src/app.rs" && x.line == 704).count(), 1, "one entry per line");
+    let panic = f.last().unwrap();
+    assert_eq!((panic.path.as_str(), panic.line, panic.col), ("tests/t.rs", 12, 5));
+    assert!(panic.message.starts_with("panicked: assertion"), "{}", panic.message);
+    assert!(parse("tudo certo, nada a ver aqui").is_empty());
+}
+
+#[test]
+fn the_debugger_shows_the_exact_line_with_an_arrow_under_the_column() {
+    use coturbo_cli::tui::debugger::{Finding, render};
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("src")).unwrap();
+    std::fs::write(dir.path().join("src/a.rs"), "fn main() {\n    let a = 1;\n    let y = foo(;\n    println!(\"{a}\");\n}\n").unwrap();
+    let found = [Finding { error: true, path: "src/a.rs".into(), line: 3, col: 17, message: "expected expression".into() }];
+    let lines = render(&found, dir.path(), 80);
+    let rows: Vec<String> = lines.iter().map(plain).collect();
+    let all = rows.join("\n");
+    assert!(all.contains("DEBUGGER") && all.contains("erros nas linhas 3"), "{all}");
+    assert!(all.contains("src/a.rs:3:17"), "{all}");
+    let marked = rows.iter().position(|r| r.contains('▶') && r.contains("let y = foo(;")).expect("the faulty line is marked");
+    // The arrow sits under column 17, right on the `;`, and carries the message.
+    let (code, arrow) = (&rows[marked], &rows[marked + 1]);
+    let col_of = |s: &str, needle: char| s.chars().position(|c| c == needle);
+    assert_eq!(col_of(arrow, '^'), col_of(code, ';'), "{code}\n{arrow}");
+    assert!(arrow.contains("expected expression"));
+    // Context: the line before and after, with their numbers.
+    assert!(all.contains("2 │") && all.contains("4 │"), "{all}");
+    // The faulty line is the only one with a red background.
+    let red = lines.iter().filter(|l| l.spans.iter().any(|s| s.style.bg == Some(Color::Rgb(74, 18, 22)))).count();
+    assert_eq!(red, 1);
+    // A file that is not there still shows the message.
+    let gone = render(&[Finding { error: true, path: "nope.rs".into(), line: 9, col: 1, message: "algo".into() }], dir.path(), 80);
+    assert!(gone.iter().map(plain).any(|r| r.contains("algo")));
+    assert!(render(&[], dir.path(), 80).is_empty());
+}
+
+#[test]
+fn stages_fill_while_they_run_and_turn_green_or_red() {
+    use coturbo_cli::tui::work::Work;
+    use coturbo_cli::tui::{StageState, StageUpdate};
+    use std::time::{Duration, Instant};
+    let t0 = Instant::now();
+    let mut w = Work::default();
+    assert!(!w.visible(true, t0), "nothing to show yet");
+    let mut up = StageUpdate::new("CLIPPY", StageState::Running, "1/2");
+    up.expected = Some(10.0);
+    w.apply(up, t0);
+    let half = w.stages[0].fraction(t0 + Duration::from_secs(5));
+    assert!((0.45..0.55).contains(&half), "half of the time it took last time: {half}");
+    assert!(w.stages[0].fraction(t0 + Duration::from_secs(60)) <= 0.96, "never full before it ends");
+    // With no history it still moves, ever more slowly.
+    w.apply(StageUpdate::new("TEST", StageState::Running, ""), t0);
+    let (a, b) = (w.stages[1].fraction(t0 + Duration::from_secs(2)), w.stages[1].fraction(t0 + Duration::from_secs(20)));
+    assert!(0.1 < a && a < b && b < 0.96, "{a} {b}");
+    w.apply(StageUpdate::new("CLIPPY", StageState::Done, "4.2s"), t0 + Duration::from_secs(4));
+    assert_eq!(w.stages[0].fraction(t0), 1.0);
+    assert_eq!(w.stages[0].took, Some(Duration::from_secs(4)));
+    assert_eq!(w.stages[0].note, "4.2s");
+    w.apply(StageUpdate::new("TEST", StageState::Failed, "2 erros"), t0 + Duration::from_secs(6));
+    let rows: Vec<String> = w.lines(100, t0 + Duration::from_secs(6), 0).iter().map(plain).collect();
+    assert!(rows[0].contains('✓') && rows[0].contains("CLIPPY") && rows[0].contains("100%") && rows[0].contains("4.2s"), "{rows:?}");
+    assert!(rows[1].contains('✗') && rows[1].contains("TEST") && rows[1].contains("FALHA") && rows[1].contains("2 erros"), "{rows:?}");
+    assert_eq!(w.stages.len(), 2, "an update of a known stage does not add a row");
+    // The panel stays a while after the work ends, then goes away.
+    assert!(w.visible(false, t0 + Duration::from_secs(20)));
+    assert!(!w.visible(false, t0 + Duration::from_secs(120)));
+    assert!(w.visible(true, t0 + Duration::from_secs(120)), "while busy it is always there");
+    w.clear();
+    assert!(!w.visible(true, t0) && w.stages.is_empty());
+}
+
+#[test]
+fn the_failed_bar_is_red_the_done_bar_is_green_and_the_running_bar_glints() {
+    use coturbo_cli::tui::work::Work;
+    use coturbo_cli::tui::{StageState, StageUpdate};
+    use std::time::{Duration, Instant};
+    let t0 = Instant::now();
+    let mut w = Work::default();
+    w.apply(StageUpdate::new("WRITE", StageState::Done, "a.rs"), t0);
+    w.apply(StageUpdate::new("CLIPPY", StageState::Failed, ""), t0);
+    let mut run = StageUpdate::new("TEST", StageState::Running, "");
+    run.expected = Some(10.0);
+    w.apply(run, t0);
+    let lines = w.lines(100, t0 + Duration::from_secs(8), 1_000);
+    let bar_colors = |i: usize| -> Vec<Color> { lines[i].spans.iter().filter(|s| s.content == "█").filter_map(|s| s.style.fg).collect() };
+    assert!(bar_colors(0).iter().all(|&c| c == Color::Rgb(86, 204, 128)), "done is green");
+    assert!(bar_colors(1).iter().all(|c| matches!(c, Color::Rgb(r, g, _) if *r > 150 && *g < 100)), "failed is red");
+    assert!(bar_colors(2).contains(&Color::Rgb(47, 123, 255)), "running is blue");
+    // The glint moves: two instants give two different pictures.
+    let at = |ms| w.lines(100, t0 + Duration::from_secs(8), ms)[2].spans.iter().map(|s| format!("{:?}", s.style.fg)).collect::<Vec<_>>();
+    assert_ne!(at(0), at(330));
+}
+
+#[test]
+fn the_checklist_follows_the_model_and_keeps_the_current_step_in_view() {
+    use coturbo_cli::tui::host::task_items;
+    use coturbo_cli::tui::work::Work;
+    use coturbo_cli::tui::{TaskItem, TaskState};
+    use serde_json::json;
+    use std::time::Instant;
+    let items = task_items(&json!({"items": [
+        {"title": "criar o projeto", "status": "done"},
+        {"title": "escrever os testes", "status": "doing"},
+        {"title": "rodar a verificação", "status": "pending"},
+        {"title": "", "status": "pending"},
+        {"status": "done"}
+    ]}));
+    assert_eq!(items.len(), 3, "entries without a title are dropped");
+    assert_eq!(items[1], TaskItem { title: "escrever os testes".into(), state: TaskState::Doing });
+    let mut w = Work::default();
+    let now = Instant::now();
+    w.set_tasks(items, now);
+    let rows: Vec<String> = w.lines(80, now, 0).iter().map(plain).collect();
+    assert!(rows[0].contains("TAREFAS") && rows[0].contains("1/3"), "{rows:?}");
+    assert!(rows[1].contains('✓') && rows[1].contains("criar o projeto"));
+    assert!(rows[2].contains("escrever os testes") && !rows[2].contains('✓') && !rows[2].contains('○'), "the current one is animated: {}", rows[2]);
+    assert!(rows[3].contains('○') && rows[3].contains("rodar a verificação"));
+    // Many steps: the window follows the one in progress.
+    let many: Vec<TaskItem> = (0..15)
+        .map(|i| TaskItem { title: format!("passo {i}"), state: if i < 10 { TaskState::Done } else if i == 10 { TaskState::Doing } else { TaskState::Pending } })
+        .collect();
+    w.set_tasks(many, now);
+    let all = w.lines(80, now, 0).iter().map(plain).collect::<Vec<_>>().join("\n");
+    assert!(all.contains("passo 10") && all.contains("10/15") && all.contains("e mais 8"), "{all}");
+}
+
+#[test]
+fn edit_checks_become_a_stage_result() {
+    use coturbo_cli::tui::host::edit_check;
+    assert_eq!(edit_check("wrote a.rs\ncheck a.rs: clean"), Some((true, "sem problemas".into())));
+    let (ok, note) = edit_check("wrote a.rs\ncheck a.rs: 2 error(s), 1 warning(s)\nerror a.rs:1:1: x").unwrap();
+    assert!(!ok && note == "2 error(s), 1 warning(s)", "{note}");
+    assert_eq!(edit_check("wrote a.rs"), None);
+}
+
+#[test]
+fn the_bars_and_the_checklist_are_drawn_above_the_text_box() {
+    use coturbo_cli::tui::{StageState, StageUpdate, TaskItem, TaskState};
+    let mut h = harness();
+    h.app.apply(Out::Busy(Some("clippy".into())));
+    h.app.apply(Out::Stage(StageUpdate::new("WRITE", StageState::Done, "src/main.rs")));
+    h.app.apply(Out::Stage(StageUpdate::new("CLIPPY", StageState::Running, "1/2")));
+    h.app.apply(Out::Tasks(vec![
+        TaskItem { title: "criar o projeto".into(), state: TaskState::Done },
+        TaskItem { title: "verificar".into(), state: TaskState::Doing },
+    ]));
+    let rows = screen_rows(&mut h, 100, 34);
+    let at = |needle: &str| rows.iter().position(|r| r.contains(needle)).unwrap_or_else(|| panic!("{needle} not on screen:\n{}", rows.join("\n")));
+    let (write, clippy, tasks, input) = (at("WRITE"), at("CLIPPY"), at("TAREFAS"), at("Descreva a tarefa"));
+    assert!(write < clippy && clippy < tasks && tasks < input, "bars, then checklist, then the text box");
+    assert!(rows[write].contains("100%") && rows[write].contains("src/main.rs"));
+    // A new job clears them.
+    h.app.apply(Out::ClearWork);
+    let joined = screen_rows(&mut h, 100, 34).join("\n");
+    assert!(!joined.contains("WRITE") && !joined.contains("TAREFAS"));
+    // Small terminals do without the panel instead of squeezing the text.
+    h.app.apply(Out::Stage(StageUpdate::new("WRITE", StageState::Running, "")));
+    assert!(!screen_rows(&mut h, 100, 18).join("\n").contains("WRITE"));
+}
+
+#[test]
+fn the_folder_never_touches_the_usage_in_the_footer() {
+    for width in [70u16, 80, 90, 100, 112, 140] {
+        let mut h = harness();
+        h.app.apply(Out::Status(Status {
+            provider: "claude-code".into(),
+            model: "sonnet".into(),
+            approval: "edição livre".into(),
+            usage: "tokens ↑12.4k ⟳8.1k ↓2.2k".into(),
+            folder: r"C:\Users\danie\Music\CoTurbon\sandbox\contador".into(),
+            ..Status::default()
+        }));
+        let last = screen_rows(&mut h, width, 30).pop().unwrap();
+        let at = last.find("tokens").expect("usage shown");
+        assert!(last[..at].ends_with("  "), "width {width}: at least two spaces before the usage: {last:?}");
+    }
 }

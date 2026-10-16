@@ -4,6 +4,7 @@
 use super::commands::{self, Command, Parsed};
 use super::input::Input;
 use super::text;
+use super::work::Work;
 use super::{Choice, In, Out, Question, Status, StreamKind};
 use crate::splash::{self, Mood};
 use coturbo_agent::Decision;
@@ -253,6 +254,8 @@ pub struct App {
     /// far its animation has run and when it was last drawn: the pace follows
     /// the mood, so the frame is a running total, not the clock.
     mood: Mood,
+    /// The bars and the checklist of the job.
+    work: Work,
     flash: Option<(Mood, Instant)>,
     phase: f32,
     last_draw: Instant,
@@ -284,6 +287,7 @@ impl App {
             page: 10,
             busy: None,
             mood: Mood::Calm,
+            work: Work::default(),
             flash: None,
             phase: 0.0,
             last_draw: Instant::now(),
@@ -310,6 +314,10 @@ impl App {
 
     pub fn status(&self) -> &Status {
         &self.status
+    }
+
+    pub fn work(&self) -> &Work {
+        &self.work
     }
 
     pub fn is_asking(&self) -> bool {
@@ -350,6 +358,9 @@ impl App {
                 }
                 self.busy = label.map(|l| (l, since));
             }
+            Out::Stage(u) => self.work.apply(u, Instant::now()),
+            Out::Tasks(t) => self.work.set_tasks(t, Instant::now()),
+            Out::ClearWork => self.work.clear(),
             Out::Mood(m) if m.is_flash() => self.flash = Some((m, Instant::now())),
             Out::Mood(m) => self.mood = m,
             Out::Status(s) => self.status = s,
@@ -913,9 +924,17 @@ impl App {
         let question = self.question_view();
         let q_h = question.as_ref().map_or(0, |(_, l)| (l.len() as u16 + 2).min(area.height / 2));
 
-        let [header, body, panel, hint, input, status] = Layout::vertical([
+        let now = Instant::now();
+        let work_lines = if area.height >= 22 && self.work.visible(self.busy.is_some(), now) {
+            self.work.lines(area.width as usize, now, tick.as_millis())
+        } else {
+            Vec::new()
+        };
+        let work_h = (work_lines.len() as u16).min(area.height / 3);
+        let [header, body, work, panel, hint, input, status] = Layout::vertical([
             Constraint::Length(header_h),
             Constraint::Min(1),
+            Constraint::Length(work_h),
             Constraint::Length(q_h),
             Constraint::Length(1),
             Constraint::Length(shown as u16 + 2),
@@ -940,6 +959,9 @@ impl App {
         self.body = body;
         self.owners = owners;
         f.render_widget(Paragraph::new(lines), body);
+        if work_h > 0 {
+            f.render_widget(Paragraph::new(work_lines), work);
+        }
 
         if let Some((title, lines)) = question {
             let block = Block::bordered()
@@ -1004,7 +1026,8 @@ impl App {
         right.push(' ');
         // The folder sits next to the model; what does not fit is cut down to
         // the last three folders, then fewer.
-        let room = (status.width as usize).saturating_sub(left.chars().count() + right.chars().count() + 4);
+        // The " · " before the folder and a gap before the usage come off the room.
+        let room = (status.width as usize).saturating_sub(left.chars().count() + right.chars().count() + 3 + 3);
         if !s.folder.is_empty() && room >= 6 {
             left.push_str(" · ");
             left.push_str(&super::path::short_path(&s.folder, room));

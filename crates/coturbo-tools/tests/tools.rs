@@ -189,6 +189,7 @@ fn tiers_are_fixed_per_tool() {
     assert_eq!(tier("workspace_diagnostics"), Tier::Read);
     assert_eq!(tier("edit_file"), Tier::Write);
     assert_eq!(tier("replace_symbol"), Tier::Write);
+    assert_eq!(tier("tasks"), Tier::Read, "the checklist never asks for approval");
     assert_eq!(tier("bash"), Tier::Exec);
     assert_eq!(tier("mcp__anything"), Tier::Exec);
 }
@@ -340,4 +341,31 @@ async fn overwriting_an_unread_or_changed_file_warns() {
     // A brand-new file never warns.
     let out = t.call("write_file", &json!({"path": "novo.txt", "content": "z"})).await;
     assert!(!out.content.contains("conflito"), "new file is fine: {}", out.content);
+}
+
+#[tokio::test]
+async fn the_checklist_is_checked_and_acknowledged() {
+    use serde_json::json;
+    let dir = tempfile::tempdir().unwrap();
+    let t = Tools::new(dir.path(), Mode::Naive);
+    assert!(t.specs().iter().any(|s| s.name == "tasks"), "offered to the model");
+    let ok = t
+        .call("tasks", &json!({"items": [
+            {"title": "criar o projeto", "status": "done"},
+            {"title": "escrever os testes", "status": "doing"},
+            {"title": "rodar a verificação", "status": "pending"}
+        ]}))
+        .await;
+    assert!(!ok.is_error && ok.content == "checklist updated: 1/3 done", "{ok:?}");
+    for bad in [
+        json!({}),
+        json!({"items": []}),
+        json!({"items": [{"title": "x", "status": "finished"}]}),
+        json!({"items": [{"title": "  ", "status": "done"}]}),
+        json!({"items": (0..13).map(|i| json!({"title": format!("passo {i}"), "status": "pending"})).collect::<Vec<_>>()}),
+    ] {
+        assert!(t.call("tasks", &bad).await.is_error, "{bad}");
+    }
+    // It never touches the disk.
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
 }

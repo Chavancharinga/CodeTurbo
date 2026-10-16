@@ -67,7 +67,6 @@ fn detection_covers_every_toolchain_and_overrides() {
     assert_eq!(
         names,
         [
-            "cargo build --all-targets --message-format=json",
             "cargo clippy --all-targets --message-format=json -- -D warnings",
             "cargo test",
             "npx tsc --noEmit",
@@ -106,9 +105,9 @@ async fn a_warning_fails_the_gate_and_the_fix_passes_it() {
     let r = gate_on(dir.path()).await;
     assert!(!r.ok());
     assert_eq!(r.steps.len(), 1, "stops at the first failing step");
-    assert_eq!((r.steps[0].name.as_str(), r.steps[0].errors, r.steps[0].warnings), ("build", 0, 1));
+    assert_eq!((r.steps[0].name.as_str(), r.steps[0].errors, r.steps[0].warnings), ("clippy", 1, 0));
     let s = r.summary();
-    assert!(s.contains("failed at `build`") && s.contains("unused variable") && s.contains("src/lib.rs:2"), "{s}");
+    assert!(s.contains("failed at `clippy`") && s.contains("unused variable") && s.contains("src/lib.rs:2"), "{s}");
 
     fs::write(
         dir.path().join("src/lib.rs"),
@@ -117,8 +116,8 @@ async fn a_warning_fails_the_gate_and_the_fix_passes_it() {
     .unwrap();
     let r = gate_on(dir.path()).await;
     assert!(r.ok(), "{}", r.summary());
-    assert_eq!(r.steps.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), ["build", "clippy", "test"]);
-    assert_eq!(r.summary(), "✓ verification passed (build, clippy, test): 0 errors, 0 warnings");
+    assert_eq!(r.steps.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), ["clippy", "test"]);
+    assert_eq!(r.summary(), "✓ verification passed (clippy, test): 0 errors, 0 warnings");
 }
 
 #[tokio::test]

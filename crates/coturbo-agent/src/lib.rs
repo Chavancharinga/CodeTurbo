@@ -110,9 +110,22 @@ pub enum Event<'a> {
     /// The final gate ran; `summary` is exactly what the model is told.
     Gate { ok: bool, summary: &'a str },
     Notice(&'a str),
+    /// A step of the final checks (build, lint, tests) starts or ends.
+    /// `expected` is how long it took last time, when it has run before.
+    Step { name: &'a str, phase: StepPhase, index: usize, total: usize, secs: f32, expected: Option<f32> },
+    /// The checks failed and the model is asked to fix it: attempt `attempt` of `of`.
+    Fixing { attempt: u32, of: u32 },
     /// The model is writing a tool call: which tool, the file once known,
     /// and how much it has written.
     Composing { tool: &'a str, path: Option<&'a str>, chars: usize },
+}
+
+/// Where a step of the final checks is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StepPhase {
+    Start,
+    Passed,
+    Failed,
 }
 
 /// A tool call waiting for the user's decision.
@@ -235,7 +248,7 @@ fn system_prompt(mode: Mode) -> String {
          Work like a senior engineer: read the relevant code before editing, find the root cause of an error \
          instead of patching symptoms, run what you changed (build, tests, the program), read the output, \
          and keep iterating until it really works; decide and act instead of asking when the next step is clear. \
-         To learn how an existing site, app or binary does something, use investigate before building. \
+         For any job with three or more steps, call tasks first with the full checklist, then update it as each step starts and finishes.          To learn how an existing site, app or binary does something, use investigate before building. \
          When asked to recreate a program that has a window, you must SEE it: run observe_app on the real program \
          first and describe the layout, density, controls, icons and colours you see, then build, then run observe_app \
          on what you built and compare it with the reference, listing what still differs and fixing it; repeat until \
@@ -289,6 +302,9 @@ pub struct Agent<'a> {
     /// Per finished task, the files it changed and their content before it
     /// (`None`: the file did not exist), for `undo`.
     checkpoints: Vec<Vec<(std::path::PathBuf, String, Option<String>)>>,
+    /// How long each check step took the last time it passed, to show how
+    /// far a running one is.
+    step_secs: HashMap<String, f32>,
 }
 
 /// Project files (not CoTurbo's own plan files) changed in the task.
@@ -314,6 +330,7 @@ impl<'a> Agent<'a> {
             decided: HashMap::new(),
             started: None,
             checkpoints: Vec::new(),
+            step_secs: HashMap::new(),
         }
     }
 
@@ -653,6 +670,7 @@ impl<'a> Agent<'a> {
                     }
                     Some(false) => {
                         fix_rounds += 1;
+                        host.on_event(Event::Fixing { attempt: fix_rounds, of: self.config.max_fix_rounds });
                         report.verified = Some(false);
                         self.history.push(Message { role: Role::User, content: vec![ContentBlock::Text { text: summary }] });
                         continue;
@@ -793,7 +811,22 @@ impl<'a> Agent<'a> {
         }
         let cfg = self.config.gate.clone().unwrap_or_default();
         let steps = gate::detect(&root, &cfg);
-        let report = gate::run_gate(&root, &steps, &cfg).await;
+        let known = self.step_secs.clone();
+        let mut took: Vec<(String, f32)> = Vec::new();
+        let report = gate::run_gate_with(&root, &steps, &cfg, &mut |p| match p {
+            gate::GateProgress::Started { name, index, total } => {
+                host.on_event(Event::Step { name, phase: StepPhase::Start, index, total, secs: 0.0, expected: known.get(name).copied() });
+            }
+            gate::GateProgress::Finished { result, index, total, secs } => {
+                let phase = if result.ok { StepPhase::Passed } else { StepPhase::Failed };
+                if result.ok && !result.skipped {
+                    took.push((result.name.clone(), secs));
+                }
+                host.on_event(Event::Step { name: &result.name, phase, index, total, secs, expected: known.get(&result.name).copied() });
+            }
+        })
+        .await;
+        self.step_secs.extend(took);
         let ok = if report.nothing_ran() { None } else { Some(report.ok()) };
         if edited.iter().any(|f| coturbo_design::fiscal::is_ui_file(f)) {
             host.on_event(Event::Waiting("design"));

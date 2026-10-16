@@ -573,7 +573,7 @@ async fn gate_sends_warnings_back_until_the_code_is_clean() {
     // The failure reached the model as a plain user message, appended.
     let reqs = mock.requests();
     let ContentBlock::Text { text } = &reqs[2].messages.last().unwrap().content[0] else { panic!() };
-    assert!(text.starts_with("✗ verification failed at `build`"));
+    assert!(text.starts_with("✗ verification failed at `clippy`"));
 }
 
 #[tokio::test]

@@ -107,7 +107,8 @@ pub fn detect(root: &Path, cfg: &GateConfig) -> Vec<Step> {
                 name: name.into(),
                 args: args.iter().map(|s| s.to_string()).collect(),
             };
-            steps.push(cargo("build", &["build", "--all-targets", "--message-format=json"]));
+            // No separate `cargo build`: clippy over all targets reports every
+            // compile error, and `cargo test` builds everything again anyway.
             steps.push(cargo("clippy", &["clippy", "--all-targets", "--message-format=json", "--", "-D", "warnings"]));
             steps.push(Step::CargoTest);
         }
@@ -270,11 +271,29 @@ async fn run_step(root: &Path, step: &Step, cfg: &GateConfig) -> StepResult {
     r
 }
 
+/// What the gate is doing, for a screen that shows progress.
+#[derive(Debug, Clone, Copy)]
+pub enum GateProgress<'a> {
+    /// Step `index` of `total` is about to run.
+    Started { name: &'a str, index: usize, total: usize },
+    /// It ran, in `secs` seconds.
+    Finished { result: &'a StepResult, index: usize, total: usize, secs: f32 },
+}
+
 /// Runs the steps in order and stops at the first failure.
 pub async fn run_gate(root: &Path, steps: &[Step], cfg: &GateConfig) -> GateReport {
+    run_gate_with(root, steps, cfg, &mut |_| {}).await
+}
+
+/// [`run_gate`], telling `progress` when each step starts and ends.
+pub async fn run_gate_with(root: &Path, steps: &[Step], cfg: &GateConfig, progress: &mut (dyn FnMut(GateProgress<'_>) + Send)) -> GateReport {
     let mut report = GateReport { steps: Vec::new() };
-    for step in steps {
+    let total = steps.len();
+    for (index, step) in steps.iter().enumerate() {
+        progress(GateProgress::Started { name: &step.name(), index, total });
+        let started = std::time::Instant::now();
         let r = run_step(root, step, cfg).await;
+        progress(GateProgress::Finished { result: &r, index, total, secs: started.elapsed().as_secs_f32() });
         let failed = !r.ok;
         report.steps.push(r);
         if failed {

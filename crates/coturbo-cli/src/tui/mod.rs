@@ -7,11 +7,13 @@
 
 pub mod app;
 pub mod commands;
+pub mod debugger;
 pub mod host;
 pub mod input;
 pub mod path;
 pub mod session;
 pub mod text;
+pub mod work;
 
 use coturbo_agent::Decision;
 use coturbo_agent::plan::PlanChoice;
@@ -24,6 +26,45 @@ use tokio::sync::oneshot;
 pub enum StreamKind {
     Thinking,
     Text,
+}
+
+/// Where a stage of the work is (WRITE, CHECK, CLIPPY, TEST, FIX...).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StageState {
+    Pending,
+    Running,
+    Done,
+    Failed,
+}
+
+/// A stage of the work changing state. `expected` is how many seconds it took
+/// the last time, so a running bar knows how far along it is.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StageUpdate {
+    pub name: String,
+    pub state: StageState,
+    pub note: String,
+    pub expected: Option<f32>,
+}
+
+impl StageUpdate {
+    pub fn new(name: &str, state: StageState, note: impl Into<String>) -> Self {
+        Self { name: name.to_string(), state, note: note.into(), expected: None }
+    }
+}
+
+/// One line of the checklist the model keeps for the job.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TaskState {
+    Pending,
+    Doing,
+    Done,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TaskItem {
+    pub title: String,
+    pub state: TaskState,
 }
 
 /// The status bar under the text box.
@@ -76,6 +117,12 @@ pub enum Out {
     Stream(StreamKind, String),
     /// What the agent is doing; `None` when it is idle.
     Busy(Option<String>),
+    /// A stage of the work changed (the bars above the text box).
+    Stage(StageUpdate),
+    /// The model's checklist for the job, whole.
+    Tasks(Vec<TaskItem>),
+    /// A new job starts: the bars and the checklist begin again.
+    ClearWork,
     /// How the snail should feel. Alert and denied are short flashes that
     /// give way to the working mood.
     Mood(crate::splash::Mood),

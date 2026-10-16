@@ -2,13 +2,13 @@
 //! lines, questions go to the screen and wait for the answer.
 
 use super::text::ansi_line;
-use super::{Out, Question, StreamKind};
+use super::{Out, Question, StageState, StageUpdate, StreamKind, TaskItem, TaskState, debugger};
 use crate::config::Pricer;
 use crate::splash::Mood;
 use crate::status::{status_line, tool_line};
 use crate::view;
 use coturbo_agent::plan::{PlanChoice, PlanReview};
-use coturbo_agent::{ApprovalRequest, Decision, Event, Host};
+use coturbo_agent::{ApprovalRequest, Decision, Event, Host, StepPhase};
 use coturbo_providers::{BoxFuture, Usage};
 use coturbo_verify::Finding;
 use ratatui::style::{Color, Modifier, Style};
@@ -40,7 +40,7 @@ pub fn diff_fold(diff: &str, width: usize) -> Out {
 pub fn busy_label(waiting: &str) -> String {
     match waiting {
         "thinking" => "think".into(),
-        "verifying" => "verify: build, clippy, tests".into(),
+        "verifying" => "verify: clippy, tests".into(),
         "design" => "design_review: desktop and phone".into(),
         other => other.into(),
     }
@@ -72,6 +72,38 @@ pub fn design_refused(text: &str) -> bool {
     })
 }
 
+/// Tools that write to the project.
+fn is_edit(tool: &str) -> bool {
+    matches!(tool, "write_file" | "edit_file" | "replace_symbol" | "insert_symbol")
+}
+
+/// The checklist the model sent through the `tasks` tool.
+pub fn task_items(input: &serde_json::Value) -> Vec<TaskItem> {
+    input["items"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|it| {
+            let title = it["title"].as_str()?.trim().to_string();
+            let state = match it["status"].as_str()? {
+                "done" => TaskState::Done,
+                "doing" => TaskState::Doing,
+                _ => TaskState::Pending,
+            };
+            (!title.is_empty()).then_some(TaskItem { title, state })
+        })
+        .collect()
+}
+
+/// The result of the check that follows every edit (`check src/a.rs: 2 error(s), ...`):
+/// `Some(true)` clean, `Some(false)` with errors, `None` when there is none.
+pub fn edit_check(output: &str) -> Option<(bool, String)> {
+    let line = output.lines().find(|l| l.starts_with("check "))?;
+    let clean = line.ends_with(": clean");
+    let note = if clean { "sem problemas".to_string() } else { line.split_once(": ").map_or(String::new(), |(_, r)| r.to_string()) };
+    Some((clean, note))
+}
+
 pub struct TuiHost {
     out: Sender<Out>,
     pricer: Pricer,
@@ -93,12 +125,19 @@ pub struct TuiHost {
     tools: u32,
     heavy: bool,
     mood: Option<Mood>,
+    /// The design review ran in this task, so the gate result covers it too.
+    designing: bool,
 }
 
 impl TuiHost {
     pub fn new(out: Sender<Out>, pricer: Pricer, root: PathBuf, verbose: bool, base: Usage) -> Self {
         let width = terminal_size::terminal_size().map_or(100, |(w, _)| w.0 as usize).min(140);
-        Self { out, pricer, root, verbose, limits: None, base, width, label: String::new(), composing_path: None, turns: 0, last_step: None, tools: 0, heavy: false, mood: None }
+        let _ = out.send(Out::ClearWork);
+        Self { out, pricer, root, verbose, limits: None, base, width, label: String::new(), composing_path: None, turns: 0, last_step: None, tools: 0, heavy: false, mood: None, designing: false }
+    }
+
+    fn stage(&self, name: &str, state: StageState, note: impl Into<String>) {
+        self.send(Out::Stage(StageUpdate::new(name, state, note)));
     }
 
     fn send(&self, m: Out) {
@@ -164,6 +203,13 @@ impl Host for TuiHost {
             Event::Waiting(what) => {
                 // The final checks are the heaviest work of a task.
                 self.heavy |= matches!(what, "verifying" | "design");
+                if what == "verifying" {
+                    self.stage("WRITE", StageState::Done, "");
+                }
+                if what == "design" {
+                    self.designing = true;
+                    self.stage("DESIGN", StageState::Running, "desktop e celular");
+                }
                 self.busy(busy_label(what));
             }
             Event::Thinking(delta) => {
@@ -179,12 +225,28 @@ impl Host for TuiHost {
                 self.composing_path = None;
                 self.tools += 1;
                 self.heavy |= is_heavy(name);
+                if is_edit(name) {
+                    self.stage("WRITE", StageState::Running, arg(input));
+                }
                 self.busy(action_label(name, input));
             }
             Event::ToolEnd { name, input, output, diff } => {
                 self.last_step = Some(format!("{name} {}", arg(input)).trim().to_string());
                 if design_refused(&output.content) {
                     self.flash(Mood::Denied);
+                }
+                if name == "tasks" && !output.is_error {
+                    self.send(Out::Tasks(task_items(input)));
+                }
+                if is_edit(name) && !output.is_error {
+                    self.stage("WRITE", StageState::Done, arg(input));
+                    if let Some((clean, note)) = edit_check(&output.content) {
+                        self.stage("CHECK", if clean { StageState::Done } else { StageState::Failed }, note);
+                        if !clean {
+                            let found = debugger::parse(&output.content);
+                            self.lines(debugger::render(&found, &self.root, self.width));
+                        }
+                    }
                 }
                 let mut lines = vec![Line::default(), ansi_line(&tool_line(name, input, output))];
                 if let Some(d) = diff {
@@ -217,6 +279,14 @@ impl Host for TuiHost {
                 if !ok {
                     // A refused design turns the snail red; any other failed check, yellow.
                     self.flash(if summary.to_lowercase().contains("design") { Mood::Denied } else { Mood::Alert });
+                    // The debugger shows the exact lines.
+                    let found = debugger::parse(summary);
+                    self.lines(debugger::render(&found, &self.root, self.width));
+                }
+                if self.designing {
+                    self.designing = false;
+                    let refused = design_refused(summary);
+                    self.stage("DESIGN", if refused { StageState::Failed } else { StageState::Done }, if refused { "recusado" } else { "aprovado" });
                 }
                 let mut summary = summary.lines();
                 let mut lines =
@@ -228,10 +298,29 @@ impl Host for TuiHost {
                 if let Some(p) = path {
                     self.composing_path = Some(p.to_string());
                 }
+                if is_edit(tool) {
+                    self.stage("WRITE", StageState::Running, self.composing_path.clone().unwrap_or_default());
+                }
                 // The tool being written and what it is writing to.
                 let target = self.composing_path.clone().unwrap_or_default();
                 let size = if chars >= 1000 { format!("{:.1}k chars", chars as f64 / 1000.0) } else { format!("{chars} chars") };
                 self.busy(format!("{tool} {target} · {size}").replace("  ", " "));
+            }
+            Event::Step { name, phase, index, total, secs, expected } => {
+                let stage = name.to_uppercase();
+                let upd = |state, note: String| StageUpdate { name: stage.clone(), state, note, expected };
+                let update = match phase {
+                    StepPhase::Start => {
+                        self.stage("FIX", StageState::Done, "");
+                        upd(StageState::Running, format!("{}/{}", index + 1, total))
+                    }
+                    StepPhase::Passed => upd(StageState::Done, format!("{secs:.1}s")),
+                    StepPhase::Failed => upd(StageState::Failed, format!("{secs:.1}s")),
+                };
+                self.send(Out::Stage(update));
+            }
+            Event::Fixing { attempt, of } => {
+                self.stage("FIX", StageState::Running, format!("tentativa {attempt}/{of}"));
             }
             Event::Notice(msg) => {
                 self.flash(Mood::Alert);

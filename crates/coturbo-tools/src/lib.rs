@@ -48,7 +48,7 @@ pub const EDIT_TOOLS: &[&str] = &["write_file", "edit_file", "replace_symbol", "
 /// Fixed tier per tool. Unknown tools (MCP, third-party) are `Exec`.
 pub fn tier(name: &str) -> Tier {
     match name {
-        "read_file" | "read_symbol" | "list_files" | "grep" | "workspace_diagnostics" | "propose_plan" => Tier::Read,
+        "read_file" | "read_symbol" | "list_files" | "grep" | "workspace_diagnostics" | "propose_plan" | "tasks" => Tier::Read,
         n if EDIT_TOOLS.contains(&n) || n == "design_brief" => Tier::Write,
         "design_review" => Tier::Read,
         _ => Tier::Exec,
@@ -187,6 +187,21 @@ impl Tools {
                     &["target"],
                 ),
             ),
+            spec(
+                "tasks",
+                "The user's live checklist for this job. At the start of any job with three or more steps, call it once with the FULL list (the first step `doing`, the rest `pending`); call it again whenever a step starts or finishes, marking each `pending`, `doing` or `done`. Keep titles short, in the user's language. It touches no files and costs almost nothing; put it in the same turn as your other tool calls.",
+                obj(
+                    json!({"items": json!({
+                        "type": "array",
+                        "description": "every step, in order",
+                        "items": {"type": "object", "properties": {
+                            "title": {"type": "string", "description": "what the step does, a few words"},
+                            "status": {"type": "string", "enum": ["pending", "doing", "done"]}
+                        }, "required": ["title", "status"]}
+                    })}),
+                    &["items"],
+                ),
+            ),
             spec("propose_plan", "Plan mode only: submit .codeturbo/plans/<slug>-plan.md for the user's approval.", obj(json!({"slug": s("plan slug")}), &["slug"])),
         ];
         if self.mode == Mode::Ast {
@@ -200,6 +215,24 @@ impl Tools {
         }
         v.sort_by(|a, b| a.name.cmp(&b.name));
         v
+    }
+
+    /// The checklist is shown by the interface; here it is only checked and
+    /// acknowledged, so the model learns when it sent something malformed.
+    fn tasks(input: &Value) -> Res {
+        let items = input["items"].as_array().filter(|a| !a.is_empty()).ok_or("items must be a non-empty list of {title, status}")?;
+        if items.len() > 12 {
+            return Err("at most 12 steps: group the small ones".into());
+        }
+        let mut done = 0;
+        for (i, it) in items.iter().enumerate() {
+            let status = it["status"].as_str().unwrap_or("");
+            if it["title"].as_str().is_none_or(|t| t.trim().is_empty()) || !["pending", "doing", "done"].contains(&status) {
+                return Err(format!("step {} needs a title and a status of pending, doing or done", i + 1));
+            }
+            done += usize::from(status == "done");
+        }
+        Ok(ToolOutput::ok(format!("checklist updated: {done}/{} done", items.len())))
     }
 
     /// Opens a program, captures its window and returns the screenshot.
@@ -445,6 +478,7 @@ impl Tools {
                 }
             }
             "observe_app" => self.observe_app(input).await,
+            "tasks" => Self::tasks(input),
             _ => Err(format!("unknown tool: {name}")),
         };
         let mut out = r.unwrap_or_else(ToolOutput::err);
