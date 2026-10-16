@@ -106,7 +106,7 @@ pub fn render(findings: &[Finding], root: &Path, width: usize) -> Vec<Line<'stat
     let width = outer - 4;
     let errors: Vec<u32> = findings.iter().filter(|f| f.error).map(|f| f.line).collect();
     let all: Vec<u32> = findings.iter().map(|f| f.line).collect();
-    let (kind, lines) = if errors.is_empty() { ("avisos", &all) } else { ("erros", &errors) };
+    let (kind, lines) = if errors.is_empty() { ("warnings", &all) } else { ("errors", &errors) };
     let list = lines.iter().take(8).map(u32::to_string).collect::<Vec<_>>().join(", ");
     let header_color = if errors.is_empty() { YELLOW } else { RED };
     let mut out: Vec<Line<'static>> = Vec::new();
@@ -144,9 +144,9 @@ pub fn render(findings: &[Finding], root: &Path, width: usize) -> Vec<Line<'stat
         }
     }
     if findings.len() > MAX_FINDINGS {
-        out.push(Line::styled(format!("  … e mais {} problema(s)", findings.len() - MAX_FINDINGS), Style::new().fg(DIM)));
+        out.push(Line::styled(format!("  … and {} more problem(s)", findings.len() - MAX_FINDINGS), Style::new().fg(DIM)));
     }
-    boxed(out, outer, header_color, &format!("  {kind} nas linhas {list}"))
+    boxed(out, outer, header_color, &format!("  {kind} on lines {list}"))
 }
 
 /// `body` inside a dashed box of the given colour, with the DEBUGGER tag and

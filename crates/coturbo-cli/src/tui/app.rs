@@ -220,15 +220,15 @@ struct Asking {
     stage: Stage,
 }
 
-const APPROVE: [&str; 3] = ["Sim, desta vez", "Sim, durante esta sessão", "Não"];
+const APPROVE: [&str; 3] = ["Yes, this time", "Yes, for this session", "No"];
 const PLAN: [&str; 5] = [
-    "Aprovar e executar (contexto limpo, só o plano)",
-    "Aprovar e compactar o contexto",
-    "Aprovar mantendo o contexto",
-    "Refinar o plano",
-    "Salvar e sair",
+    "Approve and run (fresh context, plan only)",
+    "Approve and compact the context",
+    "Approve and keep the context",
+    "Refine the plan",
+    "Save and quit",
 ];
-const CONFIRM: [&str; 2] = ["Sim", "Não"];
+const CONFIRM: [&str; 2] = ["Yes", "No"];
 
 /// Options whose value or label contains `filter`, ignoring case.
 pub fn filtered<'a>(options: &'a [Choice], filter: &str) -> Vec<&'a Choice> {
@@ -413,7 +413,7 @@ impl App {
                     .collect();
                 let note = match path.parent().map(std::fs::create_dir_all).transpose().and_then(|_| std::fs::write(&path, text)) {
                     Ok(()) => format!("  → conversa salva em {}", path.display()),
-                    Err(e) => format!("  ! não foi possível salvar: {e}"),
+                    Err(e) => format!("  ! could not save: {e}"),
                 };
                 self.transcript.push(Line::styled(note, dim()));
             }
@@ -642,7 +642,7 @@ impl App {
         }
         self.transcript.extend(task_lines(task));
         if self.busy.is_some() {
-            self.transcript.push(Line::styled("  na fila: começa quando a tarefa atual terminar", dim()));
+            self.transcript.push(Line::styled("  queued: starts when the current task ends", dim()));
         }
         let _ = self.tx.send(In::Submit(task.to_string()));
     }
@@ -753,15 +753,15 @@ impl App {
         match a.q {
             Question::Approve { reply, .. } => {
                 let _ = reply.send(Decision::Deny(None));
-                self.note("negado");
+                self.note("denied");
             }
             Question::Plan { reply, .. } => {
                 let _ = reply.send(PlanChoice::SaveQuit);
-                self.note("plano salvo, nada foi executado");
+                self.note("plan saved, nothing was run");
             }
             Question::Confirm { reply, .. } => {
                 let _ = reply.send(false);
-                self.note("não");
+                self.note("no");
             }
             Question::Select { reply, .. } | Question::Secret { reply, .. } => {
                 let _ = reply.send(None);
@@ -778,7 +778,7 @@ impl App {
         let sel = a.sel;
         match (a.q, a.stage) {
             (Question::Approve { reply, .. }, Stage::Write) => {
-                self.note(if typed.is_empty() { "negado" } else { "negado, com o motivo enviado ao modelo" });
+                self.note(if typed.is_empty() { "denied" } else { "denied, with the reason sent to the model" });
                 let _ = reply.send(Decision::Deny((!typed.is_empty()).then_some(typed)));
             }
             (Question::Plan { reply, .. }, Stage::Write) => {
@@ -791,7 +791,7 @@ impl App {
                     let _ = reply.send(Decision::Once);
                 }
                 1 => {
-                    self.note("permitido durante esta sessão");
+                    self.note("allowed for this session");
                     let _ = reply.send(Decision::Session);
                 }
                 _ => {
@@ -848,11 +848,11 @@ impl App {
     /// Shows the plan again after it was edited outside.
     pub fn after_edit(&mut self, path: &Path, error: Option<String>) {
         match error {
-            Some(e) => self.transcript.push(Line::styled(format!("  ! não foi possível abrir o editor: {e}"), Style::new().fg(YELLOW))),
+            Some(e) => self.transcript.push(Line::styled(format!("  ! could not open the editor: {e}"), Style::new().fg(YELLOW))),
             None => {
                 let content = std::fs::read_to_string(path).unwrap_or_default();
                 self.transcript.push(Line::default());
-                self.transcript.push(Line::styled("── plano editado ──", Style::new().fg(BLUE).add_modifier(Modifier::BOLD)));
+                self.transcript.push(Line::styled("── plan edited ──", Style::new().fg(BLUE).add_modifier(Modifier::BOLD)));
                 for l in content.lines() {
                     self.transcript.push(Line::raw(l.to_string()));
                 }
@@ -874,17 +874,17 @@ impl App {
         let mut rows = Vec::new();
         if a.stage == Stage::Write {
             let what = if matches!(a.q, Question::Plan { .. }) {
-                "Escreva o que deve mudar no plano e pressione Enter."
+                "Write what should change in the plan and press Enter."
             } else {
-                "Escreva o motivo (opcional) e pressione Enter. O modelo recebe o motivo."
+                "Write the reason (optional) and press Enter. The model receives it."
             };
             rows.push(Line::raw(what));
-            rows.push(Line::styled("Esc volta às opções", dim()));
+            rows.push(Line::styled("Esc goes back to the options", dim()));
             return Some((title, rows));
         }
         if let Question::Secret { .. } = a.q {
-            rows.push(Line::raw("Cole a chave no campo abaixo e pressione Enter."));
-            rows.push(Line::styled("Ela fica salva somente neste computador. Esc cancela.", dim()));
+            rows.push(Line::raw("Paste the key below and press Enter."));
+            rows.push(Line::styled("It is stored only on this computer. Esc cancels.", dim()));
             return Some((title, rows));
         }
         let entries = self.entries(a);
@@ -898,7 +898,7 @@ impl App {
                 (true, true) => ("› ", Style::new().fg(BLUE).add_modifier(Modifier::BOLD)),
                 (false, true) => ("  ", Style::new()),
             };
-            let tail = if *ok { "" } else { " (indisponível: contexto acima de 95%)" };
+            let tail = if *ok { "" } else { " (unavailable: context above 95%)" };
             rows.push(Line::styled(format!("{mark}{n}{label}{tail}"), style));
         }
         let mut help = String::from("↑↓ escolher · Enter confirmar · Esc cancelar");
@@ -906,13 +906,13 @@ impl App {
             Question::Select { options, custom, .. } => {
                 if entries.is_empty() {
                     rows.push(Line::styled(
-                        if *custom { "Nenhum item corresponde; Enter usa o texto digitado." } else { "Nenhum item corresponde." },
+                        if *custom { "No match; Enter uses the typed text." } else { "No match." },
                         dim(),
                     ));
                 }
-                help = format!("{} de {} · digite para filtrar · {help}", entries.len(), options.len());
+                help = format!("{} of {} · type to filter · {help}", entries.len(), options.len());
             }
-            Question::Plan { .. } => help.push_str(" · e editar o plano"),
+            Question::Plan { .. } => help.push_str(" · e edit the plan"),
             _ => {}
         }
         rows.push(Line::styled(help, dim()));
@@ -921,11 +921,11 @@ impl App {
 
     fn input_title(&self) -> Option<&'static str> {
         match self.asking.as_ref().map(|a| (&a.q, a.stage)) {
-            Some((Question::Plan { .. }, Stage::Write)) => Some("o que mudar"),
-            Some((_, Stage::Write)) => Some("motivo"),
-            Some((Question::Select { .. }, _)) => Some("filtrar"),
+            Some((Question::Plan { .. }, Stage::Write)) => Some("what to change"),
+            Some((_, Stage::Write)) => Some("reason"),
+            Some((Question::Select { .. }, _)) => Some("filter"),
             Some((Question::Secret { .. }, _)) => Some("API key"),
-            _ if self.status.plan => Some("modo plano: somente leitura"),
+            _ if self.status.plan => Some("plan mode: read-only"),
             _ => None,
         }
     }
@@ -1017,7 +1017,7 @@ impl App {
             let block = Block::bordered()
                 .border_type(BorderType::LightQuadrupleDashed)
                 .border_style(Style::new().fg(BORDER))
-                .title(Span::styled(" trabalho ", Style::new().fg(BLUE).add_modifier(Modifier::BOLD)));
+                .title(Span::styled(" work ", Style::new().fg(BLUE).add_modifier(Modifier::BOLD)));
             let rect = Rect { x: work.x + 1, width: work.width.saturating_sub(2), ..work };
             let inner = block.inner(rect);
             f.render_widget(block, rect);
@@ -1037,13 +1037,13 @@ impl App {
         let hint_line = match &self.busy {
             Some((label, since)) => {
                 let mut l = text::ansi_line(&splash::spinner_line((tick.as_millis() / 80) as usize, label));
-                text::push(&mut l, &format!(" · {}s · Esc interrompe", since.elapsed().as_secs()), dim());
+                text::push(&mut l, &format!(" · {}s · Esc interrupts", since.elapsed().as_secs()), dim());
                 l
             }
             None if self.asking.is_some() => Line::default(),
-            None if self.scroll > 0 => Line::styled("  há mais mensagens abaixo · Esc volta ao fim", dim()),
+            None if self.scroll > 0 => Line::styled("  more messages below · Esc jumps to the end", dim()),
             None => Line::styled(
-                "  Enter envia · Shift+Enter quebra a linha · clique ou Ctrl+B abre o código · Shift+arrastar seleciona · /ajuda",
+                "  Enter sends · Shift+Enter new line · click or Ctrl+B opens the code · Shift+drag selects · /help",
                 dim(),
             ),
         };
@@ -1066,7 +1066,7 @@ impl App {
         if self.input.is_empty() && self.asking.is_none() {
             lines = vec![Line::from(vec![
                 Span::styled("› ", prompt),
-                Span::styled("Descreva a tarefa ou digite / para ver os comandos", dim()),
+                Span::styled("Describe the task or type / for the commands", dim()),
             ])];
         }
         let text_area = Rect { x: inner.x + 1, width: inner.width.saturating_sub(1), ..inner };
@@ -1078,7 +1078,7 @@ impl App {
         let s = &self.status;
         let mut left = format!(" {} · {} · {}", s.provider, s.model, s.approval);
         if s.plan {
-            left.push_str(" · modo plano");
+            left.push_str(" · plan mode");
         }
         let mut right = s.usage.clone();
         if let Some(c) = s.context {
@@ -1166,7 +1166,7 @@ fn graphics() -> Option<ratatui_image::picker::Picker> {
     if let Some(file) = std::env::var_os("CODETURBO_DEBUG_GRAPHICS") {
         let what = match &found {
             Ok(p) => format!("{:?}", p.protocol_type()),
-            Err(e) => format!("erro: {e}"),
+            Err(e) => format!("error: {e}"),
         };
         let _ = std::fs::write(file, what);
     }
@@ -1259,6 +1259,6 @@ impl Screen {
     pub fn join(self) -> std::io::Result<()> {
         let Self { out, thread } = self;
         drop(out);
-        thread.join().unwrap_or_else(|_| Err(std::io::Error::other("a tela parou com erro")))
+        thread.join().unwrap_or_else(|_| Err(std::io::Error::other("the screen stopped with an error")))
     }
 }

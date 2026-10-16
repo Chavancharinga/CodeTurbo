@@ -60,7 +60,7 @@ pub async fn launch(browser: &Path, size: (u32, u32), visible: bool) -> Result<L
         .stdout(std::process::Stdio::null())
         .stderr(std::fs::File::create(profile.with_extension("log")).map_or_else(|_| std::process::Stdio::null(), Into::into))
         .kill_on_drop(true);
-    let child = cmd.spawn().map_err(|e| format!("não foi possível abrir o navegador: {e}"))?;
+    let child = cmd.spawn().map_err(|e| format!("could not open the browser: {e}"))?;
     // The browser writes the port it picked to this file.
     let file = profile.join("DevToolsActivePort");
     for _ in 0..150 {
@@ -74,7 +74,7 @@ pub async fn launch(browser: &Path, size: (u32, u32), visible: bool) -> Result<L
     let log = std::fs::read_to_string(profile.with_extension("log")).unwrap_or_default();
     let _ = std::fs::remove_file(profile.with_extension("log"));
     let tail: Vec<&str> = log.lines().rev().take(4).collect();
-    Err(format!("o navegador não informou a porta de depuração em 15 s ({})", tail.into_iter().rev().collect::<Vec<_>>().join(" | ")))
+    Err(format!("the browser did not report its debugging port in 15 s ({})", tail.into_iter().rev().collect::<Vec<_>>().join(" | ")))
 }
 
 impl Launched {
@@ -90,7 +90,7 @@ impl Launched {
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
-        Err("o navegador não abriu uma página".into())
+        Err("the browser did not open a page".into())
     }
 
     /// Closes the browser, politely first, then for sure, and drops its profile.
@@ -147,7 +147,7 @@ impl Drop for Launched {
 
 impl Cdp {
     pub async fn connect(url: &str) -> Result<Self, String> {
-        let (ws, _) = connect_async(url).await.map_err(|e| format!("não foi possível falar com o navegador: {e}"))?;
+        let (ws, _) = connect_async(url).await.map_err(|e| format!("could not talk to the browser: {e}"))?;
         Ok(Self { ws, next: 0, events: Vec::new() })
     }
 
@@ -164,7 +164,7 @@ impl Cdp {
                 let Ok(v) = serde_json::from_str::<Value>(&t) else { continue };
                 if v["id"].as_u64() == Some(id) {
                     return match v.get("error") {
-                        Some(e) => Err(format!("{method}: {}", e["message"].as_str().unwrap_or("erro"))),
+                        Some(e) => Err(format!("{method}: {}", e["message"].as_str().unwrap_or("error"))),
                         None => Ok(v["result"].clone()),
                     };
                 }
@@ -172,7 +172,7 @@ impl Cdp {
                     self.events.push(v);
                 }
             }
-            Err("o navegador fechou a conexão".to_string())
+            Err("the browser closed the connection".to_string())
         };
         tokio::time::timeout(COMMAND_TIMEOUT, wait).await.map_err(|_| format!("{method}: sem resposta em {}s", COMMAND_TIMEOUT.as_secs()))?
     }

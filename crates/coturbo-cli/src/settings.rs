@@ -20,20 +20,20 @@ const fn p(id: &'static str, label: &'static str, key_var: Option<&'static str>,
 }
 
 pub const PROVIDERS: &[ProviderInfo] = &[
-    p("claude-code", "Claude Code (seu plano Claude, pelo app oficial)", None, None),
-    p("codex", "Codex (seu plano ChatGPT, pelo app oficial)", None, None),
-    p("antigravity", "Antigravity (seu plano Google, pela CLI agy)", None, None),
+    p("claude-code", "Claude Code (your Claude plan, through the official app)", None, None),
+    p("codex", "Codex (your ChatGPT plan, through the official app)", None, None),
+    p("antigravity", "Antigravity (your Google plan, through the agy CLI)", None, None),
     p("anthropic", "Anthropic (Claude)", Some("ANTHROPIC_API_KEY"), None),
-    p("openai", "OpenAI (ou qualquer servidor compatível, com base_url)", Some("OPENAI_API_KEY"), None),
-    p("gemini", "Google Gemini (Antigravity, AI Studio)", Some("GEMINI_API_KEY"), Some("https://generativelanguage.googleapis.com/v1beta/openai")),
-    p("openrouter", "OpenRouter (centenas de modelos, vários grátis)", Some("OPENROUTER_API_KEY"), Some("https://openrouter.ai/api/v1")),
-    p("groq", "Groq (muito rápido)", Some("GROQ_API_KEY"), Some("https://api.groq.com/openai/v1")),
+    p("openai", "OpenAI (or any compatible server, with base_url)", Some("OPENAI_API_KEY"), None),
+    p("gemini", "Google Gemini (AI Studio)", Some("GEMINI_API_KEY"), Some("https://generativelanguage.googleapis.com/v1beta/openai")),
+    p("openrouter", "OpenRouter (hundreds of models, several free)", Some("OPENROUTER_API_KEY"), Some("https://openrouter.ai/api/v1")),
+    p("groq", "Groq (very fast)", Some("GROQ_API_KEY"), Some("https://api.groq.com/openai/v1")),
     p("deepseek", "DeepSeek", Some("DEEPSEEK_API_KEY"), Some("https://api.deepseek.com/v1")),
     p("mistral", "Mistral", Some("MISTRAL_API_KEY"), Some("https://api.mistral.ai/v1")),
     p("xai", "xAI (Grok)", Some("XAI_API_KEY"), Some("https://api.x.ai/v1")),
     p("together", "Together AI", Some("TOGETHER_API_KEY"), Some("https://api.together.xyz/v1")),
-    p("lmstudio", "LM Studio (modelos locais, sem chave)", None, Some("http://localhost:1234/v1")),
-    p("ollama", "Ollama (modelos locais, sem chave)", None, None),
+    p("lmstudio", "LM Studio (local models, no key)", None, Some("http://localhost:1234/v1")),
+    p("ollama", "Ollama (local models, no key)", None, None),
 ];
 
 /// Whether something listens on a local port (a model server that is running).

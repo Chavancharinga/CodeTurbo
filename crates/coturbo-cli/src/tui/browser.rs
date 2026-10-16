@@ -382,7 +382,7 @@ impl BrowserView {
         let page = Rect { x: inner.x, y: inner.y + 1, width: inner.width, height: inner.height.saturating_sub(2) };
         // The caption under the page.
         let caption_row = Rect { x: inner.x, y: inner.bottom().saturating_sub(1), width: inner.width, height: 1 };
-        let caption = if self.idle { format!("{} · Esc fecha", self.caption) } else { self.caption.clone() };
+        let caption = if self.idle { format!("{} · Esc closes", self.caption) } else { self.caption.clone() };
         let cap: String = caption.chars().take(inner.width as usize).collect();
         Line::styled(cap, Style::new().fg(BLUE).add_modifier(Modifier::BOLD)).render(caption_row, buf);
         let Some(px) = &self.pixels else { return };

@@ -24,17 +24,17 @@ use tokio::sync::oneshot;
 
 /// Approval modes offered by `/aprovacao`, with what each one does.
 pub const APPROVAL_MODES: [(&str, &str); 3] = [
-    ("always-ask", "Sempre perguntar: confirma cada alteração e cada comando"),
-    ("write", "Edição livre: altera arquivos sem perguntar, confirma comandos (padrão)"),
-    ("yolo", "Automático: executa tudo sem perguntar"),
+    ("always-ask", "Ask first: confirms every change and every command"),
+    ("write", "Auto-edit: changes files without asking, confirms commands (default)"),
+    ("yolo", "Auto: runs everything without asking"),
 ];
 
 /// Short name of an approval mode for the status bar.
 pub fn approval_label(mode: &str) -> String {
     match mode {
-        "always-ask" => "sempre perguntar".into(),
-        "write" => "edição livre".into(),
-        "yolo" => "automático".into(),
+        "always-ask" => "ask first".into(),
+        "write" => "auto-edit".into(),
+        "yolo" => "auto".into(),
         other => other.into(),
     }
 }
@@ -122,7 +122,7 @@ pub async fn run(launch: Launch) -> Result<ExitCode, String> {
     closing.store(true, Ordering::SeqCst);
     screen.join().map_err(|e| e.to_string())?;
     let total = result?;
-    eprintln!("CodeTurbo encerrado · sessão: {}", status_line(&total, None));
+    eprintln!("CodeTurbo closed · session: {}", status_line(&total, None));
     Ok(ExitCode::SUCCESS)
 }
 
@@ -213,7 +213,7 @@ impl Session {
         if let Some(dir) = &self.dir
             && let Err(e) = settings::save_config(dir, values)
         {
-            self.warn(format!("não foi possível salvar a preferência: {e}"));
+            self.warn(format!("could not save the preference: {e}"));
         }
     }
 
@@ -225,8 +225,8 @@ impl Session {
         let title = Style::new().fg(Color::Rgb(225, 232, 245)).add_modifier(Modifier::BOLD);
         self.send(Out::Lines(vec![
             Line::styled(format!("CodeTurbo {}", update::VERSION), title),
-            Line::styled(format!("Projeto: {}", self.root.display()), dim()),
-            Line::styled("Descreva o que deseja criar ou alterar. Digite /ajuda para ver os comandos.", dim()),
+            Line::styled(format!("Project: {}", self.root.display()), dim()),
+            Line::styled("Describe what to build or change. Type /help for the commands.", dim()),
         ]));
     }
 
@@ -242,11 +242,11 @@ impl Session {
         if !commands.is_empty() && self.cfg.approval_mode != "yolo" {
             let mut lines = vec![
                 Line::default(),
-                Line::styled("O arquivo .codeturbo.toml deste projeto quer rodar na verificação:", Style::new().fg(Color::Yellow)),
+                Line::styled("This project's .codeturbo.toml wants the verification gate to run:", Style::new().fg(Color::Yellow)),
             ];
             lines.extend(commands.iter().map(|c| Line::raw(format!("    {c}"))));
             self.send(Out::Lines(lines));
-            let title = "Permitir estes comandos nesta sessão?".to_string();
+            let title = "Allow these commands in this session?".to_string();
             if !self.ask(|reply| Question::Confirm { title, reply }, false).await {
                 self.warn("comandos do .codeturbo.toml ignorados");
                 return;
@@ -262,33 +262,33 @@ impl Session {
         let mut trust = settings::Trust::load(self.dir.as_deref());
         if trust.covers(&self.root) {
             if settings::known_project(&self.root) {
-                self.info("Projeto do CodeTurbo reconhecido nesta pasta.");
+                self.info("CodeTurbo project recognised in this folder.");
             }
             return true;
         }
         let mut lines = vec![
             Line::default(),
-            Line::styled(format!("Primeira vez nesta pasta: {}", super::path::folder_text(&self.root)), Style::new().fg(Color::Yellow)),
-            Line::raw("  O CodeTurbo vai ler e alterar arquivos aqui e pode rodar comandos, conforme o modo de aprovação."),
-            Line::raw("  Confie apenas em pastas cujo conteúdo você conhece."),
+            Line::styled(format!("First time in this folder: {}", super::path::folder_text(&self.root)), Style::new().fg(Color::Yellow)),
+            Line::raw("  CodeTurbo will read and change files here and may run commands, depending on the approval mode."),
+            Line::raw("  Only trust folders whose contents you know."),
         ];
         if settings::too_broad(&self.root) {
             lines.push(Line::styled(
-                "  Atenção: esta é a sua pasta pessoal ou a raiz do disco. Prefira abrir o CodeTurbo dentro da pasta do projeto.",
+                "  Warning: this is your home folder or the root of a drive. Prefer opening CodeTurbo inside the project folder.",
                 Style::new().fg(Color::Red),
             ));
         }
         self.send(Out::Lines(lines));
         // The folder goes in the question itself, so it is the last thing read before answering.
-        let title = format!("Confiar nesta pasta? {}", super::path::short_path(&super::path::folder_text(&self.root), 60));
+        let title = format!("Trust this folder? {}", super::path::short_path(&super::path::folder_text(&self.root), 60));
         if !self.ask(|reply| Question::Confirm { title, reply }, false).await {
-            self.warn("pasta não autorizada: nada será lido nem alterado. Abra o CodeTurbo na pasta do seu projeto.");
+            self.warn("folder not trusted: nothing will be read or changed. Open CodeTurbo in your project folder.");
             return false;
         }
         if let Err(e) = trust.add(self.dir.as_deref(), &self.root) {
-            self.warn(format!("a autorização vale só nesta sessão: {e}"));
+            self.warn(format!("the trust only lasts for this session: {e}"));
         }
-        self.info("Pasta autorizada. Da próxima vez ela é reconhecida automaticamente.");
+        self.info("Folder trusted. It is recognised automatically next time.");
         true
     }
 
@@ -297,7 +297,7 @@ impl Session {
         if !self.trust_folder().await {
             // Wait for the user to quit; nothing runs here.
             while let Some(In::Submit(_)) = rx.recv().await {
-                self.warn("esta pasta não foi autorizada; encerre com /sair e abra o CodeTurbo na pasta do projeto");
+                self.warn("this folder is not trusted; quit with /exit and open CodeTurbo in the project folder");
             }
             return Ok(());
         }
@@ -328,7 +328,7 @@ impl Session {
             self.status(usage_of(&agent));
             if std::mem::take(&mut first) && agent.is_none() {
                 // First run without a usable provider: go straight to choosing one.
-                self.info("Escolha um provedor para começar. O Ollama roda modelos locais sem chave de API.");
+                self.info("Choose a provider to start. Ollama runs local models without an API key.");
                 if self.choose_provider(false).await {
                     continue 'session;
                 }
@@ -353,7 +353,7 @@ impl Session {
                         false
                     }
                     Parsed::Unknown(w) => {
-                        self.warn(format!("comando desconhecido: {w}. Digite /ajuda para ver os comandos."));
+                        self.warn(format!("unknown command: {w}. Type /help for the commands."));
                         false
                     }
                     Parsed::Command(cmd, arg) => match cmd {
@@ -367,9 +367,9 @@ impl Session {
                                 a.set_plan_mode(self.plan);
                             }
                             self.info(if self.plan {
-                                "Modo plano ativado: somente leitura até você aprovar um plano."
+                                "Plan mode on: read-only until you approve a plan."
                             } else {
-                                "Modo plano desativado."
+                                "Plan mode off."
                             });
                             self.status(usage_of(&agent));
                             false
@@ -377,7 +377,7 @@ impl Session {
                         Command::Usage => {
                             let mut total = self.spent;
                             total += usage_of(&agent);
-                            self.info(format!("Sessão: {}", status_line(&total, self.pricer().cost(&total))));
+                            self.info(format!("Session: {}", status_line(&total, self.pricer().cost(&total))));
                             false
                         }
                         Command::Retry => {
@@ -386,17 +386,17 @@ impl Session {
                                     self.send(Out::Lines(super::app::task_lines(&task)));
                                     self.task(agent.as_mut(), &task, cancel).await;
                                 }
-                                None => self.warn("nenhuma tarefa para repetir"),
+                                None => self.warn("no task to repeat"),
                             }
                             false
                         }
                         Command::Copy => {
                             match &self.last_answer {
                                 Some(text) => match copy_to_clipboard(text) {
-                                    Ok(()) => self.info("Última resposta copiada."),
-                                    Err(e) => self.warn(format!("não foi possível copiar: {e}")),
+                                    Ok(()) => self.info("Last answer copied."),
+                                    Err(e) => self.warn(format!("could not copy: {e}")),
                                 },
-                                None => self.warn("nenhuma resposta para copiar ainda"),
+                                None => self.warn("no answer to copy yet"),
                             }
                             false
                         }
@@ -408,20 +408,20 @@ impl Session {
                         Command::Shake => {
                             match agent.as_mut().map(|a| a.shake(2)) {
                                 Some(0) | None => self.info("Nada para enxugar."),
-                                Some(n) => self.info(format!("{n} resultado(s) antigo(s) resumido(s): menos tokens na próxima mensagem.")),
+                                Some(n) => self.info(format!("{n} old result(s) shrunk: fewer tokens on the next message.")),
                             }
                             false
                         }
                         Command::Rule => {
                             if arg.trim().is_empty() {
-                                self.warn("use /regra seguido do que o modelo deve sempre fazer, ex: /regra sempre rode os testes antes de concluir");
+                                self.warn("use /rule followed by what the model must always do, e.g. /rule always run the tests before finishing");
                             } else {
                                 match coturbo_agent::add_rule(&self.root, &arg) {
                                     Ok(()) => {
                                         if let Some(a) = agent.as_mut() {
                                             a.reload_rules(&self.root);
                                         }
-                                        self.info(format!("Regra fixada (vale a partir da próxima mensagem): {}", arg.trim()));
+                                        self.info(format!("Rule pinned (applies from the next message): {}", arg.trim()));
                                     }
                                     Err(e) => self.warn(e),
                                 }
@@ -431,10 +431,10 @@ impl Session {
                         Command::Undo => {
                             match agent.as_mut().map(Agent::undo) {
                                 Some(Ok(files)) => {
-                                    self.info(format!("Alterações desfeitas em: {}", files.join(", ")));
+                                    self.info(format!("Changes undone in: {}", files.join(", ")));
                                 }
                                 Some(Err(e)) => self.warn(e),
-                                None => self.warn("nenhum provedor pronto"),
+                                None => self.warn("no provider ready"),
                             }
                             false
                         }
@@ -470,7 +470,7 @@ impl Session {
 
     async fn task(&mut self, agent: Option<&mut Agent<'_>>, text: &str, cancel: &mut UnboundedReceiver<()>) {
         let Some(agent) = agent else {
-            self.warn("nenhum provedor pronto. Use /provedor para escolher um ou /chave para informar a chave de API.");
+            self.warn("no provider ready. Use /provider to choose one or /key to set the API key.");
             return;
         };
         self.last_task = Some(text.to_string());
@@ -492,7 +492,7 @@ impl Session {
                 self.send(Out::Lines(vec![
                     Line::default(),
                     ansi_line(&format!(
-                        "{} · {} · tarefa {}",
+                        "{} · {} · task {}",
                         stop_note(&report),
                         crate::status::elapsed(started.elapsed()),
                         status_line(&report.usage, cost)
@@ -503,11 +503,11 @@ impl Session {
                 }
                 agent.compact();
             }
-            Some(Err(e)) => self.warn(format!("erro: {e}")),
+            Some(Err(e)) => self.warn(format!("error: {e}")),
             None => {
                 agent.interrupted();
                 self.send(Out::CloseQuestion);
-                self.warn("tarefa interrompida");
+                self.warn("task interrupted");
             }
         }
         self.status(agent.session_usage());
@@ -522,9 +522,9 @@ impl Session {
             .iter()
             .map(|p| {
                 let note = if p.id == self.cfg.provider && ready {
-                    format!(" · em uso ({})", self.cfg.model)
+                    format!(" · in use ({})", self.cfg.model)
                 } else if p.key_var.is_some() && settings::api_key(p.id, &self.creds).is_none() {
-                    " · pede a chave de API".to_string()
+                    " · asks for an API key".to_string()
                 } else if matches!(p.id, "claude-code" | "codex")
                     && !coturbo_providers::cli::installed(if p.id == "codex" {
                         coturbo_providers::cli::Tool::Codex
@@ -532,22 +532,22 @@ impl Session {
                         coturbo_providers::cli::Tool::ClaudeCode
                     })
                 {
-                    " · app oficial não instalado".to_string()
+                    " · official app not installed".to_string()
                 } else {
                     String::new()
                 };
                 Choice::new(p.id, format!("{}{note}", p.label))
             })
             .collect();
-        options.push(Choice::new("__outro", "Conectar outro provedor com chave de API…"));
-        let Some(mut id) = self.select("Escolha o provedor".into(), options, false).await else { return false };
+        options.push(Choice::new("__outro", "Connect another provider with an API key…"));
+        let Some(mut id) = self.select("Choose the provider".into(), options, false).await else { return false };
         if id == "__outro" {
             let rest: Vec<Choice> = PROVIDERS
                 .iter()
                 .filter(|p| !here.iter().any(|h| h.id == p.id) && (p.key_var.is_some() || p.base_url.is_some() || p.id == "ollama"))
                 .map(|p| Choice::new(p.id, p.label))
                 .collect();
-            let Some(other) = self.select("Conectar provedor".into(), rest, false).await else { return false };
+            let Some(other) = self.select("Connect a provider".into(), rest, false).await else { return false };
             id = other;
         }
         let Some(info) = settings::provider(&id) else { return false };
@@ -565,7 +565,7 @@ impl Session {
         } else {
             self.save(&[("provider", Some(&id)), ("model", Some(&model))]);
         }
-        self.info(format!("Provedor: {} · modelo: {model}", info.label));
+        self.info(format!("Provider: {} · model: {model}", info.label));
         true
     }
 
@@ -574,7 +574,7 @@ impl Session {
         let Some(model) = self.pick_model(&provider, typed).await else { return false };
         self.cfg.model.clone_from(&model);
         self.save(&[("model", Some(&model))]);
-        self.info(format!("Modelo: {model}"));
+        self.info(format!("Model: {model}"));
         true
     }
 
@@ -584,13 +584,13 @@ impl Session {
         if !typed.is_empty() {
             return Some(typed.to_string());
         }
-        self.send(Out::Busy(Some("buscando os modelos disponíveis".into())));
+        self.send(Out::Busy(Some("listing the available models".into())));
         let key = settings::api_key(provider, &self.creds);
         let base = if provider == self.cfg.provider { self.cfg.base_url.clone() } else { None };
         let listed = models::list(provider, key.as_deref(), base.as_deref()).await;
         self.send(Out::Busy(None));
         let mut named = listed.unwrap_or_else(|e| {
-            self.warn(format!("não foi possível listar os modelos: {e}"));
+            self.warn(format!("could not list the models: {e}"));
             Vec::new()
         });
         if provider == "anthropic" && named.is_empty() {
@@ -599,7 +599,7 @@ impl Session {
         let labels: std::collections::HashMap<String, String> = named.iter().cloned().collect();
         let mut ids: Vec<String> = named.into_iter().map(|(id, _)| id).collect();
         if provider == "ollama" && ids.is_empty() {
-            self.info("Nenhum modelo local encontrado. Para instalar um: ollama pull qwen2.5:7b");
+            self.info("No local model found. To install one: ollama pull qwen2.5:7b");
         }
         // The current model first, so Enter keeps it.
         let current = (provider == self.cfg.provider).then(|| self.cfg.model.clone());
@@ -614,19 +614,19 @@ impl Session {
             .into_iter()
             .map(|id| {
                 let base = labels.get(&id).cloned().unwrap_or_else(|| id.clone());
-                let label = if Some(&id) == current.as_ref() { format!("{base} · em uso") } else { base };
+                let label = if Some(&id) == current.as_ref() { format!("{base} · in use") } else { base };
                 Choice::new(id, label)
             })
             .collect();
         let label = settings::provider(provider).map_or(provider, |p| p.label);
-        self.select(format!("Modelo · {label} · {count} disponíveis · digite para pesquisar"), options, true).await
+        self.select(format!("Model · {label} · {count} available · type to search"), options, true).await
     }
 
     async fn set_key(&mut self) -> bool {
         let id = self.cfg.provider.clone();
         match settings::provider(&id) {
             Some(p) if p.key_var.is_none() => {
-                self.info(format!("O provedor {} não usa chave de API.", p.label));
+                self.info(format!("The provider {} does not use an API key.", p.label));
                 false
             }
             _ => self.ask_key(&id).await,
@@ -635,15 +635,15 @@ impl Session {
 
     async fn ask_key(&mut self, id: &str) -> bool {
         let label = settings::provider(id).map_or(id, |p| p.label);
-        let title = format!("Chave de API · {label}");
+        let title = format!("API key · {label}");
         let Some(key) = self.ask(|reply| Question::Secret { title, reply }, None).await else { return false };
         self.creds.set(id, &key);
         match &self.dir {
             Some(dir) => match self.creds.save(dir) {
-                Ok(()) => self.info(format!("Chave salva para {label}.")),
-                Err(e) => self.warn(format!("a chave vale só nesta sessão: {e}")),
+                Ok(()) => self.info(format!("Key saved for {label}.")),
+                Err(e) => self.warn(format!("the key only lasts for this session: {e}")),
             },
-            None => self.info(format!("Chave definida para {label} nesta sessão.")),
+            None => self.info(format!("Key set for {label} for this session.")),
         }
         true
     }
@@ -657,7 +657,7 @@ impl Session {
                     Choice::new(*id, format!("{label}{current}"))
                 })
                 .collect();
-            let Some(m) = self.select("Quando pedir confirmação?".into(), options, false).await else { return false };
+            let Some(m) = self.select("When to ask for confirmation?".into(), options, false).await else { return false };
             m
         } else {
             typed.to_string()
@@ -670,39 +670,39 @@ impl Session {
         }
         self.cfg = next;
         self.save(&[("approval_mode", Some(&mode))]);
-        self.info(format!("Aprovação: {}", approval_label(&mode)));
+        self.info(format!("Approval: {}", approval_label(&mode)));
         true
     }
 
     async fn update(&self) {
-        self.send(Out::Busy(Some("procurando uma nova versão".into())));
+        self.send(Out::Busy(Some("looking for a new version".into())));
         let result = update::self_update().await;
         self.send(Out::Busy(None));
         match result {
             Ok(msg) => {
                 self.info(&msg);
                 if msg.starts_with("CodeTurbo atualizado") {
-                    self.info("Feche e abra o CodeTurbo para usar a nova versão.");
+                    self.info("Close and reopen CodeTurbo to use the new version.");
                 }
             }
-            Err(e) => self.warn(format!("não foi possível atualizar: {e}")),
+            Err(e) => self.warn(format!("could not update: {e}")),
         }
     }
 
     fn help(&self) {
-        let mut lines = vec![Line::default(), Line::styled("Comandos", Style::new().add_modifier(Modifier::BOLD))];
+        let mut lines = vec![Line::default(), Line::styled("Commands", Style::new().add_modifier(Modifier::BOLD))];
         lines.extend(COMMANDS.iter().map(|c| Line::raw(format!("  {:<12} {}", c.name, c.about))));
         lines.push(Line::default());
-        lines.push(Line::styled("Atalhos", Style::new().add_modifier(Modifier::BOLD)));
+        lines.push(Line::styled("Shortcuts", Style::new().add_modifier(Modifier::BOLD)));
         for (keys, what) in [
-            ("Enter", "envia a mensagem"),
-            ("Shift+Enter", "quebra a linha"),
-            ("↑ ↓", "rolam a conversa"),
-            ("PageUp PageDown", "rolam uma página"),
-            ("Ctrl+↑ Ctrl+↓", "mensagens anteriores"),
-            ("Tab", "completa o comando"),
-            ("Esc", "interrompe a tarefa em andamento"),
-            ("Ctrl+C", "interrompe; com o campo vazio, encerra"),
+            ("Enter", "sends the message"),
+            ("Shift+Enter", "new line"),
+            ("↑ ↓", "scroll the conversation"),
+            ("PageUp PageDown", "scroll a page"),
+            ("Ctrl+↑ Ctrl+↓", "previous messages"),
+            ("Tab", "completes the command"),
+            ("Esc", "interrupts the running task"),
+            ("Ctrl+C", "interrupts; quits when the box is empty"),
         ] {
             lines.push(Line::raw(format!("  {keys:<16} {what}")));
         }

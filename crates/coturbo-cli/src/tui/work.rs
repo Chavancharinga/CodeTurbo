@@ -166,7 +166,7 @@ fn stage_line(row: &StageRow, width: usize, bar_w: usize, now: Instant, ms: u128
         }
     }
     let pct = match row.state {
-        StageState::Failed => " FALHA".to_string(),
+        StageState::Failed => " FAILED".to_string(),
         _ => format!(" {:>3}%", (frac * 100.0).round() as u32),
     };
     spans.push(Span::styled(pct, Style::new().fg(base)));
@@ -187,7 +187,7 @@ fn task_lines(tasks: &[TaskItem], width: usize, ms: u128) -> Vec<Line<'static>> 
     let done = tasks.iter().filter(|t| t.state == TaskState::Done).count();
     let mut out = vec![Line::from(vec![
         Span::raw("  "),
-        Span::styled("TAREFAS", Style::new().fg(SOFT).add_modifier(Modifier::BOLD)),
+        Span::styled("TASKS", Style::new().fg(SOFT).add_modifier(Modifier::BOLD)),
         Span::styled(format!("  {done}/{}", tasks.len()), Style::new().fg(DIM)),
     ])];
     // With many steps, the window follows the one in progress.
@@ -216,7 +216,7 @@ fn task_lines(tasks: &[TaskItem], width: usize, ms: u128) -> Vec<Line<'static>> 
     }
     let hidden = tasks.len().saturating_sub(MAX_TASKS);
     if hidden > 0 {
-        out.push(Line::styled(format!("      … e mais {hidden}"), Style::new().fg(DIM)));
+        out.push(Line::styled(format!("      … and {hidden} more"), Style::new().fg(DIM)));
     }
     out
 }

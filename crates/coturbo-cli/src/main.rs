@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 #[derive(Parser)]
-#[command(name = "codeturbo", version, about = "Agente de código que entrega código verificado gastando menos tokens. Sem subcomando, abre a interface.", disable_help_subcommand = true)]
+#[command(name = "codeturbo", version, about = "A coding agent that delivers verified code for fewer tokens. With no subcommand it opens the interface.", disable_help_subcommand = true)]
 struct Cli {
     /// Tarefa enviada assim que a interface abre.
     prompt: Option<String>,
@@ -120,7 +120,7 @@ async fn main() -> ExitCode {
     match real_main(cli).await {
         Ok(code) => code,
         Err(e) => {
-            eprintln!("erro: {e}");
+            eprintln!("error: {e}");
             ExitCode::FAILURE
         }
     }
@@ -169,7 +169,7 @@ async fn real_main(cli: Cli) -> Result<ExitCode, String> {
     };
     if cli.cmd.is_none() {
         if !(std::io::stdin().is_terminal() && std::io::stdout().is_terminal()) {
-            return Err("a interface precisa de um terminal; para uma tarefa sem interface use: codeturbo run \"...\"".into());
+            return Err("the interface needs a terminal; for a task without it use: codeturbo run \"...\"".into());
         }
         let (plan, verbose, prompt) = (cli.opts.plan, cli.opts.verbose, cli.prompt);
         return session::run(Launch { cfg, prices, dir, root, mode, plan, verbose, prompt, update: check }).await;
@@ -180,16 +180,16 @@ async fn real_main(cli: Cli) -> Result<ExitCode, String> {
             let interactive = std::io::stdin().is_terminal();
             if !interactive {
                 return Err(format!(
-                    "a pasta {} ainda não foi autorizada; abra `codeturbo` nela uma vez para confiar",
+                    "the folder {} is not trusted yet; open `codeturbo` in it once to trust it",
                     root.display()
                 ));
             }
-            eprintln!("Primeira vez nesta pasta: {}", root.display());
-            eprint!("O CodeTurbo vai ler, alterar arquivos e rodar comandos aqui. Confiar nesta pasta? [s/N] ");
+            eprintln!("First time in this folder: {}", root.display());
+            eprint!("CodeTurbo will read, change files and run commands here. Trust this folder? [y/N] ");
             let mut answer = String::new();
             let _ = std::io::stdin().read_line(&mut answer);
             if !matches!(answer.trim().to_lowercase().as_str(), "s" | "sim" | "y" | "yes") {
-                return Err("pasta não autorizada".into());
+                return Err("folder not trusted".into());
             }
             trust.add(dir.as_deref(), &root)?;
         }
@@ -212,7 +212,7 @@ async fn real_main(cli: Cli) -> Result<ExitCode, String> {
             cfg.verify = project.verify.or(cfg.verify);
             cfg.run = project.run.or(cfg.run);
         } else {
-            eprintln!("  ! comandos do .codeturbo.toml ignorados (não autorizados)");
+            eprintln!("  ! commands from .codeturbo.toml ignored (not allowed)");
         }
     }
 
@@ -241,7 +241,7 @@ async fn real_main(cli: Cli) -> Result<ExitCode, String> {
                 tasks.retain(|t| t.id.contains(f.as_str()));
             }
             if tasks.is_empty() {
-                return Err("nenhuma tarefa para executar".into());
+                return Err("no task to run".into());
             }
             // Bench runs unattended in throwaway copies of the fixture.
             let acfg = AgentConfig { approval: ApprovalConfig::yolo(), ..agent_config(&cfg)? };

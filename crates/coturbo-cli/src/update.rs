@@ -61,7 +61,7 @@ pub async fn latest_tag() -> Result<String, String> {
         return Err(format!("o GitHub respondeu {}", resp.status()));
     }
     let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-    v["tag_name"].as_str().map(str::to_string).ok_or_else(|| "a versão publicada não tem tag".into())
+    v["tag_name"].as_str().map(str::to_string).ok_or_else(|| "the published release has no tag".into())
 }
 
 fn now_secs() -> u64 {
@@ -103,7 +103,7 @@ pub async fn check_now(cache_dir: Option<PathBuf>) -> Option<String> {
 }
 
 pub fn notice(tag: &str) -> String {
-    format!("Nova versão do CodeTurbo disponível: {tag} (instalada: v{VERSION}). Para atualizar, execute `codeturbo update`.")
+    format!("A new CodeTurbo version is available: {tag} (installed: v{VERSION}). To update, run `codeturbo update`.")
 }
 
 /// The `codeturbo` executable inside a release `.tar.gz`.
@@ -119,7 +119,7 @@ pub fn extract_binary(archive: &[u8]) -> Result<Vec<u8>, String> {
             return Ok(bytes);
         }
     }
-    Err(format!("{exe} não encontrado no pacote da versão"))
+    Err(format!("{exe} not found in the release package"))
 }
 
 /// Where the previous binary is parked during an update.
@@ -162,9 +162,9 @@ pub fn cleanup_old_binary() {
 pub async fn self_update() -> Result<String, String> {
     let tag = latest_tag().await?;
     if !is_newer(&tag, VERSION) {
-        return Ok(format!("O CodeTurbo já está na versão mais recente (v{VERSION})."));
+        return Ok(format!("CodeTurbo is already up to date (v{VERSION})."));
     }
-    let asset = asset_name().ok_or("não há executável pronto para esta plataforma; atualize com cargo install")?;
+    let asset = asset_name().ok_or("there is no ready executable for this platform; update with cargo install")?;
     let url = format!("https://github.com/{REPO}/releases/download/{tag}/{asset}");
     let resp = client()?.get(&url).send().await.map_err(|e| e.to_string())?;
     if !resp.status().is_success() {

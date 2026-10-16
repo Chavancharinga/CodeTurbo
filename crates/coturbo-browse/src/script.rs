@@ -40,10 +40,10 @@ return JSON.stringify({url:location.href,title:document.title,items,scrollY:Math
 
 /// The snapshot as the lines the agent reads (`@e7 button "Add to cart"`).
 pub fn describe_snapshot(v: &Value) -> String {
-    let mut out = format!("página {} — \"{}\"", v["url"].as_str().unwrap_or(""), v["title"].as_str().unwrap_or(""));
+    let mut out = format!("page {} — \"{}\"", v["url"].as_str().unwrap_or(""), v["title"].as_str().unwrap_or(""));
     let items = v["items"].as_array().cloned().unwrap_or_default();
     if items.is_empty() {
-        out.push_str("\n(nada clicável nesta tela)");
+        out.push_str("\n(nothing clickable on this screen)");
     }
     for it in &items {
         let kind = match (it["tag"].as_str().unwrap_or(""), it["type"].as_str().unwrap_or(""), it["role"].as_str().unwrap_or("")) {
@@ -67,7 +67,7 @@ pub fn describe_snapshot(v: &Value) -> String {
     }
     let (y, h, vh) = (v["scrollY"].as_u64().unwrap_or(0), v["height"].as_u64().unwrap_or(0), v["vh"].as_u64().unwrap_or(0));
     if h > vh + 8 {
-        out.push_str(&format!("\n(a página tem {h}px de altura; esta tela mostra de {y}px a {}px)", y + vh));
+        out.push_str(&format!("\n(the page is {h}px tall; this screen shows {y}px to {}px)", y + vh));
     }
     out
 }
@@ -77,7 +77,7 @@ pub fn describe_snapshot(v: &Value) -> String {
 pub fn prepare(target: &Value, focus: bool) -> String {
     let focus = if focus { "e.focus();" } else { "" };
     format!(
-        r#"const T={};const e=find(T);if(!e)return JSON.stringify({{error:'não achei '+JSON.stringify(T)+' na página'}});
+        r#"const T={};const e=find(T);if(!e)return JSON.stringify({{error:'could not find '+JSON.stringify(T)+' on the page'}});
 e.scrollIntoView({{block:'center',inline:'center'}});{focus}
 const r=e.getBoundingClientRect();const x=r.left+r.width/2,y=r.top+r.height/2;const top=document.elementFromPoint(x,y);
 const hit=top&&(top===e||e.contains(top)||top.contains(e));

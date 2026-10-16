@@ -392,7 +392,7 @@ async fn browse_drives_a_page_shows_every_step_and_stays_in_the_project() {
     assert!(outside.is_error && outside.content.contains("dentro do projeto"), "{outside:?}");
     // Bad input is explained.
     let bad = t.call("browse", &json!({"actions": [{"do": "click"}]})).await;
-    assert!(bad.is_error && bad.content.contains("ação 1"), "{bad:?}");
+    assert!(bad.is_error && bad.content.contains("action 1"), "{bad:?}");
     if coturbo_design::render::find_browser().is_none() {
         return;
     }
@@ -432,6 +432,6 @@ async fn browse_keeps_the_page_between_calls_until_the_session_ends() {
     // The session ends: the browser goes with it, and the next one starts blank.
     t.shutdown().await;
     let third = t.call("browse", &json!({"actions": [{"do": "click", "text": "Dizer"}]})).await;
-    assert!(third.content.contains("ERRO: não achei"), "a new browser starts on a blank page: {third:?}");
+    assert!(third.content.contains("ERROR: could not find"), "a new browser starts on a blank page: {third:?}");
     t.shutdown().await;
 }

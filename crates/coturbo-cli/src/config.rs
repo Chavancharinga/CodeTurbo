@@ -212,7 +212,7 @@ pub fn mode_name(m: Mode) -> &'static str {
 /// [`crate::settings::api_key`]).
 pub fn make_provider(cfg: &Config, key: Option<String>) -> Result<Box<dyn Provider>, String> {
     let need = |var: &str| {
-        key.clone().ok_or_else(|| format!("falta a chave de API: use /chave na interface ou defina {var}"))
+        key.clone().ok_or_else(|| format!("the API key is missing: use /key in the interface or set {var}"))
     };
     Ok(match cfg.provider.as_str() {
         "anthropic" => {
@@ -246,13 +246,13 @@ pub fn make_provider(cfg: &Config, key: Option<String>) -> Result<Box<dyn Provid
             };
             if !installed(tool) {
                 return Err(format!(
-                    "o programa `{}` não está instalado; instale a ferramenta oficial e faça login nela para usar o seu plano",
+                    "the program `{}` is not installed; install the official tool and sign in to it to use your plan",
                     tool.program()
                 ));
             }
             Box::new(CliProvider::new(tool))
         }
-        p => return Err(format!("provedor desconhecido: `{p}` (anthropic, openai, gemini, openrouter, groq, deepseek, mistral, xai, together, lmstudio, ollama, claude-code, codex)")),
+        p => return Err(format!("unknown provider: `{p}` (anthropic, openai, gemini, openrouter, groq, deepseek, mistral, xai, together, lmstudio, ollama, claude-code, codex)")),
     })
 }
 

@@ -62,13 +62,13 @@ fn target(a: &Value) -> Result<Target, String> {
     if let Some(l) = a["label"].as_str().filter(|s| !s.trim().is_empty()) {
         return Ok(Target::Text(l.trim().to_string()));
     }
-    Err("diga o alvo: ref (do snapshot), text (o texto visível) ou selector (CSS)".into())
+    Err("name the target: ref (from the snapshot), text (the visible text) or selector (CSS)".into())
 }
 
 impl Action {
     /// One action from its JSON (`{"do": "click", "text": "Preços"}`).
     pub fn parse(a: &Value) -> Result<Action, String> {
-        let kind = a["do"].as_str().or_else(|| a["action"].as_str()).ok_or("cada ação precisa de \"do\"")?;
+        let kind = a["do"].as_str().or_else(|| a["action"].as_str()).ok_or("every action needs \"do\"")?;
         Ok(match kind {
             "open" | "goto" | "navigate" => Action::Open(a["url"].as_str().filter(|u| !u.trim().is_empty()).ok_or("open precisa de url")?.trim().to_string()),
             "snapshot" | "map" => Action::Snapshot,
@@ -92,33 +92,33 @@ impl Action {
             ),
             "text" | "read" => Action::Text(target(a).ok()),
             "shot" | "screenshot" => Action::Shot,
-            other => return Err(format!("ação desconhecida: {other}")),
+            other => return Err(format!("unknown action: {other}")),
         })
     }
 
     /// The whole list; the error names the step that is wrong.
     pub fn parse_all(list: &Value) -> Result<Vec<Action>, String> {
-        let items = list.as_array().filter(|a| !a.is_empty()).ok_or("actions deve ser uma lista com pelo menos uma ação")?;
+        let items = list.as_array().filter(|a| !a.is_empty()).ok_or("actions must be a list with at least one action")?;
         if items.len() > 40 {
-            return Err("no máximo 40 ações por chamada".into());
+            return Err("at most 40 actions per call".into());
         }
-        items.iter().enumerate().map(|(i, a)| Action::parse(a).map_err(|e| format!("ação {}: {e}", i + 1))).collect()
+        items.iter().enumerate().map(|(i, a)| Action::parse(a).map_err(|e| format!("action {}: {e}", i + 1))).collect()
     }
 
     /// A short phrase for the mini window's caption.
     pub fn caption(&self) -> String {
         match self {
-            Action::Open(u) => format!("abrindo {u}"),
-            Action::Snapshot => "lendo a página".into(),
-            Action::Click(t) => format!("clicando {}", t.describe()),
-            Action::Fill(t, v) => format!("preenchendo {} com \"{v}\"", t.describe()),
+            Action::Open(u) => format!("opening {u}"),
+            Action::Snapshot => "reading the page".into(),
+            Action::Click(t) => format!("clicking {}", t.describe()),
+            Action::Fill(t, v) => format!("filling {} with \"{v}\"", t.describe()),
             Action::Press(k) => format!("tecla {k}"),
-            Action::Scroll(y) => format!("rolando {y}px"),
-            Action::Wait(ms) => format!("esperando {ms} ms"),
-            Action::Back => "voltando".into(),
-            Action::Viewport(w, h) => format!("janela {w}×{h}"),
-            Action::Text(_) => "lendo o texto".into(),
-            Action::Shot => "foto da página".into(),
+            Action::Scroll(y) => format!("scrolling {y}px"),
+            Action::Wait(ms) => format!("waiting {ms} ms"),
+            Action::Back => "going back".into(),
+            Action::Viewport(w, h) => format!("window {w}×{h}"),
+            Action::Text(_) => "reading the text".into(),
+            Action::Shot => "page photo".into(),
         }
     }
 }

@@ -46,16 +46,16 @@ pub fn elapsed(d: std::time::Duration) -> String {
 /// How a task ended, with the verification result.
 pub fn stop_note(report: &TaskReport) -> String {
     let turns = report.turns;
-    let rounds = if turns == 1 { "1 rodada".to_string() } else { format!("{turns} rodadas") };
+    let rounds = if turns == 1 { "1 round".to_string() } else { format!("{turns} rounds") };
     let stop = match report.stop {
-        Stop::Done => format!("concluído em {rounds}"),
-        Stop::MaxTurns => format!("interrompido: limite de rodadas atingido ({turns})"),
-        Stop::Refused => "interrompido: o modelo recusou".into(),
-        Stop::PlanSaved => "plano salvo, nada foi implementado".into(),
+        Stop::Done => format!("done in {rounds}"),
+        Stop::MaxTurns => format!("stopped: round limit reached ({turns})"),
+        Stop::Refused => "stopped: the model refused".into(),
+        Stop::PlanSaved => "plan saved, nothing was implemented".into(),
     };
     match report.verified {
-        Some(true) => format!("{stop} · \x1b[32m✓ verificado\x1b[0m"),
-        Some(false) => format!("{stop} · \x1b[31m✗ NÃO verificado\x1b[0m"),
+        Some(true) => format!("{stop} · \x1b[32m✓ verified\x1b[0m"),
+        Some(false) => format!("{stop} · \x1b[31m✗ NOT verified\x1b[0m"),
         None => stop,
     }
 }

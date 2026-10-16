@@ -90,7 +90,7 @@ fn actions_are_read_from_json() {
     assert_eq!(a[9], Action::Text(Some(Target::Selector("#out".into()))));
     assert_eq!(a[10], Action::Viewport(390, 844));
     assert_eq!(a[12], Action::Wait(10_000), "a wait is capped");
-    for (bad, why) in [(json!([]), "pelo menos uma"), (json!([{"do": "click"}]), "alvo"), (json!([{"do": "voar"}]), "desconhecida"), (json!([{"do": "fill", "selector": "#a"}]), "value"), (json!([{"x": 1}]), "do")] {
+    for (bad, why) in [(json!([]), "at least one"), (json!([{"do": "click"}]), "target"), (json!([{"do": "voar"}]), "unknown"), (json!([{"do": "fill", "selector": "#a"}]), "value"), (json!([{"x": 1}]), "do")] {
         let e = Action::parse_all(&bad).unwrap_err();
         assert!(e.contains(why), "{bad}: {e}");
     }
@@ -117,31 +117,31 @@ async fn it_navigates_the_menu_fills_the_form_and_sees_what_is_wrong() {
     let Some((r, frames)) = browse(dir.path(), actions).await else { return };
     let log = r.log.join("\n");
     // It opened the page and listed the menu with references.
-    assert!(log.contains("abriu file:///") && log.contains("Loja da Ana"), "{log}");
+    assert!(log.contains("opened file:///") && log.contains("Loja da Ana"), "{log}");
     assert!(log.contains("link \"Sobre\" → about.html") && log.contains("link \"Contato\" → #contato"), "{log}");
     assert!(log.contains("input \"Seu nome\"") || log.contains("Seu nome"), "{log}");
     // The menu works: it went to the other page, read it, and came back.
-    assert!(log.contains("clicou em \"Sobre\" → file:///") && log.contains("about.html") && log.contains("Sobre nós"), "{log}");
+    assert!(log.contains("clicked \"Sobre\" → file:///") && log.contains("about.html") && log.contains("Sobre nós"), "{log}");
     assert!(log.contains("Uma loja pequena."), "{log}");
-    assert!(log.contains("voltou para file:///") && log.contains("index.html"), "{log}");
+    assert!(log.contains("went back to file:///") && log.contains("index.html"), "{log}");
     // A button and a form behave.
-    assert!(log.contains("clicou em \"Comprar\""), "{log}");
-    assert!(log.contains("preencheu #nome com \"Maria\""), "{log}");
+    assert!(log.contains("clicked \"Comprar\""), "{log}");
+    assert!(log.contains("filled #nome with \"Maria\""), "{log}");
     assert!(log.contains("Olá, Maria"), "{log}");
     // What a person would notice.
     let problems = r.problems.join("\n");
     assert!(problems.contains("console.error: falhou ao carregar o carrinho"), "{problems}");
     assert!(problems.contains("nao-existe.png"), "{problems}");
-    assert!(problems.contains("\"Newsletter\" cai em <div#banner>"), "the cookie banner sits on the button: {problems}");
+    assert!(problems.contains("\"Newsletter\" lands on <div#banner>"), "the cookie banner sits on the button: {problems}");
     // A button that is not there ends the session with the reason.
-    assert!(log.contains("ERRO: não achei {\"text\":\"não existe esse botão\"} na página"), "{log}");
+    assert!(log.contains("ERROR: could not find {\"text\":\"não existe esse botão\"} on the page"), "{log}");
     assert!(!log.contains("\n12."), "nothing runs after the failure: {log}");
     // The mini window gets a picture after every step, with the pointer.
     assert!(frames.len() >= 10, "{} frames", frames.len());
     assert!(frames.iter().all(|f| f.png.starts_with(&[0x89, b'P', b'N', b'G']) && f.size == (1000, 650)));
     let clicks: Vec<&Frame> = frames.iter().filter(|f| f.clicked).collect();
     assert!(clicks.len() >= 3 && clicks.iter().all(|f| f.cursor.is_some()), "pointer on every click");
-    let moving: Vec<&Frame> = frames.iter().filter(|f| !f.clicked && f.cursor.is_some() && f.caption.starts_with("clicando")).collect();
+    let moving: Vec<&Frame> = frames.iter().filter(|f| !f.clicked && f.cursor.is_some() && f.caption.starts_with("clicking")).collect();
     assert!(!moving.is_empty(), "the pointer is shown arriving before it clicks");
     let sobre = frames.iter().find(|f| f.caption.contains("Sobre") && f.clicked).unwrap();
     assert!(sobre.url.ends_with("about.html") && sobre.title == "Sobre nós", "{}", sobre.url);
@@ -168,10 +168,10 @@ async fn it_uses_references_scrolls_and_resizes_for_a_phone() {
     ];
     let (r, frames) = browse(dir.path(), actions).await.unwrap();
     let log = r.log.join("\n");
-    assert!(log.contains("janela em 390×844"), "{log}");
-    assert!(log.contains("clicou em \"Contato\""), "{log}");
-    assert!(log.contains("rolou até"), "{log}");
-    assert!(log.contains("apertou Tab"), "{log}");
+    assert!(log.contains("window at 390×844"), "{log}");
+    assert!(log.contains("clicked \"Contato\""), "{log}");
+    assert!(log.contains("scrolled to"), "{log}");
+    assert!(log.contains("pressed Tab"), "{log}");
     assert!(frames.iter().any(|f| f.size == (390, 844)), "the phone frames carry their size");
     assert_eq!(r.shots.len(), 1, "the photo asked for is the last state, so the same picture is not kept twice");
 }
@@ -184,15 +184,15 @@ async fn the_browser_stays_open_between_calls_with_the_page_as_it_was() {
     let mut frames = Vec::new();
     // First call: open the page and fill the form, without sending it.
     let first = browser.run(dir.path(), &[Action::Open("index.html".into()), Action::Fill(Target::Selector("#nome".into()), "Joana".into())], &mut |f| frames.push(f)).await.unwrap();
-    assert!(first.log.join("\n").contains("preencheu #nome com \"Joana\""), "{:?}", first.log);
+    assert!(first.log.join("\n").contains("filled #nome with \"Joana\""), "{:?}", first.log);
     // Second call, no open: the page is still there with what was typed, so sending works.
     let second = browser.run(dir.path(), &[Action::Click(Target::Text("Enviar".into())), Action::Text(Some(Target::Selector("#out".into())))], &mut |f| frames.push(f)).await.unwrap();
     let log = second.log.join("\n");
-    assert!(log.contains("clicou em \"Enviar\"") && log.contains("Olá, Joana"), "the second call continued the first: {log}");
+    assert!(log.contains("clicked \"Enviar\"") && log.contains("Olá, Joana"), "the second call continued the first: {log}");
     // And a third call sees the scroll and the page, not a blank one.
     let third = browser.run(dir.path(), &[Action::Scroll(300), Action::Snapshot], &mut |f| frames.push(f)).await.unwrap();
     let log = third.log.join("\n");
-    assert!(log.contains("rolou até") && log.contains("Loja da Ana") && log.contains("link \"Sobre\""), "{log}");
+    assert!(log.contains("scrolled to") && log.contains("Loja da Ana") && log.contains("link \"Sobre\""), "{log}");
     // Findings are per call: the console error of the page load is reported once, not again.
     assert!(first.problems.iter().any(|p| p.contains("falhou ao carregar o carrinho")), "{:?}", first.problems);
     assert!(!second.problems.iter().any(|p| p.contains("falhou ao carregar o carrinho")), "{:?}", second.problems);

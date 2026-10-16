@@ -32,7 +32,7 @@ fn commands_parse_in_portuguese_and_english() {
     assert_eq!(commands::parse("crie um site"), Parsed::Task);
     assert_eq!(commands::parse("/"), Parsed::Task);
     let names: Vec<_> = commands::suggestions("/mo").iter().map(|c| c.name).collect();
-    assert_eq!(names, ["/modelo"]);
+    assert_eq!(names, ["/model"]);
     assert_eq!(commands::suggestions("/").len(), commands::COMMANDS.len());
     assert!(commands::suggestions("/modelo x").is_empty(), "no list once arguments start");
     assert!(commands::suggestions("texto").is_empty());
@@ -183,7 +183,7 @@ fn model_lists_of_each_provider() {
     let or = json!({"data": [{"id": "x/free:free", "name": "X Free", "context_length": 128000}, {"id": "a/b", "name": "A B"}]});
     let named = coturbo_cli::models::parse_named("openrouter", &or);
     assert_eq!(named[0], ("a/b".into(), "a/b · A B".into()));
-    assert_eq!(named[1].1, "x/free:free · X Free · 128k de contexto · grátis");
+    assert_eq!(named[1].1, "x/free:free · X Free · 128k context · free");
 }
 
 fn key(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
@@ -202,7 +202,7 @@ fn harness() -> Harness {
     let status = Status {
         provider: "anthropic".into(),
         model: "claude-sonnet-5-5".into(),
-        approval: "edição livre".into(),
+        approval: "auto-edit".into(),
         ..Status::default()
     };
     Harness { app: App::new(status, tx, ctx, Arc::new(AtomicBool::new(false))), rx, cancel }
@@ -259,10 +259,10 @@ fn a_partly_typed_command_runs_the_suggestion() {
     let mut h = harness();
     h.typed("/mod");
     h.press(KeyCode::Enter);
-    assert_eq!(h.rx.try_recv().unwrap(), In::Submit("/modelo".into()));
+    assert_eq!(h.rx.try_recv().unwrap(), In::Submit("/model".into()));
     h.typed("/pro");
     h.press(KeyCode::Tab);
-    assert_eq!(h.app.input().text(), "/provedor ");
+    assert_eq!(h.app.input().text(), "/provider ");
     h.ctrl('c');
     assert!(h.app.input().is_empty(), "Ctrl+C clears the box first");
     h.typed("/sair");
@@ -284,7 +284,7 @@ fn esc_and_ctrl_c_interrupt_a_running_task() {
     h.press(KeyCode::Enter);
     assert_eq!(h.rx.try_recv().unwrap(), In::Submit("próxima".into()));
     let shown: Vec<String> = h.app.transcript().lines().iter().map(plain).collect();
-    assert!(shown.iter().any(|l| l.contains("na fila")), "{shown:?}");
+    assert!(shown.iter().any(|l| l.contains("queued")), "{shown:?}");
     h.app.apply(Out::Busy(None));
     h.ctrl('c');
     assert_eq!(h.rx.try_recv().unwrap(), In::Quit, "idle with an empty box: quit");
@@ -397,8 +397,8 @@ fn the_screen_draws_logo_conversation_box_and_status() {
         (0..buf.area.height).map(|y| (0..buf.area.width).map(|x| buf[(x, y)].symbol().to_string()).collect()).collect();
     let all = rows.join("\n");
     assert!(all.contains("olá do CodeTurbo"), "{all}");
-    assert!(all.contains("Descreva a tarefa"), "placeholder in the empty box");
-    assert!(rows.last().unwrap().contains("anthropic · claude-sonnet-5-5 · edição livre"), "{}", rows.last().unwrap());
+    assert!(all.contains("Describe the task"), "placeholder in the empty box");
+    assert!(rows.last().unwrap().contains("anthropic · claude-sonnet-5-5 · auto-edit"), "{}", rows.last().unwrap());
     assert!(rows.last().unwrap().contains("contexto 12%"));
     // The logo is drawn in half blocks, in the brand colours: the idle snail is white, the name blue and white.
     let (blue, white) = (Color::Rgb(47, 123, 255), Color::Rgb(225, 232, 245));
@@ -415,7 +415,7 @@ fn the_screen_draws_logo_conversation_box_and_status() {
     let all: String = (0..buf.area.height)
         .map(|y| (0..buf.area.width).map(|x| buf[(x, y)].symbol().to_string()).collect::<String>() + "\n")
         .collect();
-    assert!(all.contains("/provedor") && all.contains("escolher o modelo"), "{all}");
+    assert!(all.contains("/provider") && all.contains("choose the model"), "{all}");
 
     // A narrow terminal falls back to the plain name.
     h.ctrl('c');
@@ -453,7 +453,7 @@ fn long_code_is_folded_until_ctrl_b() {
     let long: String = (0..40).map(|i| format!("+linha {i}\n")).collect();
     let Out::Fold { preview, full } = diff_fold(&format!("@@ -0,0 +1,40 @@\n{long}"), 80) else { panic!("folded") };
     assert_eq!(preview.len(), PREVIEW_ROWS + 1);
-    assert!(plain(preview.last().unwrap()).contains("mais 30 linhas · clique ou Ctrl+B"));
+    assert!(plain(preview.last().unwrap()).contains("30 more lines · click or Ctrl+B"));
     assert_eq!(full.len(), 41, "every line, nothing capped");
     let short = diff_fold("@@ -3,1 +3,1 @@\n-velho\n+novo\n", 80);
     assert!(matches!(short, Out::Lines(ref l) if l.len() == 2), "a small fix is shown whole");
@@ -539,13 +539,13 @@ fn the_footer_shows_the_folder_next_to_the_model() {
     h.app.apply(Out::Status(Status {
         provider: "claude-code".into(),
         model: "haiku".into(),
-        approval: "edição livre".into(),
+        approval: "auto-edit".into(),
         folder: r"C:\Users\danie\Music\CoTurbon".into(),
         ..Status::default()
     }));
     let rows = screen_rows(&mut h, 110, 30);
     let last = rows.last().unwrap();
-    assert!(last.contains(r"claude-code · haiku · edição livre · C:\Users\danie\Music\CoTurbon"), "{last}");
+    assert!(last.contains(r"claude-code · haiku · auto-edit · C:\Users\danie\Music\CoTurbon"), "{last}");
 }
 
 #[test]
@@ -554,7 +554,7 @@ fn a_long_folder_is_cut_to_its_last_three_folders() {
     h.app.apply(Out::Status(Status {
         provider: "claude-code".into(),
         model: "haiku".into(),
-        approval: "edição livre".into(),
+        approval: "auto-edit".into(),
         usage: "tokens ↑0 ⟳0 ↓0".into(),
         folder: r"C:\Users\danie\Music\CoTurbon\sandbox\paint\src".into(),
         ..Status::default()
@@ -706,7 +706,7 @@ fn the_debugger_shows_the_exact_line_with_an_arrow_under_the_column() {
     let lines = render(&found, dir.path(), 80);
     let rows: Vec<String> = lines.iter().map(plain).collect();
     let all = rows.join("\n");
-    assert!(all.contains("DEBUGGER") && all.contains("erros nas linhas 3"), "{all}");
+    assert!(all.contains("DEBUGGER") && all.contains("errors on lines 3"), "{all}");
     assert!(all.contains("src/a.rs:3:17"), "{all}");
     let marked = rows.iter().position(|r| r.contains('▶') && r.contains("let y = foo(;")).expect("the faulty line is marked");
     // The arrow sits under column 17, right on the `;`, and carries the message.
@@ -750,7 +750,7 @@ fn stages_fill_while_they_run_and_turn_green_or_red() {
     w.apply(StageUpdate::new("TEST", StageState::Failed, "2 erros"), t0 + Duration::from_secs(6));
     let rows: Vec<String> = w.lines(100, t0 + Duration::from_secs(6), 0).iter().map(plain).collect();
     assert!(rows[0].contains('✓') && rows[0].contains("CLIPPY") && rows[0].contains("100%") && rows[0].contains("4.2s"), "{rows:?}");
-    assert!(rows[1].contains('✗') && rows[1].contains("TEST") && rows[1].contains("FALHA") && rows[1].contains("2 erros"), "{rows:?}");
+    assert!(rows[1].contains('✗') && rows[1].contains("TEST") && rows[1].contains("FAILED") && rows[1].contains("2 erros"), "{rows:?}");
     assert_eq!(w.stages.len(), 2, "an update of a known stage does not add a row");
     // The panel stays a while after the work ends, then goes away.
     assert!(w.visible(false, t0 + Duration::from_secs(20)));
@@ -802,7 +802,7 @@ fn the_checklist_follows_the_model_and_keeps_the_current_step_in_view() {
     let now = Instant::now();
     w.set_tasks(items, now);
     let rows: Vec<String> = w.lines(80, now, 0).iter().map(plain).collect();
-    assert!(rows[0].contains("TAREFAS") && rows[0].contains("1/3"), "{rows:?}");
+    assert!(rows[0].contains("TASKS") && rows[0].contains("1/3"), "{rows:?}");
     assert!(rows[1].contains('✓') && rows[1].contains("criar o projeto"));
     assert!(rows[2].contains("escrever os testes") && !rows[2].contains('✓') && !rows[2].contains('○'), "the current one is animated: {}", rows[2]);
     assert!(rows[3].contains('○') && rows[3].contains("rodar a verificação"));
@@ -812,13 +812,13 @@ fn the_checklist_follows_the_model_and_keeps_the_current_step_in_view() {
         .collect();
     w.set_tasks(many, now);
     let all = w.lines(80, now, 0).iter().map(plain).collect::<Vec<_>>().join("\n");
-    assert!(all.contains("passo 10") && all.contains("10/15") && all.contains("e mais 8"), "{all}");
+    assert!(all.contains("passo 10") && all.contains("10/15") && all.contains("and 8 more"), "{all}");
 }
 
 #[test]
 fn edit_checks_become_a_stage_result() {
     use coturbo_cli::tui::host::edit_check;
-    assert_eq!(edit_check("wrote a.rs\ncheck a.rs: clean"), Some((true, "sem problemas".into())));
+    assert_eq!(edit_check("wrote a.rs\ncheck a.rs: clean"), Some((true, "no problems".into())));
     let (ok, note) = edit_check("wrote a.rs\ncheck a.rs: 2 error(s), 1 warning(s)\nerror a.rs:1:1: x").unwrap();
     assert!(!ok && note == "2 error(s), 1 warning(s)", "{note}");
     assert_eq!(edit_check("wrote a.rs"), None);
@@ -837,13 +837,13 @@ fn the_bars_and_the_checklist_are_drawn_above_the_text_box() {
     ]));
     let rows = screen_rows(&mut h, 100, 34);
     let at = |needle: &str| rows.iter().position(|r| r.contains(needle)).unwrap_or_else(|| panic!("{needle} not on screen:\n{}", rows.join("\n")));
-    let (write, clippy, tasks, input) = (at("WRITE"), at("CLIPPY"), at("TAREFAS"), at("Descreva a tarefa"));
+    let (write, clippy, tasks, input) = (at("WRITE"), at("CLIPPY"), at("TASKS"), at("Describe the task"));
     assert!(write < clippy && clippy < tasks && tasks < input, "bars, then checklist, then the text box");
     assert!(rows[write].contains("100%") && rows[write].contains("src/main.rs"));
     // A new job clears them.
     h.app.apply(Out::ClearWork);
     let joined = screen_rows(&mut h, 100, 34).join("\n");
-    assert!(!joined.contains("WRITE") && !joined.contains("TAREFAS"));
+    assert!(!joined.contains("WRITE") && !joined.contains("TASKS"));
     // Small terminals do without the panel instead of squeezing the text.
     h.app.apply(Out::Stage(StageUpdate::new("WRITE", StageState::Running, "")));
     assert!(!screen_rows(&mut h, 100, 18).join("\n").contains("WRITE"));
@@ -856,7 +856,7 @@ fn the_folder_never_touches_the_usage_in_the_footer() {
         h.app.apply(Out::Status(Status {
             provider: "claude-code".into(),
             model: "sonnet".into(),
-            approval: "edição livre".into(),
+            approval: "auto-edit".into(),
             usage: "tokens ↑12.4k ⟳8.1k ↓2.2k".into(),
             folder: r"C:\Users\danie\Music\CoTurbon\sandbox\contador".into(),
             ..Status::default()
@@ -1149,13 +1149,13 @@ fn esc_closes_the_mini_browser_when_nothing_is_running() {
     let mut h = harness();
     h.app.apply(Out::Browser(browser_frame(Some((100.0, 80.0)), false)));
     std::thread::sleep(Duration::from_millis(650));
-    assert!(screen_rows(&mut h, 130, 36).join("\n").contains("Esc fecha"), "the caption says how to close it when idle");
+    assert!(screen_rows(&mut h, 130, 36).join("\n").contains("Esc closes"), "the caption says how to close it when idle");
     // While a task runs, Esc interrupts the task and leaves the window alone.
     h.app.apply(Out::Busy(Some("think".into())));
     h.press(KeyCode::Esc);
     assert!(h.cancel.try_recv().is_ok(), "the task was interrupted");
     let working = screen_rows(&mut h, 130, 36).join("\n");
-    assert!(!working.contains("Esc fecha") && working.contains("index.html"), "no hint while it works, and the window stays");
+    assert!(!working.contains("Esc closes") && working.contains("index.html"), "no hint while it works, and the window stays");
     h.app.apply(Out::Busy(None));
     // Idle: Esc closes it, shrinking away.
     h.press(KeyCode::Esc);

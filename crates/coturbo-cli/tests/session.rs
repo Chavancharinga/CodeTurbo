@@ -181,7 +181,7 @@ async fn a_session_runs_tasks_switches_models_and_quits() {
     // The task given at launch runs first, shown as if typed.
     wait_for(&seen, "› diga olá").await;
     wait_for(&seen, "Olá do modelo.").await;
-    wait_for(&seen, "concluído em 1 rodada").await;
+    wait_for(&seen, "done in 1 round").await;
     assert!(seen.lock().unwrap().usage.contains("↑120"), "{}", seen.lock().unwrap().usage);
 
     // A request that never answers is interrupted, and the next one works.
@@ -193,26 +193,26 @@ async fn a_session_runs_tasks_switches_models_and_quits() {
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
     cancel_tx.send(()).unwrap();
-    wait_for(&seen, "tarefa interrompida").await;
+    wait_for(&seen, "task interrupted").await;
 
     // `/modelo` lists the server's models; the pick is saved.
     *pick.lock().unwrap() = Some("outro:2b".into());
-    tx.send(In::Submit("/modelo".into())).unwrap();
-    wait_for(&seen, "Modelo: outro:2b").await;
-    assert!(seen.lock().unwrap().titles.iter().any(|t| t.contains("Modelo · ") && t.contains("digite para pesquisar")));
+    tx.send(In::Submit("/model".into())).unwrap();
+    wait_for(&seen, "Model: outro:2b").await;
+    assert!(seen.lock().unwrap().titles.iter().any(|t| t.contains("Model · ") && t.contains("type to search")));
     let saved = std::fs::read_to_string(config_dir.path().join("config.toml")).unwrap();
     assert!(saved.contains("model = \"outro:2b\""), "{saved}");
 
     tx.send(In::Submit("de novo".into())).unwrap();
     for _ in 0..200 {
-        if seen.lock().unwrap().lines.iter().filter(|l| l.contains("concluído em 1 rodada")).count() == 2 {
+        if seen.lock().unwrap().lines.iter().filter(|l| l.contains("done in 1 round")).count() == 2 {
             break;
         }
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
-    let done: Vec<String> = seen.lock().unwrap().lines.iter().filter(|l| l.contains("concluído")).cloned().collect();
+    let done: Vec<String> = seen.lock().unwrap().lines.iter().filter(|l| l.contains("done in")).cloned().collect();
     assert_eq!(done.len(), 2, "{done:?}");
-    assert!(done[1].contains("s · tarefa tokens"), "shows how long it took: {}", done[1]);
+    assert!(done[1].contains("s · task tokens"), "shows how long it took: {}", done[1]);
     let before = chats.load(Ordering::SeqCst);
     tx.send(In::Submit("/repetir".into())).unwrap();
     for _ in 0..200 {
@@ -223,12 +223,12 @@ async fn a_session_runs_tasks_switches_models_and_quits() {
     }
     assert_eq!(chats.load(Ordering::SeqCst), before + 1, "/repetir runs the last task again");
     wait_for(&seen, "› de novo").await;
-    tx.send(In::Submit("/uso".into())).unwrap();
-    wait_for(&seen, "Sessão: tokens").await;
+    tx.send(In::Submit("/usage".into())).unwrap();
+    wait_for(&seen, "Session: tokens").await;
     tx.send(In::Submit("/inexistente".into())).unwrap();
-    wait_for(&seen, "comando desconhecido: /inexistente").await;
+    wait_for(&seen, "unknown command: /inexistente").await;
 
-    tx.send(In::Submit("/sair".into())).unwrap();
+    tx.send(In::Submit("/exit".into())).unwrap();
     let used = tokio::time::timeout(Duration::from_secs(5), session).await.unwrap().unwrap().unwrap();
     assert!(used.output >= 16, "both finished tasks are counted: {used:?}");
 }

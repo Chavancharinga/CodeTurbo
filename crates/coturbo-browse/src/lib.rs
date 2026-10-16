@@ -131,7 +131,7 @@ impl Session {
         let expression = script::wrap(body);
         let r = self.cdp.call("Runtime.evaluate", json!({"expression": expression, "returnByValue": true, "awaitPromise": true})).await?;
         if let Some(e) = r.get("exceptionDetails") {
-            let text = e["exception"]["description"].as_str().or_else(|| e["text"].as_str()).unwrap_or("erro no script da página");
+            let text = e["exception"]["description"].as_str().or_else(|| e["text"].as_str()).unwrap_or("error in the page script");
             return Err(text.lines().next().unwrap_or(text).to_string());
         }
         Ok(r["result"]["value"].clone())
@@ -140,7 +140,7 @@ impl Session {
     /// `eval` for a script that answers with JSON text.
     async fn eval_json(&mut self, body: &str) -> Result<Value, String> {
         let v = self.eval(body).await?;
-        serde_json::from_str(v.as_str().unwrap_or("null")).map_err(|e| format!("resposta inesperada da página: {e}"))
+        serde_json::from_str(v.as_str().unwrap_or("null")).map_err(|e| format!("unexpected answer from the page: {e}"))
     }
 
     async fn refresh_state(&mut self) {
@@ -169,8 +169,8 @@ impl Session {
                 }
                 "Runtime.exceptionThrown" => {
                     let d = &p["exceptionDetails"];
-                    let text = d["exception"]["description"].as_str().or_else(|| d["text"].as_str()).unwrap_or("exceção");
-                    add(self, format!("erro de JavaScript: {}", text.lines().next().unwrap_or(text)));
+                    let text = d["exception"]["description"].as_str().or_else(|| d["text"].as_str()).unwrap_or("exception");
+                    add(self, format!("JavaScript error: {}", text.lines().next().unwrap_or(text)));
                 }
                 "Runtime.consoleAPICalled" if p["type"] == "error" => {
                     let text: Vec<String> = p["args"].as_array().into_iter().flatten().map(|a| a["value"].as_str().map(str::to_string).or_else(|| a["description"].as_str().map(str::to_string)).unwrap_or_default()).collect();
@@ -180,7 +180,7 @@ impl Session {
                     let url = p["requestId"].as_str().and_then(|i| self.requests.get(i)).cloned().unwrap_or_default();
                     let why = p["errorText"].as_str().unwrap_or("falhou");
                     if !url.ends_with("favicon.ico") && p["canceled"] != true && !why.contains("ABORTED") {
-                        add(self, format!("não carregou: {url} ({why})"));
+                        add(self, format!("did not load: {url} ({why})"));
                     }
                 }
                 "Network.responseReceived" => {
@@ -259,10 +259,10 @@ impl Session {
         self.cdp.forget("Page.frameNavigated");
         let r = self.cdp.call("Page.navigate", json!({"url": url})).await?;
         if let Some(e) = r["errorText"].as_str() {
-            return Err(format!("não abriu {url}: {e}"));
+            return Err(format!("could not open {url}: {e}"));
         }
         if !self.cdp.wait_for("Page.loadEventFired", 20).await {
-            self.report.problems.push(format!("a página {url} demorou mais de 20 s para carregar"));
+            self.report.problems.push(format!("the page {url} took more than 20 s to load"));
         }
         self.cdp.listen(300).await;
         Ok(())
@@ -275,7 +275,7 @@ impl Session {
                 let url = resolve_url(root, u);
                 self.navigate(&url).await?;
                 self.refresh_state().await;
-                out.push(format!("abriu {} — \"{}\"", self.url, self.title));
+                out.push(format!("opened {} — \"{}\"", self.url, self.title));
                 self.frame(&a.caption(), false, on_frame).await;
             }
             Action::Snapshot => {
@@ -291,10 +291,10 @@ impl Session {
                 let (x, y) = (g["x"].as_f64().unwrap_or(0.0), g["y"].as_f64().unwrap_or(0.0));
                 let label = g["name"].as_str().unwrap_or("?").to_string();
                 if g["disabled"] == true {
-                    self.report.problems.push(format!("{} está desabilitado e não responde ao clique", t.describe()));
+                    self.report.problems.push(format!("{} is disabled and does not respond to a click", t.describe()));
                 }
                 if let Some(b) = g["blocked"].as_str().filter(|b| !b.is_empty()) {
-                    self.report.problems.push(format!("o clique em \"{label}\" cai em <{b}>: algo está por cima dele"));
+                    self.report.problems.push(format!("the click on \"{label}\" lands on <{b}>: something is covering it"));
                 }
                 // The pointer arrives first, then presses.
                 self.cursor = Some((x as f32, y as f32));
@@ -309,7 +309,7 @@ impl Session {
                 self.settle().await;
                 let before = self.url.clone();
                 self.refresh_state().await;
-                out.push(if self.url != before { format!("clicou em \"{label}\" → {} — \"{}\"", self.url, self.title) } else { format!("clicou em \"{label}\" ({})", g["tag"].as_str().unwrap_or("")) });
+                out.push(if self.url != before { format!("clicked \"{label}\" → {} — \"{}\"", self.url, self.title) } else { format!("clicked \"{label}\" ({})", g["tag"].as_str().unwrap_or("")) });
                 self.frame(&a.caption(), true, on_frame).await;
             }
             Action::Fill(t, text) => {
@@ -318,7 +318,7 @@ impl Session {
                     return Err(e.to_string());
                 }
                 if g["editable"] != true {
-                    return Err(format!("{} não aceita texto", t.describe()));
+                    return Err(format!("{} does not accept text", t.describe()));
                 }
                 let (x, y) = (g["x"].as_f64().unwrap_or(0.0), g["y"].as_f64().unwrap_or(0.0));
                 self.cursor = Some((x as f32, y as f32));
@@ -331,7 +331,7 @@ impl Session {
                 self.cdp.call("Input.insertText", json!({"text": text})).await?;
                 self.cdp.listen(120).await;
                 let value = self.eval(&script::value_of(&t.to_json())).await?;
-                out.push(format!("preencheu {} com \"{}\"", t.describe(), value.as_str().unwrap_or(text)));
+                out.push(format!("filled {} with \"{}\"", t.describe(), value.as_str().unwrap_or(text)));
                 self.frame(&a.caption(), true, on_frame).await;
             }
             Action::Press(k) => {
@@ -345,18 +345,18 @@ impl Session {
                 self.cdp.call("Input.dispatchKeyEvent", down).await?;
                 self.cdp.call("Input.dispatchKeyEvent", json!({"type": "keyUp", "key": key, "code": code, "windowsVirtualKeyCode": vk, "nativeVirtualKeyCode": vk})).await?;
                 self.settle().await;
-                out.push(format!("apertou {k}"));
+                out.push(format!("pressed {k}"));
                 self.frame(&a.caption(), false, on_frame).await;
             }
             Action::Scroll(y) => {
                 let v = self.eval_json(&format!("scrollBy(0, {y}); return JSON.stringify({{y: Math.round(scrollY), h: document.documentElement.scrollHeight, vh: innerHeight}})")).await?;
                 self.cdp.listen(150).await;
-                out.push(format!("rolou até {}px de {}px", v["y"], v["h"].as_u64().unwrap_or(0).saturating_sub(v["vh"].as_u64().unwrap_or(0))));
+                out.push(format!("scrolled to {}px of {}px", v["y"], v["h"].as_u64().unwrap_or(0).saturating_sub(v["vh"].as_u64().unwrap_or(0))));
                 self.frame(&a.caption(), false, on_frame).await;
             }
             Action::Wait(ms) => {
                 self.cdp.listen(*ms).await;
-                out.push(format!("esperou {ms} ms"));
+                out.push(format!("waited {ms} ms"));
             }
             Action::Back => {
                 self.cdp.forget("Page.frameNavigated");
@@ -364,14 +364,14 @@ impl Session {
                 self.eval("history.back(); return 'ok'").await?;
                 self.settle().await;
                 self.refresh_state().await;
-                out.push(format!("voltou para {} — \"{}\"", self.url, self.title));
+                out.push(format!("went back to {} — \"{}\"", self.url, self.title));
                 self.frame(&a.caption(), false, on_frame).await;
             }
             Action::Viewport(w, h) => {
                 self.size = (*w, *h);
                 self.cdp.call("Emulation.setDeviceMetricsOverride", json!({"width": w, "height": h, "deviceScaleFactor": 1, "mobile": *w < 500})).await?;
                 self.cdp.listen(250).await;
-                out.push(format!("janela em {w}×{h}"));
+                out.push(format!("window at {w}×{h}"));
                 self.frame(&a.caption(), false, on_frame).await;
             }
             Action::Text(t) => {
@@ -467,7 +467,7 @@ impl Browser {
     pub async fn run(&mut self, root: &Path, actions: &[Action], on_frame: &mut (dyn FnMut(Frame) + Send)) -> Result<Report, String> {
         tokio::time::timeout(Duration::from_secs(150), self.run_steps(root, actions, on_frame))
             .await
-            .unwrap_or_else(|_| Err("a navegação passou de 150 s e foi interrompida".into()))
+            .unwrap_or_else(|_| Err("the navigation ran past 150 s and was stopped".into()))
     }
 
     async fn run_steps(&mut self, root: &Path, actions: &[Action], on_frame: &mut (dyn FnMut(Frame) + Send)) -> Result<Report, String> {
@@ -477,12 +477,12 @@ impl Browser {
         s.seen.clear();
         let _ = s.cdp.take_events();
         // Is the browser still there? A cheap question that fails when it is not.
-        s.eval("return 1").await.map_err(|e| format!("o navegador não responde: {e}"))?;
+        s.eval("return 1").await.map_err(|e| format!("the browser does not respond: {e}"))?;
         for (i, a) in actions.iter().enumerate() {
             let line = match s.step(a, root, on_frame).await {
                 Ok(lines) => lines.join("\n"),
                 Err(e) => {
-                    s.report.log.push(format!("{}. {} → ERRO: {e}", i + 1, a.caption()));
+                    s.report.log.push(format!("{}. {} → ERROR: {e}", i + 1, a.caption()));
                     s.collect_problems();
                     // A step that fails ends the call: the next ones depend on it.
                     break;

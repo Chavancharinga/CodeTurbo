@@ -1,174 +1,191 @@
 <p align="center">
-  <img src="docs/codeturbo.svg" alt="CodeTurbo: logotipo com um caracol em movimento" width="618">
+  <img src="docs/codeturbo.svg" alt="CodeTurbo" width="618">
+</p>
+
+<p align="center"><b>A terminal coding agent that ships code that builds, lints and passes its tests.</b></p>
+
+<p align="center">
+  <a href="https://github.com/Chavancharinga/CodeTurbo/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/Chavancharinga/CodeTurbo?style=flat-square&color=2F7BFF"></a>
+  <a href="#license"><img alt="License: MIT or Apache-2.0" src="https://img.shields.io/badge/license-MIT%20or%20Apache--2.0-2F7BFF?style=flat-square"></a>
+  <img alt="Rust 1.94+" src="https://img.shields.io/badge/rust-1.94%2B-2F7BFF?style=flat-square&logo=rust&logoColor=white">
+  <img alt="100% Rust" src="https://img.shields.io/badge/100%25-Rust-2F7BFF?style=flat-square">
 </p>
 
 <p align="center">
-  <a href="https://github.com/Chavancharinga/CodeTurbo/releases/latest"><img alt="Versão" src="https://img.shields.io/github/v/release/Chavancharinga/CodeTurbo?label=vers%C3%A3o&color=2F7BFF"></a>
-  <a href="#licença"><img alt="Licença: MIT ou Apache-2.0" src="https://img.shields.io/badge/licen%C3%A7a-MIT%20ou%20Apache--2.0-2F7BFF"></a>
-  <img alt="Rust 1.94 ou superior" src="https://img.shields.io/badge/rust-1.94%2B-2F7BFF?logo=rust&logoColor=white">
-  <img alt="Escrito integralmente em Rust" src="https://img.shields.io/badge/100%25-Rust-2F7BFF">
+  English · <a href="README.pt-BR.md">Português</a>
 </p>
-
-<p align="center"><b>Agente de código para terminal</b> · rápido · econômico · verificado</p>
 
 ---
 
-O CodeTurbo é um agente de desenvolvimento de software para o terminal, escrito
-integralmente em Rust. Seu objetivo é entregar código correto, compilado e
-testado, com o menor consumo de tokens possível em cada tarefa.
-
-## Vantagens
-
-- **Menor custo por tarefa.** O agente consulta e altera somente o trecho de
-  código necessário, sem reenviar arquivos inteiros ao modelo, e aproveita o
-  cache de prompt dos provedores. Cada interação consome menos tokens e custa
-  menos.
-- **Código entregue em funcionamento.** Uma tarefa só é considerada concluída
-  quando o projeto compila, passa na análise estática sem nenhum alerta e é
-  aprovado nos testes. Qualquer falha retorna ao modelo para correção, sem
-  intervenção manual.
-- **Menos retrabalho.** Cada alteração é analisada no mesmo instante em que é
-  feita, para Rust, JavaScript, TypeScript, CSS, HTML, JSON e TOML. Os erros são
-  corrigidos antes de se acumularem, o que reduz o número de rodadas e o gasto
-  total.
-- **Liberdade de provedor.** Funciona com Anthropic, OpenAI, OpenRouter e
-  modelos locais via Ollama, que dispensam chave de API e não geram custo de
-  uso.
-- **Consumo sempre visível.** O raciocínio do modelo, as alterações com
-  numeração de linhas, os tokens consumidos, a velocidade de geração, a
-  ocupação do contexto, o custo e os limites de uso são exibidos durante todo o
-  trabalho.
-
-## Diferenciais
-
-- **Verificação que não pode ser contornada.** Testes removidos ou ignorados e
-  alertas silenciados são detectados e recusados. O resultado entregue é o
-  resultado real do projeto.
-- **Executável único e nativo.** Não depende de Node.js, Python nem de
-  servidores externos para funcionar. A análise de código é embutida no próprio
-  executável; servidores de linguagem instalados na máquina são aproveitados
-  quando disponíveis.
-- **Navegador dentro do terminal.** O agente abre páginas de verdade, clica,
-  preenche formulários e testa menus enquanto você acompanha numa mini janela:
-  a página aparece como imagem nítida (Kitty, iTerm2, Sixel, Windows Terminal),
-  com o ponteiro do agente e o clique desenhados. Em outros terminais, abre uma
-  janela real ao lado ou desenha em blocos.
-
-  ![O agente testando uma loja numa mini janela dentro do terminal](docs/navegador-no-terminal.png)
-
-- **Controle sobre cada ação.** Modos de aprovação, regras por ferramenta e por
-  comando, e a alteração exibida antes de ser aplicada. O modo plano permite
-  revisar e aprovar a estratégia antes de qualquer modificação no projeto.
-- **Engenharia reversa embutida.** O agente estuda como um site, um aplicativo
-  JavaScript ou Electron, um binário nativo (incluindo a desmontagem x86/x64
-  das funções ligadas à pergunta), um APK de Android ou um banco SQLite faz
-  algo, com evidências de arquivo e linha, antes de construir algo semelhante.
-  Tudo em Rust, sem ferramentas externas.
-- **Atualização integrada.** O CodeTurbo avisa quando há uma versão nova e se
-  atualiza com um único comando.
-
-## Instalação
-
-No Windows, abra o PowerShell e execute:
-
-```powershell
-irm https://raw.githubusercontent.com/Chavancharinga/CodeTurbo/main/install.ps1 | iex
-```
-
-No Linux e no macOS:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/Chavancharinga/CodeTurbo/main/install.sh | sh
-```
-
-A partir do código-fonte, com Rust 1.94 ou superior:
-
-```sh
-cargo install --locked --git https://github.com/Chavancharinga/CodeTurbo coturbo-cli
-```
-
-## Uso
-
-Abra um terminal na pasta do seu projeto e execute:
+CodeTurbo is a coding agent for the terminal, written entirely in Rust. It
+works with the model you already use and adds what a model cannot do alone: a
+verification gate that refuses unfinished work, a design engine, reverse
+engineering tools, a real browser it can drive, and an editing path that sends
+far fewer tokens per task.
 
 ```sh
 codeturbo
 ```
 
-Na primeira vez em uma pasta, o CodeTurbo pede confirmação antes de ler,
-alterar arquivos ou rodar comandos nela. A autorização fica salva e vale para
-as subpastas; projetos já usados são reconhecidos automaticamente.
+<p align="center">
+  <img src="docs/navegador-no-terminal.png" alt="The agent testing a shop in a mini browser inside the terminal" width="860">
+</p>
 
-A interface ocupa o terminal: o logotipo permanece no topo, a conversa ao
-centro e o campo de texto na parte inferior. Na primeira execução, o
-CodeTurbo solicita o provedor e o modelo; as escolhas ficam salvas para as
-próximas sessões.
+## Features
 
-| Comando      | Função                                                        |
-| ------------ | ------------------------------------------------------------- |
-| `/provedor`  | escolher o provedor: API, Ollama ou o seu plano (Claude/Codex) |
-| `/modelo`    | escolher o modelo entre os disponíveis no provedor             |
-| `/chave`     | informar a chave de API do provedor                            |
-| `/aprovacao` | definir quando o CodeTurbo pede confirmação                    |
-| `/plano`     | ativar o modo plano, somente leitura até a aprovação do plano  |
-| `/uso`       | consultar tokens e custo da sessão                             |
-| `/desfazer`  | desfazer as alterações da última tarefa                        |
-| `/repetir`   | refazer a última tarefa                                        |
-| `/copiar`    | copiar a última resposta                                       |
-| `/exportar`  | salvar a conversa em Markdown                                  |
-| `/enxugar`   | resumir resultados antigos e liberar contexto                  |
-| `/limpar`    | iniciar uma nova conversa                                      |
-| `/atualizar` | instalar a versão mais recente                                 |
-| `/ajuda`     | listar comandos e atalhos                                      |
-| `/sair`      | encerrar                                                       |
+**Verified delivery**
+Work is done only when the project compiles, lints clean and passes its
+tests. A failing step goes back to the model for a fix, automatically. Removed
+or ignored tests and silenced warnings are detected and rejected.
 
-Para usar a sua assinatura (plano Claude ou plano ChatGPT) sem chave de API,
-escolha em `/provedor` a opção Claude Code ou Codex: o CodeTurbo conversa com a
-ferramenta oficial já instalada e logada na sua máquina, que usa o seu plano
-como os termos de cada empresa permitem, enquanto as ferramentas, o motor de
-design e a verificação continuam sendo os do CodeTurbo.
+**Fewer tokens per task**
+The agent reads and edits the exact symbol it needs instead of whole files,
+analyses each change the moment it is made (Rust, JavaScript, TypeScript, CSS,
+HTML, JSON, TOML) and uses provider prompt caching. Tokens, speed, context
+usage, cost and rate limits stay visible the whole time.
 
-Modelos locais pelo Ollama dispensam chave de API. Para os provedores em
-nuvem, a chave pode ser informada com `/chave` ou pelas variáveis de ambiente
-`ANTHROPIC_API_KEY`, `OPENAI_API_KEY` e `OPENROUTER_API_KEY`.
+**A browser inside the terminal**
+The agent opens real pages, clicks, fills forms and tests menus while you watch
+in a mini window. On terminals that draw images (Kitty, iTerm2, Sixel, Windows
+Terminal) the page is a crisp picture with the agent's pointer and clicks drawn
+on it; elsewhere it opens a real window beside the terminal or falls back to
+blocks.
 
-Convenções do projeto, como estilo de código, pastas que não devem ser
-alteradas e comandos usuais, podem ser escritas em `CODETURBO.md` na raiz do
-projeto. O CodeTurbo as segue em toda sessão e também lê `AGENTS.md` e
-`CLAUDE.md`, quando existirem.
+**Design engine**
+Pages and interfaces are reviewed on desktop and phone layouts against design
+rules (overlaps, cut-off content, tap targets, spacing, consistency). A design
+that fails is refused, with the evidence.
 
-Para executar uma única tarefa sem a interface:
+**Built-in reverse engineering**
+The agent studies how a website, a JavaScript or Electron app, a native binary
+(including x86/x64 disassembly of the relevant functions), an Android APK or a
+SQLite database works, with file-and-line evidence, before building something
+similar. All in Rust, with no external tools.
 
-```sh
-codeturbo run "adicione validação de e-mail ao formulário de cadastro"
+**Any provider, found automatically**
+CodeTurbo detects what is on your machine and lists only that: the official
+Claude Code, Codex and Antigravity CLIs (so your own plan is used), a running
+Ollama or LM Studio, and any provider you have a key for. Anthropic, OpenAI,
+Gemini, OpenRouter, Groq, DeepSeek, Mistral, xAI, Together and any
+OpenAI-compatible server are supported.
+
+**Control over every action**
+Approval modes, per-tool and per-command rules, every change shown before it
+is applied, and a read-only plan mode that you approve before anything is
+modified. A folder must be trusted once before CodeTurbo touches it.
+
+**One native executable**
+No Node.js, no Python, no external services. Code analysis is built in;
+language servers already installed on the machine are used when present.
+Updates are one command.
+
+## Install
+
+Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/Chavancharinga/CodeTurbo/main/install.ps1 | iex
 ```
 
-As preferências ficam em `%APPDATA%\codeturbo\config.toml` no Windows e em
-`~/.config/codeturbo/config.toml` no Linux e no macOS.
+Linux and macOS:
 
-## Atualização
+```sh
+curl -fsSL https://raw.githubusercontent.com/Chavancharinga/CodeTurbo/main/install.sh | sh
+```
 
-O CodeTurbo verifica uma vez por dia se existe uma versão mais recente e
-informa ao abrir. Para atualizar:
+From source, with Rust 1.94 or newer:
+
+```sh
+cargo install --locked --git https://github.com/Chavancharinga/CodeTurbo coturbo-cli
+```
+
+## Quick start
+
+Open a terminal in your project and run:
+
+```sh
+codeturbo
+```
+
+On first run CodeTurbo shows the providers it found on your machine and lets you
+connect another with an API key. Nothing is preconfigured. Choices are saved
+for the next sessions.
+
+To run one task without the interface:
+
+```sh
+codeturbo run "add email validation to the signup form"
+```
+
+### Commands
+
+| Command      | What it does                                            |
+| ------------ | ------------------------------------------------------- |
+| `/provider`  | choose the provider: API, local server or your own plan |
+| `/model`     | choose among the provider's models                      |
+| `/key`       | set the provider API key                                |
+| `/approval`  | choose when CodeTurbo asks before acting                |
+| `/plan`      | read-only plan mode until you approve the plan          |
+| `/usage`     | tokens and cost of the session                          |
+| `/undo`      | undo the changes of the last task                       |
+| `/retry`     | run the last task again                                 |
+| `/rule`      | pin a rule the model must always follow                 |
+| `/copy`      | copy the last answer                                    |
+| `/export`    | save the conversation as Markdown                       |
+| `/compact`   | shrink old results and free context                     |
+| `/clear`     | start a new conversation                                |
+| `/update`    | install the latest version                              |
+| `/help`      | list commands and shortcuts                             |
+| `/exit`      | quit                                                    |
+
+### Providers and keys
+
+- **Your plan, no key:** choose Claude Code, Codex or Antigravity in
+  `/provider`. CodeTurbo talks to the official tool already installed and signed
+  in on your machine, which uses your plan as each company's terms allow, while
+  the tools, the design engine and the verification stay CodeTurbo's.
+- **Local models:** Ollama and LM Studio need no key and cost nothing to run.
+- **Hosted models:** set a key with `/key` or with `ANTHROPIC_API_KEY`,
+  `OPENAI_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `GROQ_API_KEY`,
+  `DEEPSEEK_API_KEY`, `MISTRAL_API_KEY`, `XAI_API_KEY` or `TOGETHER_API_KEY`.
+  Keys are stored only on your computer, outside any project.
+
+### Project conventions
+
+Write coding style, folders that must not change and usual commands in
+`CODETURBO.md` at the project root. CodeTurbo follows it in every session and
+also reads `AGENTS.md` and `CLAUDE.md` when present.
+
+### Configuration
+
+Preferences live in `%APPDATA%\codeturbo\config.toml` on Windows and
+`~/.config/codeturbo/config.toml` on Linux and macOS.
+
+| Variable                       | Effect                                                         |
+| ------------------------------ | -------------------------------------------------------------- |
+| `CODETURBO_BROWSER`            | `window` or `headless`: how the agent's browser opens          |
+| `CODETURBO_GRAPHICS`           | `off` keeps the mini browser in blocks instead of an image     |
+| `CODETURBO_NO_UPDATE_CHECK`    | turns the daily update notice off                              |
+
+## Updating
+
+CodeTurbo checks once a day for a newer release and tells you when it opens.
 
 ```sh
 codeturbo update
 ```
 
-Para desativar o aviso, defina `update_check = false` no `config.toml` ou a
-variável de ambiente `CODETURBO_NO_UPDATE_CHECK`.
+## Status
 
-## Situação do projeto
+Under active development. Releases and notes are on the
+[releases page](https://github.com/Chavancharinga/CodeTurbo/releases).
 
-Em desenvolvimento ativo. Próximas etapas: ampliação dos provedores, medição
-comparativa do consumo de tokens e motor de design integrado.
+## License
 
-## Licença
-
-Licenciado, à sua escolha, sob uma das seguintes licenças:
+Licensed, at your option, under either of:
 
 - Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
-- Licença MIT ([LICENSE-MIT](LICENSE-MIT))
+- MIT license ([LICENSE-MIT](LICENSE-MIT))
 
-Salvo indicação em contrário, qualquer contribuição enviada para inclusão no
-projeto fica licenciada da mesma forma, sem termos ou condições adicionais.
+Unless you state otherwise, any contribution you submit for inclusion in the
+project is licensed the same way, without any additional terms or conditions.

@@ -52,8 +52,8 @@ pub fn parse_named(provider: &str, body: &Value) -> Vec<(String, String)> {
         .map(|id| {
             let m = by_id.get(id.as_str()).copied().unwrap_or(&Value::Null);
             let name = m["name"].as_str().unwrap_or("");
-            let ctx = m["context_length"].as_u64().map(|c| format!(" · {}k de contexto", c / 1000)).unwrap_or_default();
-            let free = if id.ends_with(":free") { " · grátis" } else { "" };
+            let ctx = m["context_length"].as_u64().map(|c| format!(" · {}k context", c / 1000)).unwrap_or_default();
+            let free = if id.ends_with(":free") { " · free" } else { "" };
             let label = if name.is_empty() { format!("{id}{ctx}{free}") } else { format!("{id} · {name}{ctx}{free}") };
             (id, label)
         })
@@ -70,7 +70,7 @@ pub async fn list(provider: &str, key: Option<&str>, base_url: Option<&str>) -> 
     let base = base_url.map(|u| u.trim_end_matches('/').to_string());
     let req = match provider {
         "anthropic" => {
-            let key = key.ok_or("falta a chave de API da Anthropic")?;
+            let key = key.ok_or("the Anthropic API key is missing")?;
             let root = base.unwrap_or_else(|| "https://api.anthropic.com".into());
             client
                 .get(format!("{root}/v1/models?limit=100"))
@@ -78,7 +78,7 @@ pub async fn list(provider: &str, key: Option<&str>, base_url: Option<&str>) -> 
                 .header("anthropic-version", "2023-06-01")
         }
         "openai" => {
-            let key = key.ok_or("falta a chave de API da OpenAI")?;
+            let key = key.ok_or("the OpenAI API key is missing")?;
             let root = base.unwrap_or_else(|| "https://api.openai.com/v1".into());
             client.get(format!("{root}/models")).bearer_auth(key)
         }
@@ -94,31 +94,31 @@ pub async fn list(provider: &str, key: Option<&str>, base_url: Option<&str>) -> 
         "ollama" => client.get(format!("{}/api/tags", ollama_root(base_url))),
         // The official tools take their own model names.
         "claude-code" => {
-            return Ok([("padrao", "padrão do seu plano"), ("opus", "opus"), ("sonnet", "sonnet"), ("haiku", "haiku")]
+            return Ok([("padrao", "your plan's default"), ("opus", "opus"), ("sonnet", "sonnet"), ("haiku", "haiku")]
                 .map(|(a, b)| (a.to_string(), b.to_string()))
                 .to_vec());
         }
         "antigravity" => {
-            return Ok([("padrao", "padrão do seu plano Google")].map(|(a, b)| (a.to_string(), b.to_string())).to_vec());
+            return Ok([("padrao", "your Google plan's default")].map(|(a, b)| (a.to_string(), b.to_string())).to_vec());
         }
         "codex" => {
-            return Ok([("padrao", "padrão do seu plano"), ("gpt-5-codex", "gpt-5-codex"), ("gpt-5", "gpt-5")]
+            return Ok([("padrao", "your plan's default"), ("gpt-5-codex", "gpt-5-codex"), ("gpt-5", "gpt-5")]
                 .map(|(a, b)| (a.to_string(), b.to_string()))
                 .to_vec());
         }
-        p => return Err(format!("provedor desconhecido: {p}")),
+        p => return Err(format!("unknown provider: {p}")),
     };
     let resp = req.send().await.map_err(|e| {
         if provider == "ollama" {
-            format!("o Ollama não respondeu em {} ({e})", ollama_root(base_url))
+            format!("Ollama did not answer at {} ({e})", ollama_root(base_url))
         } else if provider == "lmstudio" {
-            format!("o LM Studio não respondeu ({e}); abra o app e ligue o servidor local")
+            format!("LM Studio did not answer ({e}); open the app and start the local server")
         } else {
             e.to_string()
         }
     })?;
     if !resp.status().is_success() {
-        return Err(format!("o provedor respondeu {}", resp.status()));
+        return Err(format!("the provider answered {}", resp.status()));
     }
     let body: Value = resp.json().await.map_err(|e| e.to_string())?;
     Ok(parse_named(provider, &body))

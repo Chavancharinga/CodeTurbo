@@ -30,9 +30,9 @@ pub fn diff_fold(diff: &str, width: usize) -> Out {
     }
     let hint = Style::new().add_modifier(Modifier::DIM);
     let mut preview = full[..PREVIEW_ROWS].to_vec();
-    preview.push(Line::styled(format!("      … mais {} linhas · clique ou Ctrl+B para ver", full.len() - PREVIEW_ROWS), hint));
+    preview.push(Line::styled(format!("      … {} more lines · click or Ctrl+B to view", full.len() - PREVIEW_ROWS), hint));
     let mut full = full;
-    full.push(Line::styled("      clique ou Ctrl+B para recolher", hint));
+    full.push(Line::styled("      click or Ctrl+B to collapse", hint));
     Out::Fold { preview, full }
 }
 
@@ -101,7 +101,7 @@ pub fn task_items(input: &serde_json::Value) -> Vec<TaskItem> {
 pub fn edit_check(output: &str) -> Option<(bool, String)> {
     let line = output.lines().find(|l| l.starts_with("check "))?;
     let clean = line.ends_with(": clean");
-    let note = if clean { "sem problemas".to_string() } else { line.split_once(": ").map_or(String::new(), |(_, r)| r.to_string()) };
+    let note = if clean { "no problems".to_string() } else { line.split_once(": ").map_or(String::new(), |(_, r)| r.to_string()) };
     Some((clean, note))
 }
 
@@ -214,7 +214,7 @@ impl Host for TuiHost {
                 }
                 if what == "design" {
                     self.designing = true;
-                    self.stage("DESIGN", StageState::Running, "desktop e celular");
+                    self.stage("DESIGN", StageState::Running, "desktop and phone");
                 }
                 self.busy(busy_label(what));
             }
@@ -273,7 +273,7 @@ impl Host for TuiHost {
                 let line = view::turn_line(turn, secs, window, cost, self.limits.as_deref());
                 let mut lines = vec![Line::styled(format!("  {line}"), Style::new().add_modifier(Modifier::DIM))];
                 if self.verbose {
-                    lines.push(Line::styled(format!("  · tarefa {}", status_line(task, None)), Style::new().add_modifier(Modifier::DIM)));
+                    lines.push(Line::styled(format!("  · task {}", status_line(task, None)), Style::new().add_modifier(Modifier::DIM)));
                 }
                 self.lines(lines);
                 let mut total = self.base;
@@ -295,7 +295,7 @@ impl Host for TuiHost {
                 if self.designing {
                     self.designing = false;
                     let refused = design_refused(summary);
-                    self.stage("DESIGN", if refused { StageState::Failed } else { StageState::Done }, if refused { "recusado" } else { "aprovado" });
+                    self.stage("DESIGN", if refused { StageState::Failed } else { StageState::Done }, if refused { "refused" } else { "approved" });
                 }
                 let mut summary = summary.lines();
                 let mut lines =
@@ -330,7 +330,7 @@ impl Host for TuiHost {
                 self.send(Out::Stage(update));
             }
             Event::Fixing { attempt, of } => {
-                self.stage("FIX", StageState::Running, format!("tentativa {attempt}/{of}"));
+                self.stage("FIX", StageState::Running, format!("attempt {attempt}/{of}"));
             }
             Event::Notice(msg) => {
                 self.flash(Mood::Alert);
@@ -341,22 +341,22 @@ impl Host for TuiHost {
 
     fn approve<'a>(&'a mut self, req: &'a ApprovalRequest) -> BoxFuture<'a, Decision> {
         Box::pin(async move {
-            let title = format!("Permitir {} {}?", req.tool, arg(&req.input));
+            let title = format!("Allow {} {}?", req.tool, arg(&req.input));
             if let Some(diff) = &req.preview {
-                let title = format!("  alteração proposta: {}", arg(&req.input));
+                let title = format!("  proposed change: {}", arg(&req.input));
                 self.lines(vec![Line::default(), Line::styled(title, Style::new().fg(Color::Yellow))]);
                 self.send(diff_fold(diff, self.width.saturating_sub(6)));
             }
             self.label.clear();
             self.send(Out::Busy(Some("wait: your answer".into())));
-            self.ask(|reply| Question::Approve { title, reply }, Decision::Deny(Some("o usuário não respondeu".into()))).await
+            self.ask(|reply| Question::Approve { title, reply }, Decision::Deny(Some("the user did not answer".into()))).await
         })
     }
 
     fn review_plan<'a>(&'a mut self, plan: &'a PlanReview) -> BoxFuture<'a, PlanChoice> {
         Box::pin(async move {
             let header = Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD);
-            let mut lines = vec![Line::default(), Line::styled(format!("── plano: {} ({}% do contexto) ──", plan.path, plan.context_pct), header)];
+            let mut lines = vec![Line::default(), Line::styled(format!("── plan: {} ({}% of the context) ──", plan.path, plan.context_pct), header)];
             lines.extend(plan.content.trim_end().lines().map(|l| Line::raw(l.to_string())));
             lines.push(Line::styled("──", header));
             self.lines(lines);
@@ -364,7 +364,7 @@ impl Host for TuiHost {
             self.send(Out::Busy(Some("wait: your answer".into())));
             let path = self.root.join(&plan.path);
             let keep_allowed = plan.keep_context_allowed();
-            let title = "O que fazer com o plano?".to_string();
+            let title = "What to do with the plan?".to_string();
             self.ask(|reply| Question::Plan { title, path, keep_allowed, reply }, PlanChoice::SaveQuit).await
         })
     }
@@ -373,11 +373,11 @@ impl Host for TuiHost {
         Box::pin(async move {
             self.lines(vec![
                 Line::default(),
-                Line::styled(format!("  ! alteração suspeita: {}", finding.render()), Style::new().fg(Color::Yellow)),
+                Line::styled(format!("  ! suspicious change: {}", finding.render()), Style::new().fg(Color::Yellow)),
             ]);
             self.label.clear();
             self.send(Out::Busy(Some("wait: your answer".into())));
-            let title = "Esta alteração é legítima?".to_string();
+            let title = "Is this change legitimate?".to_string();
             self.ask(|reply| Question::Confirm { title, reply }, false).await
         })
     }

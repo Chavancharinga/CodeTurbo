@@ -63,7 +63,7 @@ fn main() {
          shape-rendering=\"crispEdges\" role=\"img\" aria-label=\"CodeTurbo\">\
          <style>g{{visibility:hidden;animation:f {total}ms step-end infinite}}\
          @keyframes f{{0%{{visibility:visible}}{step:.4}%{{visibility:hidden}}}}</style>\
-         <rect width=\"100%\" height=\"100%\" rx=\"2\" fill=\"{BG}\"/>",
+         <rect width=\"100%\" height=\"100%\" fill=\"{BG}\"/>",
         vw = w + 2 * PAD,
         vh = h + 2 * PAD,
         pw = (w + 2 * PAD) * 6,
