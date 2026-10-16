@@ -2,3 +2,10 @@ target/
 bench/runs/
 sandbox/
 .codeturbo/
+
+# segredos: nunca sobem
+.env
+.env.*
+!.env.example
+*.pem
+credentials.toml

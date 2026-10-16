@@ -49,6 +49,10 @@ pub async fn launch(browser: &Path, size: (u32, u32), visible: bool) -> Result<L
     } else {
         cmd.args(["--headless=new", "--disable-gpu"]);
     }
+    // Hosted CI runners (and root) forbid the browser's own sandbox.
+    if cfg!(target_os = "linux") && std::env::var_os("CI").is_some() {
+        cmd.arg("--no-sandbox");
+    }
     cmd.arg(format!("--user-data-dir={}", profile.display()))
         .arg(format!("--window-size={},{}", size.0, size.1))
         .arg("about:blank")
