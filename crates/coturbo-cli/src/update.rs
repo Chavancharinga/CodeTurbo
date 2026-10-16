@@ -142,8 +142,14 @@ pub fn replace_binary(exe: &Path, bytes: &[u8]) -> Result<(), String> {
         use std::os::unix::fs::PermissionsExt;
         let _ = std::fs::set_permissions(&fresh, std::fs::Permissions::from_mode(0o755));
     }
-    let old = parked(exe);
-    let _ = std::fs::remove_file(&old);
+    let mut old = parked(exe);
+    // A program still open from an earlier update keeps its parked file in
+    // use, and Windows will not delete it: park this one under a new name.
+    if std::fs::remove_file(&old).is_err() && old.exists() {
+        let mut name = old.file_name().unwrap_or_default().to_os_string();
+        name.push(format!("-{}", std::process::id()));
+        old = old.with_file_name(name);
+    }
     std::fs::rename(exe, &old).map_err(|e| format!("{}: {e}", exe.display()))?;
     if let Err(e) = std::fs::rename(&fresh, exe) {
         let _ = std::fs::rename(&old, exe);
@@ -152,10 +158,18 @@ pub fn replace_binary(exe: &Path, bytes: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
-/// Removes a binary left over by a previous update.
+/// Removes the binaries left over by previous updates (those still running
+/// stay until a later start).
 pub fn cleanup_old_binary() {
-    if let Ok(exe) = std::env::current_exe() {
-        let _ = std::fs::remove_file(parked(&exe));
+    let Ok(exe) = std::env::current_exe() else { return };
+    let Some(dir) = exe.parent() else { return };
+    let parked_name = parked(&exe).file_name().unwrap_or_default().to_string_lossy().into_owned();
+    let fresh = exe.with_extension("new");
+    let _ = std::fs::remove_file(fresh);
+    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        if entry.file_name().to_string_lossy().starts_with(&parked_name) {
+            let _ = std::fs::remove_file(entry.path());
+        }
     }
 }
 

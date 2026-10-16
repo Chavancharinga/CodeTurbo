@@ -490,6 +490,28 @@ fn the_binary_is_extracted_and_swapped_in() {
     assert_eq!(std::fs::read(parked).unwrap(), b"old build", "old binary parked for cleanup");
 }
 
+/// A second update while a program from the first one is still open: its
+/// parked file cannot be deleted on Windows, and the update must still work.
+#[cfg(windows)]
+#[test]
+fn updating_twice_with_an_old_session_still_open() {
+    use coturbo_cli::update::replace_binary;
+    let dir = tempfile::tempdir().unwrap();
+    let exe = dir.path().join("codeturbo.exe");
+    let parked = dir.path().join("codeturbo.exe.old");
+    // A real program running from the parked file, like the old session.
+    std::fs::copy(r"C:\Windows\System32\ping.exe", &parked).unwrap();
+    let mut running = std::process::Command::new(&parked).args(["-n", "30", "127.0.0.1"]).stdout(std::process::Stdio::null()).spawn().unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    assert!(std::fs::remove_file(&parked).is_err(), "the running file is locked");
+    std::fs::write(&exe, b"0.28.0").unwrap();
+    let result = replace_binary(&exe, b"0.28.4");
+    let _ = running.kill();
+    let _ = running.wait();
+    result.unwrap();
+    assert_eq!(std::fs::read(&exe).unwrap(), b"0.28.4");
+}
+
 #[tokio::test]
 async fn a_fresh_cache_answers_without_asking_github() {
     use coturbo_cli::update::{VERSION, check, notice};
