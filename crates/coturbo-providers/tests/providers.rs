@@ -271,36 +271,53 @@ fn claude_native_invoke_format_is_parsed() {
     assert!(matches!(&js[0], ContentBlock::ToolUse { name, .. } if name == "read_file"));
 }
 
-#[test]
-fn the_subscription_provider_shows_only_the_latest_images() {
-    use coturbo_providers::cli::{prompt_images, protocol_prompt};
+fn with_images(n: usize) -> Request {
     let mut req = request();
-    for i in 0..6 {
-        // "aGk=" is base64 for "hi".
+    for i in 0..n {
         req.messages.push(Message {
             role: Role::User,
-            content: vec![ContentBlock::Image { media_type: "image/png".into(), data: "aGk=".into() }, ContentBlock::Text { text: format!("shot {i}") }],
+            content: vec![ContentBlock::Image { media_type: "image/png".into(), data: format!("img{i}") }, ContentBlock::Text { text: format!("shot {i}") }],
         });
     }
-    let prompt = protocol_prompt(&req);
-    assert_eq!(prompt.matches("[image attached:").count(), 4, "{prompt}");
-    assert_eq!(prompt.matches("[an earlier image was omitted]").count(), 2, "{prompt}");
-    assert!(prompt.contains("Read tool"));
-    let files = prompt_images(&req);
-    assert_eq!(files.len(), 4);
-    assert!(files.iter().all(|(name, bytes)| name.ends_with(".png") && bytes == b"hi"));
-    // The files are named exactly as the prompt refers to them.
-    assert!(files.iter().all(|(name, _)| prompt.contains(&format!("./{name}"))), "{prompt}");
+    req
 }
 
 #[test]
-fn claude_code_is_told_about_its_own_read_tool_only_when_there_are_images() {
-    use coturbo_providers::cli::protocol_system;
-    let mut req = request();
-    assert!(!protocol_system(&req).contains("built-in Read"));
-    req.messages.push(Message { role: Role::User, content: vec![ContentBlock::Image { media_type: "image/png".into(), data: "aGk=".into() }] });
-    // The shared prompt (also used for Codex, which gets no images) stays unchanged.
-    assert!(!protocol_system(&req).contains("built-in Read"));
-    assert!(coturbo_providers::cli::protocol_system_with_eyes(&req, true).contains("built-in Read"));
-    assert!(!coturbo_providers::cli::protocol_system_with_eyes(&request(), true).contains("built-in Read"));
+fn the_subscription_provider_keeps_only_the_latest_images() {
+    use coturbo_providers::cli::{prompt_images, protocol_prompt};
+    let req = with_images(6);
+    let prompt = protocol_prompt(&req);
+    assert_eq!(prompt.matches("is attached to this message").count(), 4, "{prompt}");
+    assert_eq!(prompt.matches("[an earlier image was omitted]").count(), 2, "{prompt}");
+    assert!(prompt.contains("[image 1 of 4 is attached") && prompt.contains("[image 4 of 4 is attached"), "{prompt}");
+    let kept = prompt_images(&req);
+    assert_eq!(kept.iter().map(|(_, d)| d.as_str()).collect::<Vec<_>>(), ["img2", "img3", "img4", "img5"]);
+    assert!(kept.iter().all(|(m, _)| m == "image/png"));
+    // No Read tool and no files: the prompt must not mention either.
+    assert!(!prompt.contains("Read tool") && !prompt.contains("vision-"), "{prompt}");
+}
+
+#[test]
+fn images_travel_inside_the_streaming_message() {
+    use coturbo_providers::cli::{prompt_images, stream_message};
+    let req = with_images(2);
+    let line = stream_message("olhe", &prompt_images(&req));
+    assert!(line.ends_with('\n') && line.matches('\n').count() == 1, "one JSON line");
+    let v: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+    assert_eq!(v["type"], "user");
+    let content = v["message"]["content"].as_array().unwrap();
+    assert_eq!(content.len(), 3);
+    assert_eq!(content[0], json!({"type": "text", "text": "olhe"}));
+    assert_eq!(content[1], json!({"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "img0"}}));
+    assert_eq!(content[2]["source"]["data"], "img1");
+}
+
+#[test]
+fn the_result_is_found_among_the_streamed_events() {
+    use coturbo_providers::cli::result_message;
+    let out = "{\"type\":\"system\",\"subtype\":\"init\"}\n\n{\"type\":\"assistant\",\"message\":{}}\nnot json\n{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"pronto\",\"usage\":{\"input_tokens\":5,\"output_tokens\":2}}\n";
+    let r = result_message(out).unwrap();
+    assert_eq!(r["result"], "pronto");
+    assert_eq!(r["usage"]["input_tokens"], 5);
+    assert!(result_message("{\"type\":\"system\"}\n").is_none());
 }

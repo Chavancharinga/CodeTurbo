@@ -54,27 +54,13 @@ const CLOSE: &str = "</tool_call>";
 
 /// The system prompt plus how to call tools in plain text.
 pub fn protocol_system(req: &Request) -> String {
-    protocol_system_with_eyes(req, false)
-}
-
-/// [`protocol_system`], telling Claude Code (`eyes`) that it can look at the
-/// attached images with its own Read tool.
-pub fn protocol_system_with_eyes(req: &Request, eyes: bool) -> String {
     let tools: Vec<Value> = req
         .tools
         .iter()
         .map(|t| json!({"name": t.name, "description": t.description, "input": t.input_schema["properties"]}))
         .collect();
-    // With images in the conversation, Claude Code gets its own Read tool to
-    // look at them; say so, or it asks the harness for a `Read` that does not exist.
-    let eyes = if eyes && image_count(req) > 0 {
-        "\n\nException: images are attached as files (./vision-N.png). To look at one, use your OWN built-in Read tool \
-         directly, right now, before answering. It is not one of the harness tools below: never write it as a tool call block."
-    } else {
-        ""
-    };
     format!(
-        "{}{eyes}\n\nTools (you cannot run anything yourself; ask and the harness runs it):\n{}\n\n\
+        "{}\n\nTools (you cannot run anything yourself; ask and the harness runs it):\n{}\n\n\
          To use tools, write one block per call, exactly:\n{OPEN}{{\"name\": \"read_file\", \"input\": {{\"path\": \"src/main.rs\"}}}}{CLOSE}\n\
          You may write several blocks; their results come back in the next message. \
          When the task is done, answer in plain text with no {OPEN} block.",
@@ -83,20 +69,25 @@ pub fn protocol_system_with_eyes(req: &Request, eyes: bool) -> String {
     )
 }
 
-/// The conversation as one text prompt.
+/// The conversation as one text prompt. Images are not text: the latest ones
+/// travel inside the message itself (see [`prompt_images`]) and the prompt
+/// says which is which.
 pub fn protocol_prompt(req: &Request) -> String {
     let mut out = String::new();
     let total = image_count(req);
+    let first_kept = total.saturating_sub(MAX_IMAGES);
     let mut seen = 0usize;
     for m in &req.messages {
         for b in &m.content {
             match (m.role, b) {
                 (_, ContentBlock::Image { .. }) => {
                     seen += 1;
-                    // Only the latest images are kept: each one costs a read.
-                    if total - seen < MAX_IMAGES {
-                        let name = image_name(seen - 1);
-                        out.push_str(&format!("\n[image attached: ./{name} - look at it with your own built-in Read tool (not a <tool_call>) before answering]\n"));
+                    if seen > first_kept {
+                        out.push_str(&format!(
+                            "\n[image {} of {} is attached to this message, after the text]\n",
+                            seen - first_kept,
+                            total - first_kept
+                        ));
                     } else {
                         out.push_str("\n[an earlier image was omitted]\n");
                     }
@@ -125,29 +116,37 @@ fn image_count(req: &Request) -> usize {
     req.messages.iter().flat_map(|m| &m.content).filter(|b| matches!(b, ContentBlock::Image { .. })).count()
 }
 
-fn image_name(i: usize) -> String {
-    format!("vision-{}-{i}.png", std::process::id())
-}
-
-/// The images of the conversation (the latest ones), decoded, with the file
-/// name each is referenced by in the prompt.
-pub fn prompt_images(req: &Request) -> Vec<(String, Vec<u8>)> {
-    use base64::Engine;
-    let all: Vec<&str> = req
+/// The latest images of the conversation as `(media type, base64 data)`.
+pub fn prompt_images(req: &Request) -> Vec<(String, String)> {
+    let all: Vec<(String, String)> = req
         .messages
         .iter()
         .flat_map(|m| &m.content)
         .filter_map(|b| match b {
-            ContentBlock::Image { data, .. } => Some(data.as_str()),
+            ContentBlock::Image { media_type, data } => Some((media_type.clone(), data.clone())),
             _ => None,
         })
         .collect();
     let first_kept = all.len().saturating_sub(MAX_IMAGES);
-    all.iter()
-        .enumerate()
-        .skip(first_kept)
-        .filter_map(|(i, d)| base64::engine::general_purpose::STANDARD.decode(d).ok().map(|b| (image_name(i), b)))
-        .collect()
+    all.into_iter().skip(first_kept).collect()
+}
+
+/// The single line Claude Code reads in streaming-input mode: the prompt as
+/// text, then the images inline. With no tools on, the model simply sees them.
+pub fn stream_message(prompt: &str, images: &[(String, String)]) -> String {
+    let mut content = vec![json!({"type": "text", "text": prompt})];
+    content.extend(images.iter().map(|(media, data)| {
+        json!({"type": "image", "source": {"type": "base64", "media_type": media, "data": data}})
+    }));
+    format!("{}\n", json!({"type": "user", "message": {"role": "user", "content": content}}))
+}
+
+/// The final `result` message of Claude Code's streaming output.
+pub fn result_message(stdout: &str) -> Option<Value> {
+    stdout
+        .lines()
+        .filter_map(|l| serde_json::from_str::<Value>(l.trim()).ok())
+        .rfind(|v| v["type"] == "result")
 }
 
 /// Tool calls and plain text of a reply in the text protocol.
@@ -248,26 +247,25 @@ fn claude_usage(v: &Value) -> Usage {
 impl Provider for CliProvider {
     fn complete<'a>(&'a self, req: &'a Request, on_text: &'a mut TextSink<'_>) -> BoxFuture<'a, Result<Response, ProviderError>> {
         Box::pin(async move {
-            let system = protocol_system_with_eyes(req, self.tool == Tool::ClaudeCode);
+            let system = protocol_system(req);
             let prompt = protocol_prompt(req);
             // Outside the project: the official tool must not load its own
             // project instructions or touch files.
             let work = std::env::temp_dir().join("codeturbo-cli");
             let _ = std::fs::create_dir_all(&work);
             let last = work.join(format!("ultima-{}.txt", std::process::id()));
-            // Claude Code can look at images through its Read tool, limited
-            // to this work folder; it stays off when there is nothing to see.
+            // Claude Code sees images when they ride inside the message
+            // (streaming input); with none, the plain text prompt is used.
             let images = if self.tool == Tool::ClaudeCode { prompt_images(req) } else { Vec::new() };
-            for (name, bytes) in &images {
-                let _ = std::fs::write(work.join(name), bytes);
-            }
+            let streaming = !images.is_empty();
             let mut cmd = tokio::process::Command::new(self.tool.program());
             match self.tool {
                 Tool::ClaudeCode => {
-                    let tools = if images.is_empty() { "" } else { "Read" };
-                    cmd.args(["-p", "--output-format", "json", "--tools", tools, "--no-session-persistence", "--strict-mcp-config"]);
-                    if !images.is_empty() {
-                        cmd.args(["--allowedTools", "Read(./**)"]);
+                    cmd.args(["-p", "--tools", "", "--no-session-persistence", "--strict-mcp-config"]);
+                    if streaming {
+                        cmd.args(["--input-format", "stream-json", "--output-format", "stream-json", "--verbose"]);
+                    } else {
+                        cmd.args(["--output-format", "json"]);
                     }
                     cmd.arg("--system-prompt").arg(&system);
                     if !req.model.is_empty() && req.model != "padrao" {
@@ -287,6 +285,7 @@ impl Provider for CliProvider {
                 ProviderError::Other(format!("não foi possível iniciar `{}` ({e}); instale e faça login na ferramenta oficial", self.tool.program()))
             })?;
             let input = match self.tool {
+                Tool::ClaudeCode if streaming => stream_message(&prompt, &images),
                 Tool::ClaudeCode => prompt,
                 Tool::Codex => format!("{system}\n\n{prompt}"),
             };
@@ -300,7 +299,8 @@ impl Provider for CliProvider {
             let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
             let (text, usage) = match self.tool {
                 Tool::ClaudeCode => {
-                    let v: Value = serde_json::from_str(stdout.trim()).map_err(|_| {
+                    let parsed = if streaming { result_message(&stdout) } else { serde_json::from_str::<Value>(stdout.trim()).ok() };
+                    let v = parsed.ok_or_else(|| {
                         ProviderError::Other(format!("resposta inesperada do claude: {}", String::from_utf8_lossy(&out.stderr).trim()))
                     })?;
                     if v["is_error"].as_bool() == Some(true) {
