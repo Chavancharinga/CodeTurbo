@@ -181,7 +181,8 @@ impl Transcript {
                 if rows.len() >= need {
                     break 'entries;
                 }
-                let mut wrapped = text::wrap(line, width);
+                // Code and diffs are cut, not wrapped: one row each, however narrow the room.
+                let mut wrapped = if matches!(entry, Entry::Fold { .. }) { vec![text::clip(line, width)] } else { text::wrap(line, width) };
                 wrapped.reverse();
                 rows.extend(wrapped.into_iter().map(|l| (l, i)));
             }
@@ -1004,18 +1005,12 @@ impl App {
         let mut body = Rect { x: body.x + 1, width: body.width.saturating_sub(2), ..body };
         // The mini browser takes the right of the screen while the agent uses a page.
         let mut browser_rect = None;
-        if self.browser.visible(now) && area.width >= 80 && area.height >= 20 && self.browser.wide() {
-            // Several pages lie in a strip across the bottom of the conversation.
-            let ph = self.browser.rows_wide(body.width, (body.height * 3 / 5).max(8)).min(body.height.saturating_sub(4));
-            browser_rect = Some(Rect { x: body.x, y: body.bottom().saturating_sub(ph), width: body.width, height: ph });
-            let given = (ph as f32 * self.browser.progress(now)).round() as u16;
-            if given > 0 {
-                body.height = body.height.saturating_sub(given + 1);
-            }
-        } else if self.browser.visible(now) && area.width >= 80 && area.height >= 20 {
-            let pw = (body.width / 2).clamp(40, 80);
+        if self.browser.visible(now) && area.width >= 80 && area.height >= 20 {
+            // Several pages get more room, all at the right, the same size.
+            let several = self.browser.windows() > 1;
+            let pw = if several { (body.width * 11 / 20).clamp(40, 120) } else { (body.width / 2).clamp(40, 80) };
             if body.width > pw + 30 {
-                let ph = self.browser.rows_for(pw).min(body.height);
+                let ph = if several { self.browser.rows_wide(pw, body.height) } else { self.browser.rows_for(pw) }.min(body.height);
                 browser_rect = Some(Rect { x: body.right() - pw, y: body.y, width: pw, height: ph });
                 // The conversation gives way as the window opens, and takes the room back as it closes.
                 let given = (pw as f32 * self.browser.progress(now)).round() as u16;
@@ -1118,7 +1113,7 @@ impl App {
         }
         let mut right = s.usage.clone();
         if let Some(c) = s.context {
-            right.push_str(&format!(" · contexto {c}%"));
+            right.push_str(&format!(" · context {c}%"));
         }
         right.push(' ');
         // The folder sits next to the model; what does not fit is cut down to

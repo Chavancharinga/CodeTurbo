@@ -428,6 +428,8 @@ impl Browser {
         for domain in ["Page.enable", "Runtime.enable", "Network.enable"] {
             cdp.call(domain, json!({})).await?;
         }
+        // The pictures show the page, not its scrollbars.
+        let _ = cdp.call("Emulation.setScrollbarsHidden", json!({"hidden": true})).await;
         let mut size = size;
         if visible {
             // The pointer, on every page that loads.

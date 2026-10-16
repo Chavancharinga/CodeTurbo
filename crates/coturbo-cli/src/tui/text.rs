@@ -127,6 +127,10 @@ pub fn ansi_lines(s: &str) -> Vec<Line<'static>> {
 }
 
 /// Display width of a line in cells.
+fn width_of(line: &Line) -> usize {
+    width(line)
+}
+
 pub fn width(line: &Line) -> usize {
     line.spans.iter().flat_map(|s| s.content.chars()).map(|c| c.width().unwrap_or(0)).sum()
 }
@@ -142,6 +146,26 @@ fn build(cells: &[(char, Style)]) -> Line<'static> {
 
 /// Splits `line` into rows at most `width` cells wide, breaking after the
 /// last space that fits when there is one.
+/// `line` cut to `width` columns, with an ellipsis, instead of wrapped: code
+/// and diffs stay one row per line however narrow the room.
+pub fn clip(line: &Line, width: usize) -> Line<'static> {
+    if width_of(line) <= width {
+        return Line { spans: line.spans.iter().map(|s| Span::styled(s.content.to_string(), s.style)).collect(), ..Line::default() };
+    }
+    let mut left = width.saturating_sub(1);
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    for s in &line.spans {
+        if left == 0 {
+            break;
+        }
+        let taken: String = s.content.chars().take(left).collect();
+        left -= taken.chars().count();
+        spans.push(Span::styled(taken, s.style));
+    }
+    spans.push(Span::raw("…"));
+    Line::from(spans)
+}
+
 pub fn wrap(line: &Line, width: usize) -> Vec<Line<'static>> {
     let width = width.max(1);
     let base = line.style;

@@ -28,7 +28,7 @@ codeturbo
 ```
 
 <p align="center">
-  <img src="docs/screens/browser-windows.png" alt="The agent checking the four pages of a site at the same time, each in its own small browser window" width="900">
+  <img src="docs/screens/browser-windows.png" alt="Four GitHub pages open at the same time inside the terminal" width="900">
 </p>
 
 ## Features
@@ -82,33 +82,20 @@ Updates are one command.
 
 ## In action
 
-Everything below is the real screen, not a mockup.
+Everything below is the real screen, recorded while the agent worked on a real
+GitHub account. Nothing is a mockup.
 
-**A real browser, in the terminal.** The agent opens your page, clicks and fills
-forms like a person, with its pointer drawn on the page.
+**Several pages at once, side by side.** The agent opened a profile, a
+repository, its releases and its commits together, each in its own small
+browser, and read all four.
 
-<p align="center"><img src="docs/screens/browser-window.png" alt="One page open in the mini browser with the agent's pointer" width="900"></p>
+<p align="center"><img src="docs/screens/browser-windows.png" alt="Four real GitHub pages open at the same time in the terminal" width="900"></p>
 
-**Up to six pages at once.** The agent opens the pages of a site side by side,
-each in its own small browser, and checks them together.
+**The code appears as it is written.** The agent builds a page from what it just
+saw, and the file grows in a box, line by line, next to the pages it is
+comparing.
 
-<p align="center"><img src="docs/screens/browser-windows.png" alt="Four browser windows in the terminal" width="900"></p>
-
-**The code appears as it is written.**
-
-<p align="center"><img src="docs/screens/live-code.png" alt="Code being written live in a box" width="900"></p>
-
-**A debugger that points at the exact line.**
-
-<p align="center"><img src="docs/screens/debugger.png" alt="The debugger showing the failing line and the column" width="900"></p>
-
-**A verification gate that runs until it is green.**
-
-<p align="center"><img src="docs/screens/verification.png" alt="Bars for write, check, fix, clippy and tests" width="900"></p>
-
-**Done means verified.**
-
-<p align="center"><img src="docs/screens/done.png" alt="All steps complete, the snail turns green" width="900"></p>
+<p align="center"><img src="docs/screens/live-code.png" alt="A profile page being written live, with the real GitHub pages beside it" width="900"></p>
 
 ## Install
 

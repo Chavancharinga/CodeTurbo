@@ -399,7 +399,7 @@ fn the_screen_draws_logo_conversation_box_and_status() {
     assert!(all.contains("olá do CodeTurbo"), "{all}");
     assert!(all.contains("Describe the task"), "placeholder in the empty box");
     assert!(rows.last().unwrap().contains("anthropic · claude-sonnet-5-5 · auto-edit"), "{}", rows.last().unwrap());
-    assert!(rows.last().unwrap().contains("contexto 12%"));
+    assert!(rows.last().unwrap().contains("context 12%"));
     // The logo is drawn in half blocks, in the brand colours: the idle snail is white, the name blue and white.
     let (blue, white) = (Color::Rgb(47, 123, 255), Color::Rgb(225, 232, 245));
     let logo = (0..8).flat_map(|y| (0..100).map(move |x| (x, y))).filter(|&(x, y)| {
@@ -1274,8 +1274,7 @@ fn several_pages_share_the_space_of_one_window_with_only_the_address_on_top() {
         four.apply(frame(i, &format!("file:///site/{page}.html")), t0);
     }
     assert_eq!((one.windows(), four.windows()), (1, 4));
-    // Several pages lie across the screen, within the height they are given.
-    assert!(four.wide() && !one.wide());
+    // Several pages share the height they are given.
     assert!(four.rows_wide(60, 24) <= 24, "{}", four.rows_wide(60, 24));
     let later = t0 + Duration::from_secs(2);
     let area = ratatui::layout::Rect::new(0, 0, 60, 24);
@@ -1317,14 +1316,22 @@ fn the_frame_hugs_the_page_and_the_caption_sits_below_it_outside() {
 }
 
 #[test]
-fn two_pages_stay_at_the_right_and_more_lie_across_the_screen() {
-    use coturbo_cli::tui::browser::BrowserView;
-    let t0 = std::time::Instant::now();
-    let mut v = BrowserView::default();
-    for i in 0..4 {
+fn four_pages_all_sit_at_the_right_of_the_conversation() {
+    let mut h = harness();
+    h.app.apply(Out::Lines(vec![ratatui::text::Line::raw("a long line of the conversation on the left")]));
+    h.app.apply(Out::Busy(Some("browse".into())));
+    for (i, name) in ["one", "two", "three", "four"].iter().enumerate() {
         let mut f = browser_frame(None, false);
         f.window = i;
-        v.apply(f, t0);
-        assert_eq!(v.wide(), i >= 2, "{} page(s)", i + 1);
+        f.url = format!("https://example.com/{name}");
+        h.app.apply(Out::Browser(f));
     }
+    std::thread::sleep(std::time::Duration::from_millis(700));
+    let rows = screen_rows(&mut h, 150, 40);
+    let all = rows.join("\n");
+    for name in ["one", "two", "three", "four"] {
+        let row = rows.iter().find(|r| r.contains(&format!("example.com/{name}"))).unwrap_or_else(|| panic!("{name} on screen:\n{all}"));
+        assert!(row.find("example.com").unwrap() > 60, "{name} at the right: {row}");
+    }
+    assert!(rows.iter().any(|r| r.contains("a long line") && r.find("a long").unwrap() < 5), "the conversation stays at the left");
 }

@@ -201,3 +201,16 @@ async fn the_browser_stays_open_between_calls_with_the_page_as_it_was() {
     assert!(frames.iter().any(|f| f.labels.iter().any(|l| l.text == "Comprar" && l.kind == "button" && l.w > 20.0 && l.y > 0.0)));
     browser.close().await;
 }
+
+#[tokio::test]
+async fn pages_are_shown_without_their_scrollbars() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("tall.html"),
+        "<!doctype html><title>Tall</title><div style=\"height:3000px\">long page</div><p id=w></p><script>document.getElementById('w').textContent='bar:'+(innerWidth-document.documentElement.clientWidth)</script>",
+    )
+    .unwrap();
+    let Some((r, _)) = browse(dir.path(), vec![Action::Open("tall.html".into()), Action::Text(Some(Target::Selector("#w".into())))]).await else { return };
+    let log = r.log.join("\n");
+    assert!(log.contains("bar:0"), "a scrollbar would take width from the page: {log}");
+}

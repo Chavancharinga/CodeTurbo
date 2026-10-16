@@ -504,16 +504,9 @@ impl BrowserView {
     /// Rows the window needs to show its page whole at `cols` columns.
     pub fn rows_for(&self, cols: u16) -> u16 {
         if self.windows() > 1 {
-            // Two pages, one above the other, in the panel at the side.
             return self.rows_wide(cols, 60);
         }
         self.tabs.iter().find(|t| t.pixels.is_some()).map_or(4, |t| t.rows_for(cols))
-    }
-
-    /// With three or more pages the window lies across the screen; one or two
-    /// stay in the panel at the right (two are stacked there).
-    pub fn wide(&self) -> bool {
-        self.windows() > 2
     }
 
     /// Rows a window `width` columns wide needs for all its pages, at most `max`.

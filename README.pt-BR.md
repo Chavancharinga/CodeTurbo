@@ -28,7 +28,7 @@ codeturbo
 ```
 
 <p align="center">
-  <img src="docs/screens/browser-windows.png" alt="O agente verificando as quatro páginas de um site ao mesmo tempo, cada uma numa mini janela de navegador" width="900">
+  <img src="docs/screens/browser-windows.png" alt="Quatro páginas do GitHub abertas ao mesmo tempo dentro do terminal" width="900">
 </p>
 
 ## Recursos
@@ -85,33 +85,20 @@ comando.
 
 ## Em ação
 
-Tudo abaixo é a tela real, não uma maquete.
+Tudo abaixo é a tela real, gravada enquanto o agente trabalhava numa conta real
+do GitHub. Nada é maquete.
 
-**Um navegador de verdade, no terminal.** O agente abre a sua página, clica e
-preenche formulários como uma pessoa, com o ponteiro dele desenhado na página.
+**Várias páginas ao mesmo tempo, lado a lado.** O agente abriu um perfil, um
+repositório, as versões e os commits juntos, cada um em seu mini navegador, e
+leu as quatro.
 
-<p align="center"><img src="docs/screens/browser-window.png" alt="Uma página aberta no mini navegador com o ponteiro do agente" width="900"></p>
+<p align="center"><img src="docs/screens/browser-windows.png" alt="Quatro páginas reais do GitHub abertas ao mesmo tempo no terminal" width="900"></p>
 
-**Até seis páginas ao mesmo tempo.** O agente abre as páginas de um site lado a
-lado, cada uma em seu mini navegador, e verifica todas juntas.
+**O código aparece enquanto é escrito.** O agente monta uma página a partir do
+que acabou de ver, e o arquivo cresce numa caixa, linha a linha, ao lado das
+páginas que ele compara.
 
-<p align="center"><img src="docs/screens/browser-windows.png" alt="Quatro janelas de navegador no terminal" width="900"></p>
-
-**O código aparece enquanto é escrito.**
-
-<p align="center"><img src="docs/screens/live-code.png" alt="Código sendo escrito ao vivo numa caixa" width="900"></p>
-
-**Um debugger que aponta a linha exata.**
-
-<p align="center"><img src="docs/screens/debugger.png" alt="O debugger mostrando a linha e a coluna do erro" width="900"></p>
-
-**Uma verificação que roda até ficar verde.**
-
-<p align="center"><img src="docs/screens/verification.png" alt="Barras de escrita, checagem, correção, clippy e testes" width="900"></p>
-
-**Concluído significa verificado.**
-
-<p align="center"><img src="docs/screens/done.png" alt="Todas as etapas concluídas, o caracol fica verde" width="900"></p>
+<p align="center"><img src="docs/screens/live-code.png" alt="Uma página de perfil sendo escrita ao vivo, com as páginas reais do GitHub ao lado" width="900"></p>
 
 ## Instalação
 
