@@ -5,6 +5,7 @@
 //! a small text protocol, and CodeTurbo runs them. The plan is used by the
 //! official tool, as its terms allow.
 
+use crate::reply_stream::ReplyStream;
 use crate::{BoxFuture, ContentBlock, Delta, Provider, ProviderError, Request, Response, Role, TextSink, Usage};
 use serde_json::{Value, json};
 use std::process::Stdio;
@@ -244,6 +245,69 @@ fn claude_usage(v: &Value) -> Usage {
     }
 }
 
+/// Reads Claude Code's streamed output while the reply is written: prose and
+/// reasoning go to the screen as they arrive, tool calls as progress. Returns
+/// the full reply text, its usage, and whether anything was already shown.
+async fn read_claude(child: &mut tokio::process::Child, on_text: &mut TextSink<'_>) -> Result<(String, Usage, bool), ProviderError> {
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+    let other = |e: String| ProviderError::Other(e);
+    let stdout = child.stdout.take().ok_or_else(|| other("o claude não abriu a saída".into()))?;
+    let mut lines = BufReader::new(stdout).lines();
+    let mut stream = ReplyStream::default();
+    let mut shown = false;
+    let mut result: Option<Value> = None;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(600);
+    loop {
+        let line = match tokio::time::timeout_at(deadline, lines.next_line()).await {
+            Err(_) => return Err(other("a ferramenta oficial não respondeu em 10 minutos".into())),
+            Ok(Err(e)) => return Err(other(e.to_string())),
+            Ok(Ok(None)) => break,
+            Ok(Ok(Some(l))) => l,
+        };
+        let Ok(v) = serde_json::from_str::<Value>(line.trim()) else { continue };
+        match v["type"].as_str() {
+            Some("stream_event") if v["event"]["type"] == "content_block_delta" => {
+                let d = &v["event"]["delta"];
+                match d["type"].as_str() {
+                    Some("text_delta") => {
+                        for delta in stream.push(d["text"].as_str().unwrap_or("")) {
+                            shown = true;
+                            on_text(delta);
+                        }
+                    }
+                    Some("thinking_delta") => {
+                        if let Some(t) = d["thinking"].as_str().filter(|t| !t.is_empty()) {
+                            on_text(Delta::Thinking(t.to_string()));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Some("result") => {
+                result = Some(v);
+                break;
+            }
+            _ => {}
+        }
+    }
+    for delta in stream.finish() {
+        shown = true;
+        on_text(delta);
+    }
+    let Some(v) = result else {
+        let mut err = String::new();
+        if let Some(mut e) = child.stderr.take() {
+            let _ = tokio::time::timeout(Duration::from_millis(500), e.read_to_string(&mut err)).await;
+        }
+        return Err(other(format!("resposta inesperada do claude: {}", err.trim())));
+    };
+    if v["is_error"].as_bool() == Some(true) {
+        return Err(other(format!("claude: {}", v["result"].as_str().unwrap_or("erro"))));
+    }
+    let text = v["result"].as_str().filter(|t| !t.is_empty()).map_or_else(|| stream.text().to_string(), str::to_string);
+    Ok((text, claude_usage(&v), shown))
+}
+
 impl Provider for CliProvider {
     fn complete<'a>(&'a self, req: &'a Request, on_text: &'a mut TextSink<'_>) -> BoxFuture<'a, Result<Response, ProviderError>> {
         Box::pin(async move {
@@ -262,11 +326,16 @@ impl Provider for CliProvider {
             match self.tool {
                 Tool::ClaudeCode => {
                     cmd.args(["-p", "--tools", "", "--no-session-persistence", "--strict-mcp-config"]);
+                    // The reply is read as it is written; images need the
+                    // streaming input form, plain text does not.
+                    cmd.args(["--output-format", "stream-json", "--include-partial-messages", "--verbose"]);
                     if streaming {
-                        cmd.args(["--input-format", "stream-json", "--output-format", "stream-json", "--verbose"]);
-                    } else {
-                        cmd.args(["--output-format", "json"]);
+                        cmd.args(["--input-format", "stream-json"]);
                     }
+                    // Without these the official tool flushes its telemetry after
+                    // every reply, which costs about two seconds each time. Only
+                    // this child process is affected, not the user's own `claude`.
+                    cmd.env("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1").env("DISABLE_TELEMETRY", "1");
                     cmd.arg("--system-prompt").arg(&system);
                     if !req.model.is_empty() && req.model != "padrao" {
                         cmd.arg("--model").arg(&req.model);
@@ -292,23 +361,14 @@ impl Provider for CliProvider {
             if let Some(mut stdin) = child.stdin.take() {
                 stdin.write_all(input.as_bytes()).await.map_err(|e| ProviderError::Other(e.to_string()))?;
             }
-            let out = tokio::time::timeout(Duration::from_secs(600), child.wait_with_output())
-                .await
-                .map_err(|_| ProviderError::Other("a ferramenta oficial não respondeu em 10 minutos".into()))?
-                .map_err(|e| ProviderError::Other(e.to_string()))?;
-            let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
-            let (text, usage) = match self.tool {
-                Tool::ClaudeCode => {
-                    let parsed = if streaming { result_message(&stdout) } else { serde_json::from_str::<Value>(stdout.trim()).ok() };
-                    let v = parsed.ok_or_else(|| {
-                        ProviderError::Other(format!("resposta inesperada do claude: {}", String::from_utf8_lossy(&out.stderr).trim()))
-                    })?;
-                    if v["is_error"].as_bool() == Some(true) {
-                        return Err(ProviderError::Other(format!("claude: {}", v["result"].as_str().unwrap_or("erro"))));
-                    }
-                    (v["result"].as_str().unwrap_or("").to_string(), claude_usage(&v))
-                }
+            let (text, usage, streamed) = match self.tool {
+                Tool::ClaudeCode => read_claude(&mut child, on_text).await?,
                 Tool::Codex => {
+                    let out = tokio::time::timeout(Duration::from_secs(600), child.wait_with_output())
+                        .await
+                        .map_err(|_| ProviderError::Other("a ferramenta oficial não respondeu em 10 minutos".into()))?
+                        .map_err(|e| ProviderError::Other(e.to_string()))?;
+                    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
                     let text = std::fs::read_to_string(&last).unwrap_or(stdout);
                     let _ = std::fs::remove_file(&last);
                     if !out.status.success() && text.trim().is_empty() {
@@ -317,13 +377,17 @@ impl Provider for CliProvider {
                     // Codex does not report tokens here: an estimate.
                     let est = |s: &str| (s.len() / 4) as u64;
                     let usage = Usage { input: est(&input), cache_write: 0, cache_read: 0, output: est(&text) };
-                    (text, usage)
+                    (text, usage, false)
                 }
             };
             let content = parse_reply(&text, req.messages.len());
-            for b in &content {
-                if let ContentBlock::Text { text } = b {
-                    on_text(Delta::Text(text.clone()));
+            // What was not shown while it streamed (Codex, or a reply that
+            // arrived all at once) is shown now.
+            if !streamed {
+                for b in &content {
+                    if let ContentBlock::Text { text } = b {
+                        on_text(Delta::Text(text.clone()));
+                    }
                 }
             }
             let calls = content.iter().any(|b| matches!(b, ContentBlock::ToolUse { .. }));

@@ -5,6 +5,7 @@ pub mod anthropic;
 pub mod cli;
 mod http;
 pub mod openai;
+pub mod reply_stream;
 mod pricing;
 pub mod sse;
 
