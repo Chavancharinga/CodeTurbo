@@ -38,7 +38,13 @@ tmp="$(mktemp -d "${TMPDIR:-/tmp}/codeturbo.XXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
 
 echo "Downloading CodeTurbo ($target)..."
-curl -fsSL "https://github.com/$repo/releases/latest/download/codeturbo-$target.tar.gz" | tar -xz -C "$tmp"
+url="https://github.com/$repo/releases/latest/download/codeturbo-$target.tar.gz"
+if ! curl -fsSL "$url" -o "$tmp/codeturbo.tar.gz"; then
+    echo "Could not download $url" >&2
+    echo "If a new version was just published, wait a few minutes and try again." >&2
+    exit 1
+fi
+tar -xzf "$tmp/codeturbo.tar.gz" -C "$tmp"
 mkdir -p "$dir"
 cp "$tmp/codeturbo" "$dir/codeturbo.new"
 chmod 755 "$dir/codeturbo.new"
