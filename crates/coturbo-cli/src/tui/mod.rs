@@ -9,6 +9,7 @@ pub mod app;
 pub mod browser;
 pub mod commands;
 pub mod debugger;
+pub mod fx;
 pub mod host;
 pub mod input;
 pub mod path;
@@ -122,6 +123,8 @@ pub enum Out {
     Browser(coturbo_browse::Frame),
     /// The code the model is writing right now: a title and its last lines.
     Live(Option<(String, Vec<Line<'static>>)>),
+    /// Code, a diff or the debugger: rows cut to the room there is, never wrapped.
+    Clipped(Vec<Line<'static>>),
     /// A stage of the work changed (the bars above the text box).
     Stage(StageUpdate),
     /// The model's checklist for the job, whole.

@@ -205,7 +205,9 @@ fn harness() -> Harness {
         approval: "auto-edit".into(),
         ..Status::default()
     };
-    Harness { app: App::new(status, tx, ctx, Arc::new(AtomicBool::new(false))), rx, cancel }
+    let mut app = App::new(status, tx, ctx, Arc::new(AtomicBool::new(false)));
+    app.skip_intro();
+    Harness { app, rx, cancel }
 }
 
 impl Harness {
@@ -456,7 +458,7 @@ fn long_code_is_folded_until_ctrl_b() {
     assert!(plain(preview.last().unwrap()).contains("30 more lines · click or Ctrl+B"));
     assert_eq!(full.len(), 41, "every line, nothing capped");
     let short = diff_fold("@@ -3,1 +3,1 @@\n-velho\n+novo\n", 80);
-    assert!(matches!(short, Out::Lines(ref l) if l.len() == 2), "a small fix is shown whole");
+    assert!(matches!(short, Out::Clipped(ref l) if l.len() == 2), "a small fix is shown whole");
 
     let mut h = harness();
     h.app.apply(Out::Fold { preview: preview.clone(), full: full.clone() });
@@ -1334,4 +1336,59 @@ fn four_pages_all_sit_at_the_right_of_the_conversation() {
         assert!(row.find("example.com").unwrap() > 60, "{name} at the right: {row}");
     }
     assert!(rows.iter().any(|r| r.contains("a long line") && r.find("a long").unwrap() < 5), "the conversation stays at the left");
+}
+
+#[test]
+fn the_code_box_sits_beside_the_pages_not_under_them() {
+    use ratatui::text::Line;
+    let mut h = harness();
+    h.app.apply(Out::Busy(Some("write_file app.js · 1k chars".into())));
+    for (i, name) in ["one", "two"].iter().enumerate() {
+        let mut f = browser_frame(None, false);
+        f.window = i;
+        f.url = format!("https://example.com/{name}");
+        h.app.apply(Out::Browser(f));
+    }
+    h.app.apply(Out::Live(Some(("writing app.js".into(), vec![Line::raw("  const total = 1;"), Line::raw("  render(total);")]))));
+    std::thread::sleep(std::time::Duration::from_millis(700));
+    let rows = screen_rows(&mut h, 150, 40);
+    let all = rows.join("\n");
+    let code = rows.iter().position(|r| r.contains("const total")).unwrap_or_else(|| panic!("code on screen:\n{all}"));
+    let page = rows.iter().rposition(|r| r.contains("example.com")).expect("page address");
+    // The box shares its rows with the pages, and stays at the left of them.
+    let (code_col, page_col) = (rows[code].find("const total").unwrap(), rows[page].find("example.com").unwrap());
+    assert!(code_col < page_col, "{code_col} vs {page_col}:\n{all}");
+    assert!(code > page || code + 12 > page, "the box is in line with the pages:\n{all}");
+}
+
+#[test]
+fn the_logo_slides_in_from_outside_and_lands_exactly() {
+    use coturbo_cli::tui::fx::{INTRO_MS, slide_in};
+    let w = 40;
+    let mut grid = vec![vec![None; w]; 4];
+    for (r, c) in [(0usize, 3usize), (1, 20), (2, 35), (3, 10)] {
+        grid[r][c] = Some((200, 100, 50));
+    }
+    let count = |g: &coturbo_cli::tui::fx::Grid| g.iter().flatten().filter(|p| p.is_some()).count();
+    // Before anything lands, nothing of it is on the canvas (it is outside the terminal).
+    assert_eq!(count(&slide_in(&grid, 0)), 0);
+    // Half way, the columns are somewhere between outside and home, none beyond the edge.
+    let mid = slide_in(&grid, INTRO_MS / 2);
+    assert!(count(&mid) > 0 && mid != grid, "it is moving");
+    // At the end it is the picture itself, and it stays so.
+    assert_eq!(slide_in(&grid, INTRO_MS), grid);
+    assert_eq!(slide_in(&grid, INTRO_MS * 10), grid);
+}
+
+#[test]
+fn a_glint_lights_part_of_the_picture_now_and_then() {
+    use coturbo_cli::tui::fx::highlight;
+    let base = vec![vec![Some((40u8, 90u8, 200u8)); 60]; 6];
+    let lit = |ms: u128| {
+        let mut g = base.clone();
+        highlight(&mut g, ms);
+        g.iter().flatten().filter(|p| **p != Some((40, 90, 200))).count()
+    };
+    assert!(lit(500) > 0 && lit(500) < 60 * 6, "a band, not the whole picture");
+    assert_eq!(lit(3000), 0, "and most of the time nothing is lit");
 }

@@ -151,7 +151,6 @@ fn stage_line(row: &StageRow, width: usize, bar_w: usize, now: Instant, ms: u128
     // A glint runs along the filled part of a running bar.
     let glint = (ms / 55) as usize % (bar_w + 8);
     let mut spans = vec![
-        Span::raw("  "),
         Span::styled(glyph, Style::new().fg(base).add_modifier(Modifier::BOLD)),
         Span::raw(" "),
         Span::styled(format!("{:<7}", row.name), Style::new().fg(if row.state == StageState::Pending { DIM } else { SOFT }).add_modifier(Modifier::BOLD)),
@@ -170,7 +169,7 @@ fn stage_line(row: &StageRow, width: usize, bar_w: usize, now: Instant, ms: u128
         _ => format!(" {:>3}%", (frac * 100.0).round() as u32),
     };
     spans.push(Span::styled(pct, Style::new().fg(base)));
-    let used = 2 + 1 + 1 + 7 + 1 + bar_w + 6;
+    let used = 1 + 1 + 7 + 1 + bar_w + 6;
     if !row.note.is_empty() && width > used + 4 {
         let room = width - used - 2;
         let note: String = if row.note.chars().count() > room {
@@ -186,7 +185,6 @@ fn stage_line(row: &StageRow, width: usize, bar_w: usize, now: Instant, ms: u128
 fn task_lines(tasks: &[TaskItem], width: usize, ms: u128) -> Vec<Line<'static>> {
     let done = tasks.iter().filter(|t| t.state == TaskState::Done).count();
     let mut out = vec![Line::from(vec![
-        Span::raw("  "),
         Span::styled("TASKS", Style::new().fg(SOFT).add_modifier(Modifier::BOLD)),
         Span::styled(format!("  {done}/{}", tasks.len()), Style::new().fg(DIM)),
     ])];
@@ -212,11 +210,11 @@ fn task_lines(tasks: &[TaskItem], width: usize, ms: u128) -> Vec<Line<'static>> 
         if bold {
             style = style.add_modifier(Modifier::BOLD);
         }
-        out.push(Line::from(vec![Span::raw("    "), Span::styled(glyph, Style::new().fg(color)), Span::raw(" "), Span::styled(title, style)]));
+        out.push(Line::from(vec![Span::raw("  "), Span::styled(glyph, Style::new().fg(color)), Span::raw(" "), Span::styled(title, style)]));
     }
     let hidden = tasks.len().saturating_sub(MAX_TASKS);
     if hidden > 0 {
-        out.push(Line::styled(format!("      … and {hidden} more"), Style::new().fg(DIM)));
+        out.push(Line::styled(format!("    … and {hidden} more"), Style::new().fg(DIM)));
     }
     out
 }

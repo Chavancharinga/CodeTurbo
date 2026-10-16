@@ -60,6 +60,8 @@ enum Entry {
         prefix: &'static str,
         style: Style,
     },
+    /// Rows that are cut to the room there is, not wrapped.
+    Clip(Vec<Line<'static>>),
     /// Code shown shortened until Ctrl+B.
     Fold { preview: Vec<Line<'static>>, full: Vec<Line<'static>>, open: bool },
 }
@@ -76,6 +78,7 @@ impl Entry {
                 vec![line]
             }
             Entry::Fold { preview, full, open } => if *open { full.clone() } else { preview.clone() },
+            Entry::Clip(lines) => lines.clone(),
         }
     }
 }
@@ -104,6 +107,11 @@ impl Transcript {
     }
 
     /// Code that shows `preview` until expanded.
+    pub fn clipped(&mut self, lines: Vec<Line<'static>>) {
+        self.stream = None;
+        self.entries.push(Entry::Clip(lines));
+    }
+
     pub fn fold(&mut self, preview: Vec<Line<'static>>, full: Vec<Line<'static>>) {
         self.stream = None;
         self.entries.push(Entry::Fold { preview, full, open: false });
@@ -182,7 +190,7 @@ impl Transcript {
                     break 'entries;
                 }
                 // Code and diffs are cut, not wrapped: one row each, however narrow the room.
-                let mut wrapped = if matches!(entry, Entry::Fold { .. }) { vec![text::clip(line, width)] } else { text::wrap(line, width) };
+                let mut wrapped = if matches!(entry, Entry::Fold { .. } | Entry::Clip(_)) { vec![text::clip(line, width)] } else { text::wrap(line, width) };
                 wrapped.reverse();
                 rows.extend(wrapped.into_iter().map(|l| (l, i)));
             }
@@ -369,6 +377,7 @@ impl App {
         match m {
             Out::Lines(lines) => self.transcript.extend(lines),
             Out::Fold { preview, full } => self.transcript.fold(preview, full),
+            Out::Clipped(lines) => self.transcript.clipped(lines),
             Out::Stream(kind, delta) => self.transcript.stream(kind, &delta),
             Out::Busy(label) => {
                 let since = self.busy.as_ref().map_or_else(Instant::now, |(_, t)| *t);
@@ -936,6 +945,11 @@ impl App {
         }
     }
 
+    /// Skips the logo's slide-in: the picture is whole from the first draw.
+    pub fn skip_intro(&mut self) {
+        self.started = Instant::now().checked_sub(Duration::from_millis(super::fx::INTRO_MS as u64 + 50)).unwrap_or_else(Instant::now);
+    }
+
     pub fn set_graphics(&mut self, picker: ratatui_image::picker::Picker) {
         self.browser.set_picker(picker);
     }
@@ -943,9 +957,8 @@ impl App {
     pub fn draw(&mut self, f: &mut Frame) {
         let area = f.area();
         let tick = self.started.elapsed();
-        // The name types itself in on the clock; the snail's frame is a
-        // running total so a change of mood changes the pace, never jumps.
-        let typed = (tick.as_millis() / splash::FRAME.as_millis()) as usize;
+        // The logo slides in on the clock; the snail's frame is a running
+        // total so a change of mood changes the pace, never jumps.
         let mood = self.mood();
         let dt = self.last_draw.elapsed().min(Duration::from_millis(250));
         self.last_draw = Instant::now();
@@ -973,17 +986,11 @@ impl App {
         };
         // In a box of its own, so it never runs into the line with the spinner.
         let work_h = if work_lines.is_empty() { 0 } else { (work_lines.len() as u16 + 2).min(area.height / 3) };
-        // The code being written, in a box above the work panel.
-        let live_h = match &self.live {
-            Some((_, lines)) if area.height >= 24 && self.busy.is_some() => (lines.len() as u16 + 2).min(area.height / 3),
-            _ => 0,
-        };
-        let air = u16::from(live_h + work_h > 0);
-        let [header, body, _air, live, work, panel, hint, input, status] = Layout::vertical([
+        let air = u16::from(work_h > 0);
+        let [header, body, _air, work, panel, hint, input, status] = Layout::vertical([
             Constraint::Length(header_h),
             Constraint::Min(1),
             Constraint::Length(air),
-            Constraint::Length(live_h),
             Constraint::Length(work_h),
             Constraint::Length(q_h),
             Constraint::Length(1),
@@ -993,7 +1000,7 @@ impl App {
         .areas(area);
 
         if logo {
-            draw_logo(f.buffer_mut(), header, frame, typed, mood);
+            draw_logo(f.buffer_mut(), header, frame, tick.as_millis(), self.busy.is_some(), mood);
         } else {
             let name = Line::from(vec![
                 Span::styled(" Code", Style::new().fg(SOFT).add_modifier(Modifier::BOLD)),
@@ -1008,7 +1015,7 @@ impl App {
         if self.browser.visible(now) && area.width >= 80 && area.height >= 20 {
             // Several pages get more room, all at the right, the same size.
             let several = self.browser.windows() > 1;
-            let pw = if several { (body.width * 11 / 20).clamp(40, 120) } else { (body.width / 2).clamp(40, 80) };
+            let pw = if several { (body.width * 13 / 20).clamp(40, 130) } else { (body.width / 2).clamp(40, 80) };
             if body.width > pw + 30 {
                 let ph = if several { self.browser.rows_wide(pw, body.height) } else { self.browser.rows_for(pw) }.min(body.height);
                 browser_rect = Some(Rect { x: body.right() - pw, y: body.y, width: pw, height: ph });
@@ -1018,6 +1025,16 @@ impl App {
                     body.width -= given + 1;
                 }
             }
+        }
+        // The code being written has a box at the bottom of the conversation, in line
+        // with the pages at the right, which keep their whole height.
+        let live_h = match &self.live {
+            Some((_, lines)) if area.height >= 24 && self.busy.is_some() => (lines.len() as u16 + 2).min(body.height * 2 / 3),
+            _ => 0,
+        };
+        let live_rect = (live_h > 0).then(|| Rect { y: body.bottom() - live_h, height: live_h, ..body });
+        if live_h > 0 {
+            body.height = body.height.saturating_sub(live_h + 1);
         }
         self.page = (body.height as usize).saturating_sub(2).max(1);
         let (lines, scroll, owners) = self.transcript.view(body.width.max(1) as usize, body.height as usize, self.scroll);
@@ -1029,14 +1046,13 @@ impl App {
             self.browser.draw(f.buffer_mut(), r, now);
             self.browser.draw_native(f, r, now);
         }
-        if live_h > 0
+        if let Some(rect) = live_rect
             && let Some((title, lines)) = &self.live
         {
             let block = Block::bordered()
                 .border_type(BorderType::LightQuadrupleDashed)
                 .border_style(Style::new().fg(GREEN_BORDER))
                 .title(Span::styled(format!(" {title} "), Style::new().fg(Color::Rgb(86, 204, 128)).add_modifier(Modifier::BOLD)));
-            let rect = Rect { x: live.x + 1, width: live.width.saturating_sub(2), ..live };
             let inner = block.inner(rect);
             f.render_widget(block, rect);
             // The newest lines are the ones that matter: show the end.
@@ -1159,8 +1175,14 @@ impl App {
 
 /// The logo with the snail at frame `i`, drawn with half blocks: the same
 /// pixels as the terminal intro.
-fn draw_logo(buf: &mut Buffer, area: Rect, snail: usize, typed: usize, mood: Mood) {
-    let px = splash::pixels_mood(snail, typed, area.width as usize, mood);
+fn draw_logo(buf: &mut Buffer, area: Rect, snail: usize, ms: u128, working: bool, mood: Mood) {
+    // The whole picture, which then slides in from outside the terminal and
+    // gets a glint across it while the agent works.
+    let whole = splash::pixels_mood(snail, usize::MAX / 2, area.width as usize, mood);
+    let mut px = super::fx::slide_in(&whole, ms);
+    if working && ms >= super::fx::INTRO_MS {
+        super::fx::highlight(&mut px, ms);
+    }
     for (row, pair) in px.chunks(2).enumerate() {
         let y = area.y + row as u16;
         if y >= area.bottom() || pair.len() < 2 {

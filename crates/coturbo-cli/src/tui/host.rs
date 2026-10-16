@@ -26,7 +26,7 @@ pub fn diff_fold(diff: &str, width: usize) -> Out {
     let full: Vec<Line<'static>> =
         view::render_diff_upto(diff, width, true, usize::MAX).iter().map(|r| ansi_line(&format!("    {r}"))).collect();
     if full.len() <= PREVIEW_ROWS {
-        return Out::Lines(full);
+        return Out::Clipped(full);
     }
     let hint = Style::new().add_modifier(Modifier::DIM);
     let mut preview = full[..PREVIEW_ROWS].to_vec();
@@ -254,7 +254,7 @@ impl Host for TuiHost {
                         self.stage("CHECK", if clean { StageState::Done } else { StageState::Failed }, note);
                         if !clean {
                             let found = debugger::parse(&output.content);
-                            self.lines(debugger::render(&found, &self.root, self.width));
+                            self.send(Out::Clipped(debugger::render(&found, &self.root, self.width)));
                         }
                     }
                 }
@@ -291,7 +291,7 @@ impl Host for TuiHost {
                     self.flash(if summary.to_lowercase().contains("design") { Mood::Denied } else { Mood::Alert });
                     // The debugger shows the exact lines.
                     let found = debugger::parse(summary);
-                    self.lines(debugger::render(&found, &self.root, self.width));
+                    self.send(Out::Clipped(debugger::render(&found, &self.root, self.width)));
                 }
                 if self.designing {
                     self.designing = false;
