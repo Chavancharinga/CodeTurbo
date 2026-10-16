@@ -37,7 +37,10 @@ pub fn guidance(kind: &str, report: &str) -> String {
      Uma grade de blocos genéricos não é uma réplica; estude a estrutura, não só os rótulos. \
      Os nomes de funções e textos acima não mostram o visual: use observe_app no programa original \
      para ver a tela de verdade (ícones, densidade, controles, cores) e, depois de construir, \
-     use observe_app no seu resultado e compare os dois lado a lado até a diferença sumir."
+     use observe_app no seu resultado e compare os dois lado a lado até a diferença sumir. \
+     Copiar só a tela não basta: desenhe cada ícone como SVG próprio, reproduza as animações e transições \
+     (passar o mouse, pressionar, carregar, abrir e fechar) e implemente TODAS as funções do original, com \
+     os estados vazio, carregando e erro, atalhos e o que é guardado entre usos. Nada de botão de enfeite."
         .to_string()
 }
 

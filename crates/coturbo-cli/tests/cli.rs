@@ -139,6 +139,12 @@ fn task(verify: &str) -> Task {
     Task { id: "t1".into(), prompt: "create done.txt".into(), verify: verify.into() }
 }
 
+/// A check that passes when `done.txt` has "ok" in it, with a tool every
+/// system has: `grep` is not on a plain Windows PATH, `findstr` is.
+fn check_done_file() -> &'static str {
+    if cfg!(windows) { "findstr /c:ok done.txt" } else { "grep -q ok done.txt" }
+}
+
 #[tokio::test]
 async fn bench_run_edits_a_fixture_copy_and_verifies() {
     let fixture = tempfile::tempdir().unwrap();
@@ -155,7 +161,7 @@ async fn bench_run_edits_a_fixture_copy_and_verifies() {
         },
         Response { content: vec![ContentBlock::Text { text: "done".into() }], stop_reason: "end_turn".into(), usage: usage(120, 5) },
     ]);
-    let r = bench::run_one(&mock, &task("grep -q ok done.txt"), fixture.path(), Mode::Naive, &agent_cfg()).await;
+    let r = bench::run_one(&mock, &task(check_done_file()), fixture.path(), Mode::Naive, &agent_cfg()).await;
     assert!(r.passed, "{:?}", r.error);
     assert_eq!((r.stop, r.turns, r.usage), (Some(Stop::Done), 2, usage(220, 15)));
     assert!(!fixture.path().join("done.txt").exists(), "fixture must stay pristine");
@@ -169,7 +175,7 @@ async fn bench_run_fails_when_verify_fails() {
         stop_reason: "end_turn".into(),
         usage: usage(50, 5),
     }]);
-    let r = bench::run_one(&mock, &task("grep -q ok done.txt"), fixture.path(), Mode::Ast, &agent_cfg()).await;
+    let r = bench::run_one(&mock, &task(check_done_file()), fixture.path(), Mode::Ast, &agent_cfg()).await;
     assert!(!r.passed);
     assert!(r.error.is_some());
 }

@@ -35,6 +35,8 @@ const PANEL: Color = Color::Rgb(16, 22, 36);
 /// The text box grows with its content up to this many rows.
 /// How long an alert or a refusal keeps the snail yellow or red.
 const FLASH: Duration = Duration::from_millis(4500);
+/// How long the snail stays green after a task, idle, before it goes white again.
+pub const GREEN_FOR: Duration = Duration::from_secs(10 * 60);
 
 const MAX_INPUT_ROWS: usize = 8;
 /// Entries of a long list shown at once.
@@ -254,6 +256,8 @@ pub struct App {
     /// far its animation has run and when it was last drawn: the pace follows
     /// the mood, so the frame is a running total, not the clock.
     mood: Mood,
+    /// When the work ended and the snail turned green.
+    done_at: Option<Instant>,
     /// The bars and the checklist of the job.
     work: Work,
     flash: Option<(Mood, Instant)>,
@@ -287,6 +291,7 @@ impl App {
             page: 10,
             busy: None,
             mood: Mood::Calm,
+            done_at: None,
             work: Work::default(),
             flash: None,
             phase: 0.0,
@@ -327,11 +332,18 @@ impl App {
     /// The mood the snail shows now: yellow while a question waits for the
     /// user, a flash (alert, denied) for a few seconds, else the working mood.
     pub fn mood(&self) -> Mood {
+        self.mood_at(Instant::now())
+    }
+
+    /// [`App::mood`] as of `now`. Green lasts [`GREEN_FOR`] once the work is
+    /// done; left alone that long, the snail goes back to white.
+    pub fn mood_at(&self, now: Instant) -> Mood {
         if self.asking.is_some() {
             return Mood::Alert;
         }
         match self.flash {
-            Some((m, at)) if at.elapsed() < FLASH => m,
+            Some((m, at)) if now.saturating_duration_since(at) < FLASH => m,
+            _ if self.mood == Mood::Done && self.done_at.is_some_and(|t| now.saturating_duration_since(t) >= GREEN_FOR) => Mood::Calm,
             _ => self.mood,
         }
     }
@@ -352,8 +364,15 @@ impl App {
             Out::Busy(label) => {
                 let since = self.busy.as_ref().map_or_else(Instant::now, |(_, t)| *t);
                 match (&label, self.mood) {
-                    (None, _) => self.mood = Mood::Calm,
-                    (Some(_), Mood::Calm) => self.mood = Mood::Run,
+                    // The work ended: green once there was work, white if there never was.
+                    (None, Mood::Calm) => {}
+                    (None, Mood::Done) => {}
+                    (None, _) => {
+                        self.mood = Mood::Done;
+                        self.done_at = Some(Instant::now());
+                    }
+                    // A new task begins: blue, walking.
+                    (Some(_), Mood::Calm | Mood::Done) => self.mood = Mood::Start,
                     _ => {}
                 }
                 self.busy = label.map(|l| (l, since));

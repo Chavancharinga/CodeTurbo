@@ -127,13 +127,15 @@ pub struct TuiHost {
     mood: Option<Mood>,
     /// The design review ran in this task, so the gate result covers it too.
     designing: bool,
+    /// The model has started to answer (text, reasoning or a tool call).
+    produced: bool,
 }
 
 impl TuiHost {
     pub fn new(out: Sender<Out>, pricer: Pricer, root: PathBuf, verbose: bool, base: Usage) -> Self {
         let width = terminal_size::terminal_size().map_or(100, |(w, _)| w.0 as usize).min(140);
         let _ = out.send(Out::ClearWork);
-        Self { out, pricer, root, verbose, limits: None, base, width, label: String::new(), composing_path: None, turns: 0, last_step: None, tools: 0, heavy: false, mood: None, designing: false }
+        Self { out, pricer, root, verbose, limits: None, base, width, label: String::new(), composing_path: None, turns: 0, last_step: None, tools: 0, heavy: false, mood: None, designing: false, produced: false }
     }
 
     fn stage(&self, name: &str, state: StageState, note: impl Into<String>) {
@@ -156,8 +158,11 @@ impl TuiHost {
             Mood::Turbo
         } else if self.tools > 0 {
             Mood::Hard
-        } else {
+        } else if self.produced || self.turns > 0 {
             Mood::Run
+        } else {
+            // The task has begun but the model has not answered yet.
+            Mood::Start
         }
     }
 
@@ -213,16 +218,19 @@ impl Host for TuiHost {
                 self.busy(busy_label(what));
             }
             Event::Thinking(delta) => {
+                self.produced = true;
                 self.busy("think".into());
                 self.send(Out::Stream(StreamKind::Thinking, delta.to_string()));
             }
             Event::Text(delta) => {
+                self.produced = true;
                 self.busy("write".into());
                 self.send(Out::Stream(StreamKind::Text, delta.to_string()));
             }
             Event::Limits(headers) => self.limits = view::limits_summary(headers),
             Event::ToolStart { name, input } => {
                 self.composing_path = None;
+                self.produced = true;
                 self.tools += 1;
                 self.heavy |= is_heavy(name);
                 if is_edit(name) {
@@ -298,6 +306,7 @@ impl Host for TuiHost {
                 if let Some(p) = path {
                     self.composing_path = Some(p.to_string());
                 }
+                self.produced = true;
                 if is_edit(tool) {
                     self.stage("WRITE", StageState::Running, self.composing_path.clone().unwrap_or_default());
                 }

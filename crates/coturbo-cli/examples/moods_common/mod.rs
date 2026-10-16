@@ -6,9 +6,10 @@ use coturbo_cli::splash::{Mood, frames, pixels_mood};
 pub type Rgb = (u8, u8, u8);
 pub type Grid = Vec<Vec<Option<Rgb>>>;
 
-/// The moods in the order they play: calm, running, running hard, turbo,
-/// alert (yellow) and denied (red).
-pub const MOODS: [Mood; 6] = [Mood::Calm, Mood::Run, Mood::Hard, Mood::Turbo, Mood::Alert, Mood::Denied];
+/// The moods in the order they play: white (before anything is asked), blue
+/// (a task starts), alert (yellow) and denied (red), then running, running
+/// hard and turbo, and green last: it only comes when everything is done.
+pub const MOODS: [Mood; 8] = [Mood::Calm, Mood::Start, Mood::Alert, Mood::Denied, Mood::Run, Mood::Hard, Mood::Turbo, Mood::Done];
 
 /// Frame after which the name is fully typed in.
 fn typed() -> usize {

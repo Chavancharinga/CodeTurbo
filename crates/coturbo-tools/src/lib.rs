@@ -315,7 +315,10 @@ impl Tools {
              Build on the tokens (var(--…)). The design check BLOCKS only real defects (unreadable contrast, overlap, content cut off, \
              not responsive, no side margin, broken images) and the tell-tale generic-AI look (default fonts like Inter/Roboto, raw Tailwind \
              colors, emoji used as icons). Everything else — layout, shapes, density, repetition — is your creative call; a toolbar of \
-             identical buttons or a dense app panel is fine. Avoid the stock marketing-page shape unless it truly fits.\n\
+             identical buttons or a dense app panel is fine. Avoid the stock marketing-page shape unless it truly fits. \
+             Finish it: every icon an inline SVG drawn for this project (one stroke and grid, currentColor), motion where it helps \
+             (hover and press, transitions, loading, enter and leave, with prefers-reduced-motion), and every function working, \
+             with its empty, loading and error states.\n\
              Layout idea: {}.\nSignature element to build around: {}.\n\
              A composition you could follow or diverge from (make it yours):\n{}\n\
              Classes: .container (centered, with side padding), .section, .grid (responsive), .cluster, .btn/.btn--primary/.btn--secondary, .panel, .card (hover lift), .tag.\n\

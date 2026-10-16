@@ -2,7 +2,7 @@ use coturbo_design::color::{contrast, hex, hue_sat, oklch, parse_hex};
 use coturbo_design::compiler::{Brief, Tone, compile};
 use coturbo_design::contract::{self, Contract};
 use coturbo_design::fiscal::{self, Severity};
-use coturbo_design::render::{Metrics, Page, judge, parse_metrics};
+use coturbo_design::render::{Metrics, Page, dom_from_log, judge, parse_metrics};
 
 fn brief(tone: &str) -> Brief {
     Brief {
@@ -401,4 +401,22 @@ fn design_md_follows_the_stitch_format_and_preview_renders() {
     let html = contract::preview_html(&t);
     assert!(html.starts_with("<!DOCTYPE html>") && html.contains("Cores e papéis") && html.contains("btn--primary"), "preview");
     assert!(html.contains(":root") && html.contains("--color-primary"), "tokens inline no preview");
+}
+
+#[test]
+fn the_probe_result_can_be_read_from_the_browsers_log() {
+    // A real line of the browser's log, with the page's console output in it.
+    let log = concat!(
+        "[56564:47560:1016/100338.100:INFO:CONSOLE:1] \"outra mensagem da pagina\", source: file:///x.html (1)\n",
+        "[56564:47560:1016/100338.245:INFO:CONSOLE:1] \"CT_PROBE:{\"rounded\":4,\"radii\":2,\"shadowed\":1,\"shadows\":1,",
+        "\"centered\":3,\"text\":9,\"rows\":0,\"tiny\":0,\"overlaps\":[\"a.btn × b.btn\"],\"tight\":[],\"broken\":[],",
+        "\"hscroll\":true,\"scrollers\":[],\"small\":0,\"cut\":[],\"edge\":[],\"under\":[]}\", source: file:///C:/x/index.html (1)\n",
+    );
+    let dom = dom_from_log(log).expect("the probe line is found among other console output");
+    let m = parse_metrics(&dom).expect("and it reads like the attribute does");
+    assert_eq!((m.rounded, m.radii, m.centered, m.text), (4, 2, 3, 9));
+    assert!(m.hscroll);
+    assert_eq!(m.overlaps, ["a.btn × b.btn"]);
+    assert!(dom_from_log("nada a ver\n[INFO:CONSOLE:1] \"so uma mensagem\"").is_none());
+    assert!(dom_from_log("").is_none());
 }

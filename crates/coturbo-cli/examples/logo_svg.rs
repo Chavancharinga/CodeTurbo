@@ -3,8 +3,8 @@
 //! plays by itself on GitHub, with no play button, and stays sharp at any
 //! size.
 //!
-//! The snail plays every mood in turn (calm, running, running hard, turbo,
-//! alert, denied), with no text added.
+//! The snail plays every mood in turn (white, blue, alert, denied, then running,
+//! running hard and turbo, and green last), with no text added.
 //!
 //!     cargo run -p coturbo-cli --example logo_svg -- docs/codeturbo.svg
 
@@ -17,7 +17,7 @@ use std::fmt::Write;
 
 const PAD: usize = 4;
 /// Frames each mood plays: fewer than the GIF, to keep the file small.
-const PER_MOOD: usize = 30;
+const PER_MOOD: usize = 26;
 const BG: &str = "#0d1117";
 const FRAME_MS: usize = 50;
 

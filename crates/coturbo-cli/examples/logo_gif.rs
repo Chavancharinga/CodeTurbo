@@ -1,10 +1,11 @@
 //! Renders the CodeTurbo logo as a looping GIF that plays every mood of the
-//! snail in turn: calm, running, running hard, turbo, alert and denied.
+//! snail in turn: white, blue, alert, denied, then running, running hard and
+//! turbo, and green last.
 //! Straight from the interface's own pixels, with no text added.
 //!
 //!     cargo run -p coturbo-cli --example logo_gif -- docs/codeturbo.gif
 //!
-//! A second argument (0..5) renders only that mood, to check it by eye.
+//! A second argument (0..7) renders only that mood, to check it by eye.
 
 #[path = "moods_common/mod.rs"]
 mod common;
@@ -16,7 +17,7 @@ const BG: Rgb = (13, 17, 23);
 const SCALE: usize = 6;
 const PAD: usize = 4;
 /// Frames each mood plays (50 ms each, as in the terminal).
-const PER_MOOD: usize = 46;
+const PER_MOOD: usize = 40;
 
 fn main() {
     let out = std::env::args().nth(1).unwrap_or_else(|| "codeturbo.gif".into());

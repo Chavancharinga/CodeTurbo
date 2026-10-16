@@ -67,7 +67,7 @@ const cut=items.filter(e=>{const r=R(e);return own(e)&&(r.right>W+1||r.left<-1||
 const scrollers=[...document.querySelectorAll('body *')].filter(e=>{const s=getComputedStyle(e);return vis(e)&&((/(auto|scroll)/.test(s.overflowY)&&e.scrollHeight>e.clientHeight+1)||(/(auto|scroll)/.test(s.overflowX)&&e.scrollWidth>e.clientWidth+1))&&e.clientWidth>0;}).map(label).slice(0,5);
 const small=W<600?[...document.querySelectorAll('a,button,input,select')].filter(e=>{const r=R(e);return vis(e)&&r.width>0&&(r.height<32||r.width<32);}).length:0;
 let host=document.documentElement;try{if(window.parent!==window)host=parent.document.documentElement;}catch(e){}
-host.setAttribute('data-codeturbo',JSON.stringify({rounded,radii:radii.size,shadowed,shadows:shadows.size,centered,text,rows,tiny,overlaps,tight,broken,hscroll,scrollers,small,cut,edge,under}));};
+const out=JSON.stringify({rounded,radii:radii.size,shadowed,shadows:shadows.size,centered,text,rows,tiny,overlaps,tight,broken,hscroll,scrollers,small,cut,edge,under});host.setAttribute('data-codeturbo',out);console.log('CT_PROBE:'+out);};
 if(document.readyState==='complete')setTimeout(go,300);else addEventListener('load',()=>setTimeout(go,300));})();</script>"#;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -108,6 +108,45 @@ pub struct Page {
     pub mobile: Metrics,
     pub tablet: Metrics,
     pub laptop: Metrics,
+}
+
+/// The probe's result as the browser's log carries it (`CT_PROBE:{...}`),
+/// shaped like the attribute [`parse_metrics`] reads. The log is a file, so it
+/// reaches us from any shell, while the browser's standard output does not
+/// from a terminal with no console (Git Bash, services).
+pub fn dom_from_log(log: &str) -> Option<String> {
+    let line = log.lines().rev().find(|l| l.contains("CT_PROBE:"))?;
+    let from = line.find("CT_PROBE:")? + "CT_PROBE:".len();
+    let end = line.rfind("\", source:").unwrap_or(line.len());
+    let json = line[from..end].trim().trim_end_matches('"');
+    let esc = json.replace('&', "&amp;").replace('"', "&quot;").replace('<', "&lt;").replace('>', "&gt;");
+    Some(format!("<html data-codeturbo=\"{esc}\"></html>"))
+}
+
+/// Waits up to `secs` for `file` to exist (the browser may finish after the
+/// program it was started through has already returned).
+async fn wait_for(file: &Path, secs: u64) -> bool {
+    for _ in 0..secs * 10 {
+        if file.metadata().is_ok_and(|m| m.len() > 0) {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    false
+}
+
+/// Saves a screenshot of `url` to `shot`. Where the browser is started
+/// through a launcher that returns early, a start now and then goes nowhere
+/// (several at once), so a missing file earns one more try.
+async fn shoot(browser: &Path, size: (u32, u32), budget: &str, url: &str, shot: &Path) -> bool {
+    for wait in [10, 20] {
+        let _ = std::fs::remove_file(shot);
+        let _ = run(browser, size, &[format!("--virtual-time-budget={budget}"), format!("--screenshot={}", shot.display()), url.to_string()]).await;
+        if wait_for(shot, wait).await {
+            return true;
+        }
+    }
+    false
 }
 
 pub fn parse_metrics(dom: &str) -> Option<Metrics> {
@@ -272,12 +311,46 @@ async fn measure_at(browser: &Path, html: &Path, shot: &Path, size: (u32, u32)) 
     };
     let (measure_url, shot_url) = if framed { (frame(&url, "medir")?, frame(&page, "ver")?) } else { (url, page) };
     let window = if framed { (520, size.1) } else { size };
-    let dom = run(browser, window, &["--virtual-time-budget=5000".into(), "--dump-dom".into(), measure_url]).await;
+    // The result also goes to the browser's log, for shells where its
+    // standard output is lost.
+    static LOGS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = LOGS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let log = std::env::temp_dir().join(format!("codeturbo-render-{}-{n}.log", std::process::id()));
+    let _ = std::fs::remove_file(&log);
+    let mut dom = Err("a página não pôde ser medida".to_string());
+    for wait in [12, 20] {
+        let _ = std::fs::remove_file(&log);
+        let out = run(
+            browser,
+            window,
+            &["--enable-logging".into(), "--v=0".into(), format!("--log-file={}", log.display()), "--virtual-time-budget=5000".into(), "--dump-dom".into(), measure_url.clone()],
+        )
+        .await;
+        if out.as_deref().is_ok_and(|d| parse_metrics(d).is_some()) {
+            dom = out;
+            break;
+        }
+        // The probe line may land a moment after the log file appears.
+        let mut found = None;
+        for _ in 0..wait * 10 {
+            if let Some(d) = std::fs::read_to_string(&log).ok().as_deref().and_then(dom_from_log) {
+                found = Some(d);
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        if let Some(d) = found {
+            dom = Ok(d);
+            break;
+        }
+        dom = out;
+    }
+    let _ = std::fs::remove_file(&log);
     let shot = std::path::absolute(shot).unwrap_or(shot.to_path_buf());
     if let Some(dir) = shot.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    let _ = run(browser, window, &["--virtual-time-budget=5000".into(), format!("--screenshot={}", shot.display()), shot_url]).await;
+    shoot(browser, window, "5000", &shot_url, &shot).await;
     let _ = std::fs::remove_file(&tmp);
     for name in ["medir", "ver"] {
         let _ = std::fs::remove_file(html.with_file_name(format!(".codeturbo-render-{stem}-{name}.html")));
@@ -322,6 +395,5 @@ pub async fn screenshot(browser: &Path, url: &str, shot: &Path, size: (u32, u32)
     if let Some(dir) = shot.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    run(browser, size, &["--virtual-time-budget=6000".into(), format!("--screenshot={}", shot.display()), url.to_string()]).await?;
-    if shot.exists() { Ok(()) } else { Err("o navegador não salvou a captura".into()) }
+    if shoot(browser, size, "6000", url, &shot).await { Ok(()) } else { Err("o navegador não salvou a captura".into()) }
 }

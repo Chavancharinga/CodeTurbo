@@ -400,11 +400,11 @@ fn the_screen_draws_logo_conversation_box_and_status() {
     assert!(all.contains("Descreva a tarefa"), "placeholder in the empty box");
     assert!(rows.last().unwrap().contains("anthropic · claude-sonnet-5-5 · edição livre"), "{}", rows.last().unwrap());
     assert!(rows.last().unwrap().contains("contexto 12%"));
-    // The logo is drawn in half blocks, in the brand blue.
-    let blue = Color::Rgb(47, 123, 255);
+    // The logo is drawn in half blocks, in the brand colours: the idle snail is white, the name blue and white.
+    let (blue, white) = (Color::Rgb(47, 123, 255), Color::Rgb(225, 232, 245));
     let logo = (0..8).flat_map(|y| (0..100).map(move |x| (x, y))).filter(|&(x, y)| {
         let c = &buf[(x, y)];
-        (c.symbol() == "▀" || c.symbol() == "▄") && (c.fg == blue || c.bg == blue)
+        (c.symbol() == "▀" || c.symbol() == "▄") && [blue, white].iter().any(|&k| c.fg == k || c.bg == k)
     });
     assert!(logo.count() > 20, "logo pixels on screen");
 
@@ -568,17 +568,41 @@ fn a_long_folder_is_cut_to_its_last_three_folders() {
 }
 
 #[test]
-fn the_snail_follows_what_the_agent_is_doing() {
+fn the_snail_goes_white_then_blue_then_green() {
     use coturbo_cli::splash::Mood;
     let mut h = harness();
-    assert_eq!(h.app.mood(), Mood::Calm, "idle at the start");
+    assert_eq!(h.app.mood(), Mood::Calm, "white before any prompt");
+    h.app.apply(Out::Busy(None));
+    assert_eq!(h.app.mood(), Mood::Calm, "nothing happened, so still white");
+    // A task begins: blue, walking.
     h.app.apply(Out::Busy(Some("think".into())));
-    assert_eq!(h.app.mood(), Mood::Run, "asked for code");
+    assert_eq!(h.app.mood(), Mood::Start);
+    // The work then sets the pace.
+    h.app.apply(Out::Mood(Mood::Run));
+    assert_eq!(h.app.mood(), Mood::Run);
     h.app.apply(Out::Mood(Mood::Hard));
     assert_eq!(h.app.mood(), Mood::Hard);
     h.app.apply(Out::Mood(Mood::Turbo));
     assert_eq!(h.app.mood(), Mood::Turbo);
-    // A flash goes over the working mood, which comes back afterwards.
+    // Waiting on the user in the middle of the task does not restart it.
+    h.app.apply(Out::Busy(Some("wait: your answer".into())));
+    assert_eq!(h.app.mood(), Mood::Turbo);
+    // Everything done: green, and it stays green until the next task.
+    h.app.apply(Out::Busy(None));
+    assert_eq!(h.app.mood(), Mood::Done);
+    h.app.apply(Out::Busy(None));
+    assert_eq!(h.app.mood(), Mood::Done);
+    // The next task starts blue again.
+    h.app.apply(Out::Busy(Some("think".into())));
+    assert_eq!(h.app.mood(), Mood::Start);
+}
+
+#[test]
+fn alert_and_denied_flash_over_the_mood_and_outlive_the_task() {
+    use coturbo_cli::splash::Mood;
+    let mut h = harness();
+    h.app.apply(Out::Busy(Some("think".into())));
+    h.app.apply(Out::Mood(Mood::Turbo));
     h.app.apply(Out::Mood(Mood::Denied));
     assert_eq!(h.app.mood(), Mood::Denied);
     h.app.apply(Out::Mood(Mood::Alert));
@@ -604,22 +628,27 @@ fn the_snail_changes_color_on_screen() {
     use coturbo_cli::splash::Mood;
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
-    let colors = |mood: Mood| {
+    // Colors drawn where the snail is: the right of the wordmark, which is itself white and blue.
+    let snail = |mood: Mood| {
         let mut h = harness();
         h.app.apply(Out::Mood(mood));
         let mut term = Terminal::new(TestBackend::new(100, 30)).unwrap();
         term.draw(|f| h.app.draw(f)).unwrap();
         let buf = term.backend().buffer().clone();
-        (0..8).flat_map(|y| (0..100).map(move |x| (x, y))).map(|(x, y)| (buf[(x, y)].fg, buf[(x, y)].bg)).collect::<Vec<_>>()
+        (0..8).flat_map(|y| (62..100).map(move |x| (x, y))).map(|(x, y)| (buf[(x, y)].fg, buf[(x, y)].bg)).collect::<Vec<_>>()
     };
     let has = |cs: &[(Color, Color)], c: Color| cs.iter().any(|&(f, b)| f == c || b == c);
-    let yellow = Color::Rgb(255, 196, 38);
-    let red = Color::Rgb(240, 70, 60);
-    let blue = Color::Rgb(47, 123, 255);
-    assert!(has(&colors(Mood::Alert), yellow));
-    assert!(has(&colors(Mood::Denied), red));
-    let calm = colors(Mood::Calm);
-    assert!(has(&calm, blue) && !has(&calm, yellow) && !has(&calm, red));
+    let (white, blue, green) = (Color::Rgb(225, 232, 245), Color::Rgb(47, 123, 255), Color::Rgb(86, 204, 128));
+    let (yellow, red) = (Color::Rgb(255, 196, 38), Color::Rgb(240, 70, 60));
+    let calm = snail(Mood::Calm);
+    assert!(has(&calm, white) && !has(&calm, blue) && !has(&calm, green), "white before anything");
+    let start = snail(Mood::Start);
+    assert!(has(&start, blue) && !has(&start, white), "blue when a task starts");
+    let done = snail(Mood::Done);
+    assert!(has(&done, green) && !has(&done, blue) && !has(&done, white), "green when it is done");
+    assert!(has(&snail(Mood::Alert), yellow));
+    assert!(has(&snail(Mood::Denied), red));
+    assert!(has(&snail(Mood::Run), blue) && has(&snail(Mood::Turbo), blue));
 }
 
 #[test]
@@ -836,4 +865,29 @@ fn the_folder_never_touches_the_usage_in_the_footer() {
         let at = last.find("tokens").expect("usage shown");
         assert!(last[..at].ends_with("  "), "width {width}: at least two spaces before the usage: {last:?}");
     }
+}
+
+#[test]
+fn green_goes_back_to_white_after_ten_idle_minutes() {
+    use coturbo_cli::splash::Mood;
+    use coturbo_cli::tui::app::GREEN_FOR;
+    use std::time::{Duration, Instant};
+    let mut h = harness();
+    h.app.apply(Out::Busy(Some("think".into())));
+    h.app.apply(Out::Mood(Mood::Hard));
+    h.app.apply(Out::Busy(None));
+    let now = Instant::now();
+    assert_eq!(h.app.mood_at(now), Mood::Done, "green right after the work");
+    assert_eq!(h.app.mood_at(now + GREEN_FOR - Duration::from_secs(5)), Mood::Done, "still green just before ten minutes");
+    assert_eq!(h.app.mood_at(now + GREEN_FOR + Duration::from_secs(5)), Mood::Calm, "white after ten idle minutes");
+    // Green only comes after a task: a session with no task stays white.
+    let mut fresh = harness();
+    fresh.app.apply(Out::Busy(None));
+    assert_eq!(fresh.app.mood_at(Instant::now()), Mood::Calm);
+    // Another end-of-work message does not restart the ten minutes.
+    h.app.apply(Out::Busy(None));
+    assert_eq!(h.app.mood_at(now + GREEN_FOR + Duration::from_secs(5)), Mood::Calm);
+    // A new task is blue again, even from white.
+    h.app.apply(Out::Busy(Some("think".into())));
+    assert_eq!(h.app.mood_at(now + GREEN_FOR + Duration::from_secs(5)), Mood::Start);
 }

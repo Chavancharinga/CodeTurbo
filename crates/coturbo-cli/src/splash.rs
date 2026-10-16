@@ -176,33 +176,40 @@ fn lerp(a: Rgb, b: Rgb, t: f32) -> Rgb {
 const YELLOW: Rgb = (255, 196, 38);
 const SPARK: Rgb = (255, 232, 96);
 const RED: Rgb = (240, 70, 60);
+const GREEN: Rgb = (86, 204, 128);
 
 /// How the snail feels: its colour, pace, trail and sparks follow what the
 /// agent is doing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Mood {
-    /// Idle: walks slowly and leaves next to no trail.
+    /// Before anything is asked: white, hardly moving, no trail.
     #[default]
     Calm,
+    /// A task has just begun: blue, walking, no trail yet.
+    Start,
+    /// The task is done and checked: green, walking.
+    Done,
+    /// Something needs attention: the snail turns yellow and walks.
+    Alert,
+    /// The design check refused the work: the snail turns red and walks.
+    Denied,
     /// Working on an answer: the run of the intro.
     Run,
     /// Tools and engines at work: runs hard, with a dense trail.
     Hard,
     /// Flat out: a blue trail with yellow in it and sparks from the shell.
     Turbo,
-    /// Something needs attention: the snail turns yellow.
-    Alert,
-    /// The design check refused the work: the snail turns red.
-    Denied,
 }
 
 impl Mood {
     /// Animation frames per tick; 1.0 is the pace of the intro.
     pub fn speed(self) -> f32 {
         match self {
-            Mood::Calm => 0.45,
-            Mood::Run | Mood::Alert => 1.0,
+            Mood::Calm => 0.3,
+            Mood::Start | Mood::Done => 0.7,
+            Mood::Alert => 0.8,
             Mood::Denied => 0.6,
+            Mood::Run => 1.0,
             Mood::Hard => 1.8,
             Mood::Turbo => 2.8,
         }
@@ -215,6 +222,8 @@ impl Mood {
 
     fn body(self) -> Rgb {
         match self {
+            Mood::Calm => SOFT,
+            Mood::Done => GREEN,
             Mood::Alert => YELLOW,
             Mood::Denied => RED,
             _ => BLUE,
@@ -224,17 +233,21 @@ impl Mood {
     /// The far, dark end of the trail.
     fn trail_far(self) -> Rgb {
         match self {
+            Mood::Calm => (58, 64, 78),
+            Mood::Done => (14, 62, 38),
             Mood::Alert => (84, 62, 10),
             Mood::Denied => (84, 22, 18),
             _ => TRAIL_FAR,
         }
     }
 
-    /// Streak density: how many of every 8 cells of a streak are lit.
+    /// Streak density: how many of every 8 cells of a streak are lit. The
+    /// walking moods leave next to nothing; the running ones a real trail.
     fn density(self) -> usize {
         match self {
-            Mood::Calm => 0,
-            Mood::Run | Mood::Alert | Mood::Denied => 5,
+            Mood::Calm | Mood::Start | Mood::Done => 0,
+            Mood::Alert | Mood::Denied => 2,
+            Mood::Run => 5,
             Mood::Hard => 7,
             Mood::Turbo => 8,
         }
@@ -699,15 +712,33 @@ mod mood_tests {
     }
 
     #[test]
-    fn alert_is_yellow_and_denied_is_red_and_the_rest_blue() {
+    fn each_mood_has_its_color() {
         let body = |m| {
             let px = canvas_mood(SNAIL, 3, track_for(SNAIL, 100), 0, m);
             lit(&px)
         };
+        // White before anything is asked, blue once a task starts, green when it is done.
+        assert!(body(Mood::Calm).contains(&SOFT) && !body(Mood::Calm).contains(&BLUE));
+        assert!(body(Mood::Start).contains(&BLUE));
+        assert!(body(Mood::Done).contains(&GREEN) && !body(Mood::Done).contains(&BLUE));
         assert!(body(Mood::Alert).contains(&YELLOW) && !body(Mood::Alert).contains(&BLUE));
         assert!(body(Mood::Denied).contains(&RED) && !body(Mood::Denied).contains(&BLUE));
-        for m in [Mood::Calm, Mood::Run, Mood::Hard, Mood::Turbo] {
+        for m in [Mood::Run, Mood::Hard, Mood::Turbo] {
             assert!(body(m).contains(&BLUE), "{m:?}");
+        }
+    }
+
+    #[test]
+    fn the_walking_moods_leave_next_to_no_trail() {
+        // Every mood draws the same snail; only the trail differs.
+        let n = |m| (0..8).map(|i| track(&canvas_mood(SNAIL, i, track_for(SNAIL, 100), 9, m)).len()).sum::<usize>();
+        let (calm, run) = (n(Mood::Calm), n(Mood::Run));
+        assert_eq!(n(Mood::Start), calm, "blue walking: no trail");
+        assert_eq!(n(Mood::Done), calm, "green walking: no trail");
+        assert!(run > calm + 100, "running has a real trail: {run} vs {calm}");
+        // Alert and denied walk too, with a light trail in their colour.
+        for m in [Mood::Alert, Mood::Denied] {
+            assert!(n(m) > calm && n(m) < run, "{m:?}: {} between {calm} and {run}", n(m));
         }
     }
 
@@ -731,10 +762,13 @@ mod mood_tests {
 
     #[test]
     fn the_faster_the_effort_the_faster_the_frames() {
-        assert!(Mood::Calm.speed() < Mood::Run.speed());
+        assert!(Mood::Calm.speed() < Mood::Start.speed(), "idle is almost still");
+        assert!(Mood::Start.speed() < Mood::Run.speed());
         assert!(Mood::Run.speed() < Mood::Hard.speed());
         assert!(Mood::Hard.speed() < Mood::Turbo.speed());
-        assert!(Mood::Alert.is_flash() && Mood::Denied.is_flash() && !Mood::Turbo.is_flash());
+        assert_eq!(Mood::Start.speed(), Mood::Done.speed());
+        assert!(Mood::Alert.is_flash() && Mood::Denied.is_flash());
+        assert!(![Mood::Calm, Mood::Start, Mood::Done, Mood::Run, Mood::Hard, Mood::Turbo].iter().any(|m| m.is_flash()));
     }
 
     #[test]

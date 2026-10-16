@@ -258,7 +258,7 @@ fn system_prompt(mode: Mode) -> String {
          Do exactly what was asked: a bug fix, optimization or back-end task never changes the design, \
          the text or the features, and never adds anything that was not requested. \
          When improving an existing interface, keep the brand: organize its colors, do not replace them. \
-         For any user interface work, call design_brief first and build only with the tokens it returns; \
+         Recreating or building a product means finishing it: draw every icon as inline SVG made for this project (never emoji, never a font of icons \n         you did not check), give the interface motion (hover and press states, transitions, loading, entering and leaving, with prefers-reduced-motion respected), \n         and implement every function the original or the request has, with its empty, loading and error states, shortcuts and saved state, down to the small details; \n         no placeholder buttons and no half-built screens. \n         For any user interface work, call design_brief first and build only with the tokens it returns; \
          the design check rejects generic patterns (default fonts and palettes, emoji icons, \
          identical card grids, the template section order). After building a page, call design_review          to see it rendered and fix whatever still looks generic.",
     );
