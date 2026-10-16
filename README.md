@@ -11,10 +11,6 @@
   <img alt="100% Rust" src="https://img.shields.io/badge/100%25-Rust-2F7BFF?style=flat-square">
 </p>
 
-<p align="center">
-  English · <a href="README.pt-BR.md">Português</a>
-</p>
-
 ---
 
 CodeTurbo is a coding agent for the terminal, written entirely in Rust. It
