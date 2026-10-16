@@ -83,19 +83,26 @@ Updates are one command.
 ## In action
 
 Everything below is the real screen, recorded while the agent worked on a real
-GitHub account. Nothing is a mockup.
+GitHub account and on CodeTurbo's own repository. Nothing is a mockup.
 
-**Several pages at once, side by side.** The agent opened a profile, a
-repository, its releases and its commits together, each in its own small
-browser, and read all four.
+**The code appears as it is written,** in a box beside the pages the agent keeps
+open.
 
-<p align="center"><img src="docs/screens/browser-windows.png" alt="Four real GitHub pages open at the same time in the terminal" width="900"></p>
+<p align="center"><img src="docs/screens/live-code.png" alt="Code being written live in a box, next to two real GitHub pages" width="900"></p>
 
-**The code appears as it is written.** The agent builds a page from what it just
-saw, and the file grows in a box, line by line, next to the pages it is
-comparing.
+**Bugs found and fixed in the open.** Every change is shown as a diff, line by
+line, while the task list moves forward.
 
-<p align="center"><img src="docs/screens/live-code.png" alt="A profile page being written live, with the real GitHub pages beside it" width="900"></p>
+<p align="center"><img src="docs/screens/fixing.png" alt="Diffs of two fixes, the task list and two GitHub pages" width="900"></p>
+
+**The verification gate at full speed.** The snail goes flat out while lint and
+tests load, bar by bar.
+
+<p align="center"><img src="docs/screens/turbo-gate.png" alt="The verification bars loading, with the tests at 91 percent" width="900"></p>
+
+**Done means verified.** The snail turns green only when everything passed.
+
+<p align="center"><img src="docs/screens/done.png" alt="All steps complete, verified, the snail is green" width="900"></p>
 
 ## Install
 

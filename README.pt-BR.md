@@ -86,19 +86,26 @@ comando.
 ## Em ação
 
 Tudo abaixo é a tela real, gravada enquanto o agente trabalhava numa conta real
-do GitHub. Nada é maquete.
+do GitHub e no próprio repositório do CodeTurbo. Nada é maquete.
 
-**Várias páginas ao mesmo tempo, lado a lado.** O agente abriu um perfil, um
-repositório, as versões e os commits juntos, cada um em seu mini navegador, e
-leu as quatro.
+**O código aparece enquanto é escrito,** numa caixa ao lado das páginas que o
+agente mantém abertas.
 
-<p align="center"><img src="docs/screens/browser-windows.png" alt="Quatro páginas reais do GitHub abertas ao mesmo tempo no terminal" width="900"></p>
+<p align="center"><img src="docs/screens/live-code.png" alt="Código sendo escrito ao vivo numa caixa, ao lado de duas páginas reais do GitHub" width="900"></p>
 
-**O código aparece enquanto é escrito.** O agente monta uma página a partir do
-que acabou de ver, e o arquivo cresce numa caixa, linha a linha, ao lado das
-páginas que ele compara.
+**Bugs encontrados e corrigidos à vista.** Cada alteração aparece como diff,
+linha a linha, enquanto a lista de tarefas avança.
 
-<p align="center"><img src="docs/screens/live-code.png" alt="Uma página de perfil sendo escrita ao vivo, com as páginas reais do GitHub ao lado" width="900"></p>
+<p align="center"><img src="docs/screens/fixing.png" alt="Diffs de duas correções, a lista de tarefas e duas páginas do GitHub" width="900"></p>
+
+**A verificação a toda velocidade.** O caracol corre com tudo enquanto a análise
+e os testes carregam, barra a barra.
+
+<p align="center"><img src="docs/screens/turbo-gate.png" alt="As barras da verificação carregando, com os testes em 91 por cento" width="900"></p>
+
+**Concluído significa verificado.** O caracol só fica verde quando tudo passou.
+
+<p align="center"><img src="docs/screens/done.png" alt="Todas as etapas concluídas e verificadas, o caracol está verde" width="900"></p>
 
 ## Instalação
 
