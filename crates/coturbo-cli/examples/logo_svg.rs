@@ -3,13 +3,21 @@
 //! plays by itself on GitHub, with no play button, and stays sharp at any
 //! size.
 //!
+//! The snail plays every mood in turn (calm, running, running hard, turbo,
+//! alert, denied), with no text added.
+//!
 //!     cargo run -p coturbo-cli --example logo_svg -- docs/codeturbo.svg
 
-use coturbo_cli::splash::{LOOP_FRAMES, frames, pixels};
+#[path = "moods_common/mod.rs"]
+mod common;
+
+use common::{MOODS, frame};
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
 const PAD: usize = 4;
+/// Frames each mood plays: fewer than the GIF, to keep the file small.
+const PER_MOOD: usize = 30;
 const BG: &str = "#0d1117";
 const FRAME_MS: usize = 50;
 
@@ -42,13 +50,14 @@ fn paths(px: &Grid, keep: impl Fn(usize, usize) -> bool) -> String {
 
 fn main() {
     let out = std::env::args().nth(1).unwrap_or_else(|| "codeturbo.svg".into());
-    let first = frames();
-    let all: Vec<Grid> = (first..first + LOOP_FRAMES).map(|i| pixels(i, 120)).collect();
+    // No padding in the grids: `paths` and the view box add it.
+    let all: Vec<Grid> = MOODS.iter().flat_map(|&m| (0..PER_MOOD).map(move |i| frame(m, i, 0))).collect();
+    let frames = all.len();
     let (h, w) = (all[0].len(), all[0][0].len());
     // Pixels identical in every frame (the wordmark) are drawn once.
     let fixed = |x: usize, y: usize| all.iter().all(|f| f[y][x] == all[0][y][x]);
-    let total = LOOP_FRAMES * FRAME_MS;
-    let step = 100.0 / LOOP_FRAMES as f64;
+    let total = frames * FRAME_MS;
+    let step = 100.0 / frames as f64;
     let mut svg = format!(
         "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {vw} {vh}\" width=\"{pw}\" height=\"{ph}\" \
          shape-rendering=\"crispEdges\" role=\"img\" aria-label=\"CodeTurbo\">\
@@ -64,7 +73,8 @@ fn main() {
     for (k, f) in all.iter().enumerate() {
         let _ = write!(svg, "<g style=\"animation-delay:{}ms\">{}</g>", k * FRAME_MS, paths(f, |x, y| !fixed(x, y)));
     }
-    svg.push_str("</svg>\n");
+    svg.push_str("</svg>
+");
     std::fs::write(&out, &svg).expect("write svg");
-    eprintln!("wrote {out} ({} KB, {LOOP_FRAMES} frames)", svg.len() / 1024);
+    eprintln!("wrote {out} ({} KB, {frames} frames)", svg.len() / 1024);
 }
