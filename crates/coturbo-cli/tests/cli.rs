@@ -139,10 +139,11 @@ fn task(verify: &str) -> Task {
     Task { id: "t1".into(), prompt: "create done.txt".into(), verify: verify.into() }
 }
 
-/// A check that passes when `done.txt` has "ok" in it, with a tool every
-/// system has: `grep` is not on a plain Windows PATH, `findstr` is.
+/// A check that passes when `done.txt` exists, with a command every system
+/// has and no option that a shell could rewrite (`grep` is not on a plain
+/// Windows PATH, and `findstr /c:...` is mangled under Git Bash).
 fn check_done_file() -> &'static str {
-    if cfg!(windows) { "findstr /c:ok done.txt" } else { "grep -q ok done.txt" }
+    if cfg!(windows) { "type done.txt" } else { "cat done.txt" }
 }
 
 #[tokio::test]

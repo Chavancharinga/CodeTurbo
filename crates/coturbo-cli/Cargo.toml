@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 coturbo-agent = { path = "../coturbo-agent" }
+coturbo-browse = { path = "../coturbo-browse" }
 coturbo-providers = { path = "../coturbo-providers" }
 coturbo-tools = { path = "../coturbo-tools" }
 coturbo-verify = { path = "../coturbo-verify" }
@@ -27,6 +28,8 @@ tar = "0.4"
 ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
 toml_edit = "0.25.17"
 unicode-width = "0.2.2"
+png = "0.18.1"
 
 [dev-dependencies]
+coturbo-design = { path = "../coturbo-design" }
 gif = "0.13"

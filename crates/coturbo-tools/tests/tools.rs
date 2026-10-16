@@ -369,3 +369,45 @@ async fn the_checklist_is_checked_and_acknowledged() {
     // It never touches the disk.
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
 }
+
+#[tokio::test]
+async fn browse_drives_a_page_shows_every_step_and_stays_in_the_project() {
+    use std::sync::{Arc, Mutex};
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("index.html"),
+        "<!doctype html><html><head><meta charset=utf-8><title>Teste</title></head><body><nav><a href=\"two.html\">Dois</a></nav>\
+         <button onclick=\"document.getElementById('o').textContent='clicado'\">Apertar</button><p id=o></p></body></html>",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("two.html"), "<!doctype html><title>Página dois</title><h1>Dois</h1>").unwrap();
+    let frames: Arc<Mutex<Vec<coturbo_browse::Frame>>> = Arc::default();
+    let sink = frames.clone();
+    let t = Tools::new(dir.path(), Mode::Naive).with_browse_sink(Arc::new(move |f| sink.lock().unwrap().push(f)));
+    assert!(t.specs().iter().any(|s| s.name == "browse"));
+    assert_eq!(coturbo_tools::tier("browse"), coturbo_tools::Tier::Exec, "it opens a program, so it asks like one");
+
+    // Pages outside the project are refused before any browser opens.
+    let outside = t.call("browse", &json!({"actions": [{"do": "open", "url": "../fora.html"}]})).await;
+    assert!(outside.is_error && outside.content.contains("dentro do projeto"), "{outside:?}");
+    // Bad input is explained.
+    let bad = t.call("browse", &json!({"actions": [{"do": "click"}]})).await;
+    assert!(bad.is_error && bad.content.contains("ação 1"), "{bad:?}");
+    if coturbo_design::render::find_browser().is_none() {
+        return;
+    }
+    let out = t
+        .call("browse", &json!({"actions": [
+            {"do": "open", "url": "index.html"},
+            {"do": "click", "text": "Apertar"},
+            {"do": "text", "selector": "#o"},
+            {"do": "click", "text": "Dois"}
+        ]}))
+        .await;
+    assert!(!out.is_error, "{out:?}");
+    assert!(out.content.starts_with("browser session, 4 step(s):"), "{}", out.content);
+    assert!(out.content.contains("clicado") && out.content.contains("two.html") && out.content.contains("Nothing wrong was noticed."), "{}", out.content);
+    assert_eq!(out.images.len(), 1, "the last picture goes to the model");
+    let seen = frames.lock().unwrap();
+    assert!(seen.len() >= 5 && seen.iter().any(|f| f.clicked && f.cursor.is_some()), "{} frames for the screen", seen.len());
+}

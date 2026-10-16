@@ -6,6 +6,7 @@
 //! the two talk through channels: [`Out`] to the screen, [`In`] back.
 
 pub mod app;
+pub mod browser;
 pub mod commands;
 pub mod debugger;
 pub mod host;
@@ -117,6 +118,8 @@ pub enum Out {
     Stream(StreamKind, String),
     /// What the agent is doing; `None` when it is idle.
     Busy(Option<String>),
+    /// A picture of the page the agent is using, with its pointer (the mini browser).
+    Browser(coturbo_browse::Frame),
     /// A stage of the work changed (the bars above the text box).
     Stage(StageUpdate),
     /// The model's checklist for the job, whole.

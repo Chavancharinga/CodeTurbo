@@ -3,6 +3,7 @@
 
 use super::commands::{self, Command, Parsed};
 use super::input::Input;
+use super::browser::BrowserView;
 use super::text;
 use super::work::Work;
 use super::{Choice, In, Out, Question, Status, StreamKind};
@@ -260,6 +261,8 @@ pub struct App {
     done_at: Option<Instant>,
     /// The bars and the checklist of the job.
     work: Work,
+    /// The mini browser: the page the agent is using, with its pointer.
+    browser: BrowserView,
     flash: Option<(Mood, Instant)>,
     phase: f32,
     last_draw: Instant,
@@ -293,6 +296,7 @@ impl App {
             mood: Mood::Calm,
             done_at: None,
             work: Work::default(),
+            browser: BrowserView::default(),
             flash: None,
             phase: 0.0,
             last_draw: Instant::now(),
@@ -379,7 +383,11 @@ impl App {
             }
             Out::Stage(u) => self.work.apply(u, Instant::now()),
             Out::Tasks(t) => self.work.set_tasks(t, Instant::now()),
-            Out::ClearWork => self.work.clear(),
+            Out::ClearWork => {
+                self.work.clear();
+                self.browser.clear();
+            }
+            Out::Browser(f) => self.browser.apply(f, Instant::now()),
             Out::Mood(m) if m.is_flash() => self.flash = Some((m, Instant::now())),
             Out::Mood(m) => self.mood = m,
             Out::Status(s) => self.status = s,
@@ -966,18 +974,31 @@ impl App {
         } else {
             let name = Line::from(vec![
                 Span::styled(" Code", Style::new().fg(SOFT).add_modifier(Modifier::BOLD)),
-                Span::styled("Turbo", Style::new().fg(BLUE).add_modifier(Modifier::BOLD)),
+                Span::styled("Turbo", Style::new().fg(rgb(mood.body())).add_modifier(Modifier::BOLD)),
             ]);
             f.render_widget(Paragraph::new(name), header);
         }
 
-        let body = Rect { x: body.x + 1, width: body.width.saturating_sub(2), ..body };
+        let mut body = Rect { x: body.x + 1, width: body.width.saturating_sub(2), ..body };
+        // The mini browser takes the right of the screen while the agent uses a page.
+        let mut browser_rect = None;
+        if self.browser.visible(now) && area.width >= 96 && area.height >= 20 {
+            let pw = (body.width / 2).clamp(40, 80);
+            if body.width > pw + 30 {
+                let ph = self.browser.rows_for(pw).min(body.height);
+                browser_rect = Some(Rect { x: body.right() - pw, y: body.y, width: pw, height: ph });
+                body.width -= pw + 1;
+            }
+        }
         self.page = (body.height as usize).saturating_sub(2).max(1);
         let (lines, scroll, owners) = self.transcript.view(body.width.max(1) as usize, body.height as usize, self.scroll);
         self.scroll = scroll;
         self.body = body;
         self.owners = owners;
         f.render_widget(Paragraph::new(lines), body);
+        if let Some(r) = browser_rect {
+            self.browser.draw(f.buffer_mut(), r, now);
+        }
         if work_h > 0 {
             f.render_widget(Paragraph::new(work_lines), work);
         }

@@ -78,7 +78,13 @@ pub struct Tools {
     /// Content hash of each file when the model last read it, to warn when
     /// a write would clobber a file that changed on disk since (conflict).
     seen: std::sync::Mutex<std::collections::HashMap<String, u64>>,
+    /// Where `browse` sends each picture of the page, so the screen can show
+    /// the agent using it.
+    browse_sink: Option<BrowseSink>,
 }
+
+/// Receives the pictures of a `browse` session as they are taken.
+pub type BrowseSink = Arc<dyn Fn(coturbo_browse::Frame) + Send + Sync>;
 
 /// FNV-1a hash of file content, for cheap change detection.
 pub(crate) fn content_hash(s: &str) -> u64 {
@@ -107,7 +113,13 @@ fn arg<'a>(input: &'a Value, key: &str) -> Result<&'a str, String> {
 impl Tools {
     pub fn new(root: &Path, mode: Mode) -> Self {
         let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
-        Self { root, mode, lsp: None, native_checks: false, seen: std::sync::Mutex::new(std::collections::HashMap::new()) }
+        Self { root, mode, lsp: None, native_checks: false, seen: std::sync::Mutex::new(std::collections::HashMap::new()), browse_sink: None }
+    }
+
+    /// Shows the pages `browse` visits: every picture goes to `sink`.
+    pub fn with_browse_sink(mut self, sink: BrowseSink) -> Self {
+        self.browse_sink = Some(sink);
+        self
     }
 
     /// Enables the built-in checks after every edit (no external tools).
@@ -188,6 +200,32 @@ impl Tools {
                 ),
             ),
             spec(
+                "browse",
+                "Use a page like a person would, in a real browser the user watches in a small window: open it, then `snapshot` to list what can be clicked (@e1, @e2...), click with a real mouse, fill fields, press keys, scroll, go back, resize to a phone, read text, take a photo. Actions run in order and stop at the first one that fails. It tells you what a person would notice: a click that lands on something else, console errors, images and files that do not load. After building a page or app, go through EVERY menu, link, button and form with it, on desktop and at phone size, and fix what fails.",
+                obj(
+                    json!({
+                        "actions": json!({
+                            "type": "array",
+                            "description": "steps in order, at most 40",
+                            "items": {"type": "object", "properties": {
+                                "do": {"type": "string", "enum": ["open", "snapshot", "click", "fill", "press", "scroll", "wait", "back", "viewport", "text", "shot"]},
+                                "url": {"type": "string", "description": "open: a project file (index.html), localhost:3000 or a full address"},
+                                "ref": {"type": "string", "description": "click, fill, text: the @e7 that snapshot gave"},
+                                "text": {"type": "string", "description": "click, text: the visible text of the element"},
+                                "selector": {"type": "string", "description": "click, fill, text: a CSS selector"},
+                                "label": {"type": "string", "description": "fill: the field's label or placeholder"},
+                                "value": {"type": "string", "description": "fill: what to type"},
+                                "key": {"type": "string", "description": "press: Enter, Tab, Escape, ArrowDown..."},
+                                "y": {"type": "integer", "description": "scroll: pixels, negative goes up"},
+                                "ms": {"type": "integer", "description": "wait: milliseconds, at most 10000"},
+                                "width": {"type": "integer"}, "height": {"type": "integer"}
+                            }, "required": ["do"]}
+                        })
+                    }),
+                    &["actions"],
+                ),
+            ),
+            spec(
                 "tasks",
                 "The user's live checklist for this job. At the start of any job with three or more steps, call it once with the FULL list (the first step `doing`, the rest `pending`); call it again whenever a step starts or finishes, marking each `pending`, `doing` or `done`. Keep titles short, in the user's language. It touches no files and costs almost nothing; put it in the same turn as your other tool calls.",
                 obj(
@@ -215,6 +253,46 @@ impl Tools {
         }
         v.sort_by(|a, b| a.name.cmp(&b.name));
         v
+    }
+
+    /// Drives a real browser through `actions`, showing every step.
+    async fn browse(&self, input: &Value) -> Res {
+        use coturbo_browse::{Action, resolve_url};
+        let browser = coturbo_design::render::find_browser().ok_or("nenhum navegador encontrado (Edge ou Chrome); defina CODETURBO_BROWSER")?;
+        let actions = Action::parse_all(&input["actions"])?;
+        // A project file must stay inside the project, like every other tool.
+        for a in &actions {
+            if let Action::Open(u) = a {
+                let url = resolve_url(&self.root, u);
+                if let Some(p) = url.strip_prefix("file:///").or_else(|| url.strip_prefix("file://")) {
+                    let path = std::path::PathBuf::from(p.replace("%20", " "));
+                    let inside = path.canonicalize().is_ok_and(|c| c.starts_with(&self.root));
+                    if !inside {
+                        return Err(format!("{u}: a página precisa estar dentro do projeto"));
+                    }
+                }
+            }
+        }
+        let sink = self.browse_sink.clone();
+        let report = coturbo_browse::run(&browser, &self.root, &actions, (880, 560), &mut |f| {
+            if let Some(s) = &sink {
+                s(f);
+            }
+        })
+        .await?;
+        let mut text = format!("browser session, {} step(s):\n{}", actions.len(), report.log.join("\n"));
+        if report.problems.is_empty() {
+            text.push_str("\n\nNothing wrong was noticed.");
+        } else {
+            text.push_str("\n\nWhat a person would notice is wrong (fix these):\n");
+            text.push_str(&report.problems.iter().map(|p| format!("- {p}")).collect::<Vec<_>>().join("\n"));
+        }
+        let mut out = ToolOutput::ok(text);
+        if let Some(png) = report.shots.last() {
+            use base64::Engine;
+            out.images.push(("image/png".into(), base64::engine::general_purpose::STANDARD.encode(png)));
+        }
+        Ok(out)
     }
 
     /// The checklist is shown by the interface; here it is only checked and
@@ -482,6 +560,7 @@ impl Tools {
             }
             "observe_app" => self.observe_app(input).await,
             "tasks" => Self::tasks(input),
+            "browse" => self.browse(input).await,
             _ => Err(format!("unknown tool: {name}")),
         };
         let mut out = r.unwrap_or_else(ToolOutput::err);

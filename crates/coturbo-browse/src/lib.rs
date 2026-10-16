@@ -1,0 +1,410 @@
+//! Navegar numa página como uma pessoa: abrir, olhar o que dá para clicar,
+//! clicar com o mouse, preencher, apertar teclas, rolar. Usa o Edge ou o
+//! Chrome sem janela, pelo protocolo de depuração, e entrega a cada passo uma
+//! foto da página com a posição do ponteiro, para a tela mostrar o agente
+//! mexendo o mouse. Também aponta o que uma pessoa estranharia: um clique que
+//! cairia em outro elemento, erros no console, imagens e arquivos que não
+//! carregam.
+
+pub mod action;
+mod cdp;
+mod script;
+
+pub use action::{Action, Target};
+
+use serde_json::{Value, json};
+use std::path::Path;
+use std::time::Duration;
+
+/// What the page looks like after a step, and where the pointer is.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Frame {
+    /// The page, as a PNG.
+    pub png: Vec<u8>,
+    pub url: String,
+    pub title: String,
+    /// The pointer, in page pixels, once the agent has moved it.
+    pub cursor: Option<(f32, f32)>,
+    /// The pointer has just clicked.
+    pub clicked: bool,
+    /// The window the page was drawn in, in page pixels.
+    pub size: (u32, u32),
+    /// What the agent is doing.
+    pub caption: String,
+}
+
+/// What the whole session found.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Report {
+    /// One line per step, saying what happened.
+    pub log: Vec<String>,
+    /// What a person would notice is wrong.
+    pub problems: Vec<String>,
+    /// Photos the agent asked for (`shot`) and the last state of the page.
+    pub shots: Vec<Vec<u8>>,
+}
+
+/// An address as the browser needs it: a site as it is, `localhost:3000` with
+/// its scheme, a file of the project as a `file://` address.
+pub fn resolve_url(root: &Path, s: &str) -> String {
+    let s = s.trim();
+    let lower = s.to_ascii_lowercase();
+    if ["http://", "https://", "file://", "about:", "data:"].iter().any(|p| lower.starts_with(p)) {
+        return s.to_string();
+    }
+    let host_port = s.split(['/', '?', '#']).next().unwrap_or("");
+    let looks_like_host = lower.starts_with("localhost") || lower.starts_with("127.0.0.1") || (host_port.contains(':') && host_port.rsplit(':').next().is_some_and(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit())) && !host_port.contains('\\'));
+    if looks_like_host {
+        return format!("http://{s}");
+    }
+    let given = Path::new(s);
+    let mut path = if given.is_absolute() { given.to_path_buf() } else { root.join(given) };
+    if path.is_dir() {
+        path = path.join("index.html");
+    }
+    let path = path.canonicalize().unwrap_or(path);
+    let text = path.to_string_lossy().replace('\\', "/");
+    let text = text.trim_start_matches("//?/").replace(' ', "%20");
+    if text.starts_with('/') { format!("file://{text}") } else { format!("file:///{text}") }
+}
+
+fn decode_png(b64: &str) -> Vec<u8> {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.decode(b64).unwrap_or_default()
+}
+
+/// Key name to (key, code, virtual key code, text).
+fn key_info(k: &str) -> (String, String, u32, String) {
+    let named = |key: &str, code: &str, vk: u32, text: &str| (key.to_string(), code.to_string(), vk, text.to_string());
+    match k {
+        "Enter" | "Return" => named("Enter", "Enter", 13, "\r"),
+        "Tab" => named("Tab", "Tab", 9, ""),
+        "Escape" | "Esc" => named("Escape", "Escape", 27, ""),
+        "Backspace" => named("Backspace", "Backspace", 8, ""),
+        "Delete" => named("Delete", "Delete", 46, ""),
+        "ArrowDown" | "Down" => named("ArrowDown", "ArrowDown", 40, ""),
+        "ArrowUp" | "Up" => named("ArrowUp", "ArrowUp", 38, ""),
+        "ArrowLeft" | "Left" => named("ArrowLeft", "ArrowLeft", 37, ""),
+        "ArrowRight" | "Right" => named("ArrowRight", "ArrowRight", 39, ""),
+        "Home" => named("Home", "Home", 36, ""),
+        "End" => named("End", "End", 35, ""),
+        "PageUp" => named("PageUp", "PageUp", 33, ""),
+        "PageDown" => named("PageDown", "PageDown", 34, ""),
+        "Space" | " " => named(" ", "Space", 32, " "),
+        other => {
+            let c = other.chars().next().unwrap_or(' ');
+            let up = c.to_ascii_uppercase();
+            (c.to_string(), format!("Key{up}"), up as u32, c.to_string())
+        }
+    }
+}
+
+struct Session {
+    cdp: cdp::Cdp,
+    size: (u32, u32),
+    cursor: Option<(f32, f32)>,
+    url: String,
+    title: String,
+    seen: Vec<String>,
+    requests: std::collections::HashMap<String, String>,
+    report: Report,
+}
+
+impl Session {
+    async fn eval(&mut self, body: &str) -> Result<Value, String> {
+        let expression = script::wrap(body);
+        let r = self.cdp.call("Runtime.evaluate", json!({"expression": expression, "returnByValue": true, "awaitPromise": true})).await?;
+        if let Some(e) = r.get("exceptionDetails") {
+            let text = e["exception"]["description"].as_str().or_else(|| e["text"].as_str()).unwrap_or("erro no script da página");
+            return Err(text.lines().next().unwrap_or(text).to_string());
+        }
+        Ok(r["result"]["value"].clone())
+    }
+
+    /// `eval` for a script that answers with JSON text.
+    async fn eval_json(&mut self, body: &str) -> Result<Value, String> {
+        let v = self.eval(body).await?;
+        serde_json::from_str(v.as_str().unwrap_or("null")).map_err(|e| format!("resposta inesperada da página: {e}"))
+    }
+
+    async fn refresh_state(&mut self) {
+        if let Ok(v) = self.eval_json("return JSON.stringify({url: location.href, title: document.title})").await {
+            self.url = v["url"].as_str().unwrap_or(&self.url).to_string();
+            self.title = v["title"].as_str().unwrap_or("").to_string();
+        }
+    }
+
+    /// Reads what the browser reported since the last step and keeps what is wrong.
+    fn collect_problems(&mut self) {
+        let events = self.cdp.take_events();
+        let add = |s: &mut Self, p: String| {
+            if !s.seen.contains(&p) && s.report.problems.len() < 12 {
+                s.seen.push(p.clone());
+                s.report.problems.push(p);
+            }
+        };
+        for e in events {
+            let p = &e["params"];
+            match e["method"].as_str().unwrap_or("") {
+                "Network.requestWillBeSent" => {
+                    if let (Some(id), Some(url)) = (p["requestId"].as_str(), p["request"]["url"].as_str()) {
+                        self.requests.insert(id.to_string(), url.to_string());
+                    }
+                }
+                "Runtime.exceptionThrown" => {
+                    let d = &p["exceptionDetails"];
+                    let text = d["exception"]["description"].as_str().or_else(|| d["text"].as_str()).unwrap_or("exceção");
+                    add(self, format!("erro de JavaScript: {}", text.lines().next().unwrap_or(text)));
+                }
+                "Runtime.consoleAPICalled" if p["type"] == "error" => {
+                    let text: Vec<String> = p["args"].as_array().into_iter().flatten().map(|a| a["value"].as_str().map(str::to_string).or_else(|| a["description"].as_str().map(str::to_string)).unwrap_or_default()).collect();
+                    add(self, format!("console.error: {}", text.join(" ")));
+                }
+                "Network.loadingFailed" => {
+                    let url = p["requestId"].as_str().and_then(|i| self.requests.get(i)).cloned().unwrap_or_default();
+                    let why = p["errorText"].as_str().unwrap_or("falhou");
+                    if !url.ends_with("favicon.ico") && p["canceled"] != true && !why.contains("ABORTED") {
+                        add(self, format!("não carregou: {url} ({why})"));
+                    }
+                }
+                "Network.responseReceived" => {
+                    let status = p["response"]["status"].as_u64().unwrap_or(200);
+                    let url = p["response"]["url"].as_str().unwrap_or("");
+                    if status >= 400 && !url.ends_with("favicon.ico") {
+                        add(self, format!("resposta {status}: {url}"));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    async fn shoot(&mut self) -> Vec<u8> {
+        match self.cdp.call("Page.captureScreenshot", json!({"format": "png"})).await {
+            Ok(r) => decode_png(r["data"].as_str().unwrap_or("")),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    async fn frame(&mut self, caption: &str, clicked: bool, on_frame: &mut (dyn FnMut(Frame) + Send)) -> Vec<u8> {
+        self.refresh_state().await;
+        let png = self.shoot().await;
+        on_frame(Frame { png: png.clone(), url: self.url.clone(), title: self.title.clone(), cursor: self.cursor, clicked, size: self.size, caption: caption.to_string() });
+        png
+    }
+
+    /// Waits for a navigation the last step may have started.
+    async fn settle(&mut self) {
+        self.cdp.listen(350).await;
+        let navigated = self.cdp.has_event("Page.frameNavigated", |e| e["params"]["frame"].get("parentId").is_none());
+        if navigated {
+            self.cdp.wait_for("Page.loadEventFired", 10).await;
+            self.cdp.listen(250).await;
+        }
+    }
+
+    async fn mouse(&mut self, kind: &str, x: f64, y: f64) -> Result<(), String> {
+        let mut p = json!({"type": kind, "x": x, "y": y, "button": "none"});
+        if kind != "mouseMoved" {
+            p["button"] = json!("left");
+            p["clickCount"] = json!(1);
+        }
+        self.cdp.call("Input.dispatchMouseEvent", p).await.map(|_| ())
+    }
+
+    async fn navigate(&mut self, url: &str) -> Result<(), String> {
+        self.cdp.forget("Page.loadEventFired");
+        self.cdp.forget("Page.frameNavigated");
+        let r = self.cdp.call("Page.navigate", json!({"url": url})).await?;
+        if let Some(e) = r["errorText"].as_str() {
+            return Err(format!("não abriu {url}: {e}"));
+        }
+        if !self.cdp.wait_for("Page.loadEventFired", 20).await {
+            self.report.problems.push(format!("a página {url} demorou mais de 20 s para carregar"));
+        }
+        self.cdp.listen(300).await;
+        Ok(())
+    }
+
+    async fn step(&mut self, a: &Action, root: &Path, on_frame: &mut (dyn FnMut(Frame) + Send)) -> Result<Vec<String>, String> {
+        let mut out = Vec::new();
+        match a {
+            Action::Open(u) => {
+                let url = resolve_url(root, u);
+                self.navigate(&url).await?;
+                self.refresh_state().await;
+                out.push(format!("abriu {} — \"{}\"", self.url, self.title));
+                self.frame(&a.caption(), false, on_frame).await;
+            }
+            Action::Snapshot => {
+                let v = self.eval_json(&script::snapshot()).await?;
+                out.push(script::describe_snapshot(&v));
+                self.frame(&a.caption(), false, on_frame).await;
+            }
+            Action::Click(t) => {
+                let g = self.eval_json(&script::prepare(&t.to_json(), false)).await?;
+                if let Some(e) = g["error"].as_str() {
+                    return Err(e.to_string());
+                }
+                let (x, y) = (g["x"].as_f64().unwrap_or(0.0), g["y"].as_f64().unwrap_or(0.0));
+                let label = g["name"].as_str().unwrap_or("?").to_string();
+                if g["disabled"] == true {
+                    self.report.problems.push(format!("{} está desabilitado e não responde ao clique", t.describe()));
+                }
+                if let Some(b) = g["blocked"].as_str().filter(|b| !b.is_empty()) {
+                    self.report.problems.push(format!("o clique em \"{label}\" cai em <{b}>: algo está por cima dele"));
+                }
+                // The pointer arrives first, then presses.
+                self.cursor = Some((x as f32, y as f32));
+                self.mouse("mouseMoved", x, y).await?;
+                self.cdp.forget("Page.frameNavigated");
+                self.cdp.forget("Page.loadEventFired");
+                self.frame(&a.caption(), false, on_frame).await;
+                self.mouse("mousePressed", x, y).await?;
+                self.mouse("mouseReleased", x, y).await?;
+                self.settle().await;
+                let before = self.url.clone();
+                self.refresh_state().await;
+                out.push(if self.url != before { format!("clicou em \"{label}\" → {} — \"{}\"", self.url, self.title) } else { format!("clicou em \"{label}\" ({})", g["tag"].as_str().unwrap_or("")) });
+                self.frame(&a.caption(), true, on_frame).await;
+            }
+            Action::Fill(t, text) => {
+                let g = self.eval_json(&script::prepare(&t.to_json(), true)).await?;
+                if let Some(e) = g["error"].as_str() {
+                    return Err(e.to_string());
+                }
+                if g["editable"] != true {
+                    return Err(format!("{} não aceita texto", t.describe()));
+                }
+                let (x, y) = (g["x"].as_f64().unwrap_or(0.0), g["y"].as_f64().unwrap_or(0.0));
+                self.cursor = Some((x as f32, y as f32));
+                self.mouse("mouseMoved", x, y).await?;
+                self.mouse("mousePressed", x, y).await?;
+                self.mouse("mouseReleased", x, y).await?;
+                self.eval(&script::select_all(&t.to_json())).await?;
+                self.cdp.call("Input.insertText", json!({"text": text})).await?;
+                self.cdp.listen(120).await;
+                let value = self.eval(&script::value_of(&t.to_json())).await?;
+                out.push(format!("preencheu {} com \"{}\"", t.describe(), value.as_str().unwrap_or(text)));
+                self.frame(&a.caption(), true, on_frame).await;
+            }
+            Action::Press(k) => {
+                let (key, code, vk, text) = key_info(k);
+                self.cdp.forget("Page.frameNavigated");
+                self.cdp.forget("Page.loadEventFired");
+                let mut down = json!({"type": if text.is_empty() { "rawKeyDown" } else { "keyDown" }, "key": key, "code": code, "windowsVirtualKeyCode": vk, "nativeVirtualKeyCode": vk});
+                if !text.is_empty() {
+                    down["text"] = json!(text);
+                }
+                self.cdp.call("Input.dispatchKeyEvent", down).await?;
+                self.cdp.call("Input.dispatchKeyEvent", json!({"type": "keyUp", "key": key, "code": code, "windowsVirtualKeyCode": vk, "nativeVirtualKeyCode": vk})).await?;
+                self.settle().await;
+                out.push(format!("apertou {k}"));
+                self.frame(&a.caption(), false, on_frame).await;
+            }
+            Action::Scroll(y) => {
+                let v = self.eval_json(&format!("scrollBy(0, {y}); return JSON.stringify({{y: Math.round(scrollY), h: document.documentElement.scrollHeight, vh: innerHeight}})")).await?;
+                self.cdp.listen(150).await;
+                out.push(format!("rolou até {}px de {}px", v["y"], v["h"].as_u64().unwrap_or(0).saturating_sub(v["vh"].as_u64().unwrap_or(0))));
+                self.frame(&a.caption(), false, on_frame).await;
+            }
+            Action::Wait(ms) => {
+                self.cdp.listen(*ms).await;
+                out.push(format!("esperou {ms} ms"));
+            }
+            Action::Back => {
+                self.cdp.forget("Page.frameNavigated");
+                self.cdp.forget("Page.loadEventFired");
+                self.eval("history.back(); return 'ok'").await?;
+                self.settle().await;
+                self.refresh_state().await;
+                out.push(format!("voltou para {} — \"{}\"", self.url, self.title));
+                self.frame(&a.caption(), false, on_frame).await;
+            }
+            Action::Viewport(w, h) => {
+                self.size = (*w, *h);
+                self.cdp.call("Emulation.setDeviceMetricsOverride", json!({"width": w, "height": h, "deviceScaleFactor": 1, "mobile": *w < 500})).await?;
+                self.cdp.listen(250).await;
+                out.push(format!("janela em {w}×{h}"));
+                self.frame(&a.caption(), false, on_frame).await;
+            }
+            Action::Text(t) => {
+                let v = self.eval(&script::read_text(t.as_ref().map(Target::to_json))).await?;
+                out.push(format!("texto:\n{}", v.as_str().unwrap_or("")));
+            }
+            Action::Shot => {
+                let png = self.frame(&a.caption(), false, on_frame).await;
+                self.report.shots.push(png);
+                out.push(format!("foto de {}", self.url));
+            }
+        }
+        Ok(out)
+    }
+}
+
+async fn run_in(browser: &Path, root: &Path, actions: &[Action], size: (u32, u32), on_frame: &mut (dyn FnMut(Frame) + Send), launched: &cdp::Launched) -> Result<Report, String> {
+    let ws = launched.page_socket().await?;
+    let mut cdp = cdp::Cdp::connect(&ws).await?;
+    for domain in ["Page.enable", "Runtime.enable", "Network.enable"] {
+        cdp.call(domain, json!({})).await?;
+    }
+    cdp.call("Emulation.setDeviceMetricsOverride", json!({"width": size.0, "height": size.1, "deviceScaleFactor": 1, "mobile": false})).await?;
+    let _ = browser;
+    let mut s = Session { cdp, size, cursor: None, url: String::new(), title: String::new(), seen: Vec::new(), requests: Default::default(), report: Report::default() };
+    for (i, a) in actions.iter().enumerate() {
+        let line = match s.step(a, root, on_frame).await {
+            Ok(lines) => lines.join("\n"),
+            Err(e) => {
+                s.report.log.push(format!("{}. {} → ERRO: {e}", i + 1, a.caption()));
+                s.collect_problems();
+                // A step that fails ends the session: the next ones depend on it.
+                break;
+            }
+        };
+        s.collect_problems();
+        s.report.log.push(format!("{}. {}", i + 1, line));
+    }
+    // The state the page was left in.
+    let png = s.frame("fim", false, on_frame).await;
+    if s.report.shots.last() != Some(&png) {
+        s.report.shots.push(png);
+    }
+    s.collect_problems();
+    Ok(s.report)
+}
+
+/// Runs the actions in a fresh browser, calling `on_frame` after every step.
+pub async fn run(browser: &Path, root: &Path, actions: &[Action], size: (u32, u32), on_frame: &mut (dyn FnMut(Frame) + Send)) -> Result<Report, String> {
+    let launched = cdp::launch(browser, size).await?;
+    let result = tokio::time::timeout(Duration::from_secs(150), run_in(browser, root, actions, size, on_frame, &launched)).await.unwrap_or_else(|_| Err("a navegação passou de 150 s e foi interrompida".into()));
+    launched.close().await;
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn addresses_are_made_ready_for_the_browser() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("index.html"), "x").unwrap();
+        std::fs::write(dir.path().join("sobre uma.html"), "x").unwrap();
+        let root = dir.path();
+        assert_eq!(resolve_url(root, "https://exemplo.com/a"), "https://exemplo.com/a");
+        assert_eq!(resolve_url(root, "localhost:3000/menu"), "http://localhost:3000/menu");
+        assert_eq!(resolve_url(root, "127.0.0.1:8080"), "http://127.0.0.1:8080");
+        let index = resolve_url(root, "index.html");
+        assert!(index.starts_with("file:///") && index.ends_with("/index.html") && !index.contains('\\') && !index.contains("//?/"), "{index}");
+        assert_eq!(resolve_url(root, "."), index, "a folder opens its index.html");
+        assert!(resolve_url(root, "sobre uma.html").ends_with("/sobre%20uma.html"));
+    }
+
+    #[test]
+    fn keys_have_codes() {
+        assert_eq!(key_info("Enter"), ("Enter".into(), "Enter".into(), 13, "\r".into()));
+        assert_eq!(key_info("ArrowDown").2, 40);
+        assert_eq!(key_info("a"), ("a".into(), "KeyA".into(), 65, "a".into()));
+        assert_eq!(key_info("Escape").3, "");
+    }
+}

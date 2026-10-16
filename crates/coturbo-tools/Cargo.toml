@@ -7,6 +7,7 @@ rust-version.workspace = true
 
 [dependencies]
 coturbo-ast = { path = "../coturbo-ast" }
+coturbo-browse = { path = "../coturbo-browse" }
 coturbo-design = { path = "../coturbo-design" }
 coturbo-rea = { path = "../coturbo-rea" }
 coturbo-providers = { path = "../coturbo-providers" }

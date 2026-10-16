@@ -891,3 +891,151 @@ fn green_goes_back_to_white_after_ten_idle_minutes() {
     h.app.apply(Out::Busy(Some("think".into())));
     assert_eq!(h.app.mood_at(now + GREEN_FOR + Duration::from_secs(5)), Mood::Start);
 }
+
+/// A PNG with a blue header, a white page and a red button, for the mini browser.
+fn page_png(w: u32, h: u32) -> Vec<u8> {
+    let mut data = Vec::new();
+    for y in 0..h {
+        for x in 0..w {
+            let px = if y < h / 6 {
+                [47, 123, 255]
+            } else if (x > w * 2 / 3) && (y > h / 2) && (y < h * 2 / 3) {
+                [220, 40, 50]
+            } else {
+                [250, 250, 250]
+            };
+            data.extend(px);
+        }
+    }
+    let mut out = Vec::new();
+    {
+        let mut enc = png::Encoder::new(&mut out, w, h);
+        enc.set_color(png::ColorType::Rgb);
+        enc.set_depth(png::BitDepth::Eight);
+        enc.write_header().unwrap().write_image_data(&data).unwrap();
+    }
+    out
+}
+
+fn browser_frame(cursor: Option<(f32, f32)>, clicked: bool) -> coturbo_browse::Frame {
+    coturbo_browse::Frame {
+        png: page_png(400, 260),
+        url: "file:///C:/proj/index.html".into(),
+        title: "Loja".into(),
+        cursor,
+        clicked,
+        size: (400, 260),
+        caption: "clicando \"Sobre\"".into(),
+    }
+}
+
+fn draw_browser(v: &coturbo_cli::tui::browser::BrowserView, now: std::time::Instant) -> ratatui::buffer::Buffer {
+    let area = ratatui::layout::Rect::new(0, 0, 60, 20);
+    let mut buf = ratatui::buffer::Buffer::empty(area);
+    v.draw(&mut buf, area, now);
+    buf
+}
+
+fn find_symbol(buf: &ratatui::buffer::Buffer, sym: &str) -> Vec<(u16, u16)> {
+    let a = buf.area;
+    (0..a.height).flat_map(|y| (0..a.width).map(move |x| (x, y))).filter(|&(x, y)| buf[(x, y)].symbol() == sym).collect()
+}
+
+fn buffer_text(buf: &ratatui::buffer::Buffer) -> String {
+    let a = buf.area;
+    (0..a.height).map(|y| (0..a.width).map(|x| buf[(x, y)].symbol().to_string()).collect::<String>()).collect::<Vec<_>>().join("\n")
+}
+
+#[test]
+fn the_mini_browser_draws_the_page_the_address_and_what_the_agent_does() {
+    use coturbo_cli::tui::browser::BrowserView;
+    use std::time::{Duration, Instant};
+    let t0 = Instant::now();
+    let mut v = BrowserView::default();
+    assert!(!v.visible(t0), "nothing to show before the first picture");
+    v.apply(browser_frame(None, false), t0);
+    assert!(v.visible(t0) && v.visible(t0 + Duration::from_secs(24)));
+    assert!(!v.visible(t0 + Duration::from_secs(26)), "it goes away a while after the last picture");
+    let buf = draw_browser(&v, t0);
+    let text = buffer_text(&buf);
+    assert!(text.contains("C:/proj/index.html") && !text.contains("file://"), "the address, without the scheme:\n{text}");
+    assert!(text.contains("clicando \"Sobre\""), "what the agent is doing:\n{text}");
+    // The page is there in half blocks, in its own colours: the blue header on top, white below.
+    use ratatui::style::Color;
+    let blue = Color::Rgb(47, 123, 255);
+    let tops: Vec<Color> = find_symbol(&buf, "▀").iter().map(|&(x, y)| buf[(x, y)].fg).collect();
+    assert!(tops.contains(&blue), "the header of the page");
+    assert!(tops.iter().any(|c| matches!(c, Color::Rgb(r, g, b) if *r > 240 && *g > 240 && *b > 240)), "the white page");
+    assert!(tops.iter().any(|c| matches!(c, Color::Rgb(r, g, b) if *r > 200 && *g < 60 && *b < 70)), "the red button");
+    assert!(find_symbol(&buf, "◤").is_empty(), "no pointer before the agent moves it");
+    // It keeps the page's shape: 58 columns of a 400x260 page are 19 rows of half blocks, plus the bar, the caption and the frame.
+    assert_eq!(v.rows_for(60), 23);
+    assert!(v.rows_for(40) < v.rows_for(60), "a narrower window is shorter");
+}
+
+#[test]
+fn the_pointer_walks_to_its_target_and_the_click_ripples() {
+    use coturbo_cli::tui::browser::BrowserView;
+    use std::time::{Duration, Instant};
+    let t0 = Instant::now();
+    let ms = Duration::from_millis;
+    let mut v = BrowserView::default();
+    v.apply(browser_frame(Some((60.0, 40.0)), false), t0);
+    assert_eq!(v.pointer(t0 + ms(2000)), Some((60.0, 40.0)));
+    // A new target: the pointer sets off from where it is.
+    let t1 = t0 + ms(3000);
+    v.apply(browser_frame(Some((340.0, 200.0)), false), t1);
+    assert_eq!(v.pointer(t1), Some((60.0, 40.0)), "starts where it was");
+    let mid = v.pointer(t1 + ms(190)).unwrap();
+    assert!(mid.0 > 150.0 && mid.0 < 250.0 && mid.1 > 90.0 && mid.1 < 150.0, "half way at half the time: {mid:?}");
+    assert_eq!(v.pointer(t1 + ms(1000)), Some((340.0, 200.0)), "arrives and stays");
+    // The pointer is drawn, once, and moves across the screen as time passes.
+    let at = |t| find_symbol(&draw_browser(&v, t), "◤");
+    let (start, mid_p, end) = (at(t1), at(t1 + ms(190)), at(t1 + ms(900)));
+    assert_eq!((start.len(), mid_p.len(), end.len()), (1, 1, 1));
+    assert!(start[0].0 < mid_p[0].0 && mid_p[0].0 < end[0].0, "{start:?} {mid_p:?} {end:?}");
+    // The click: a filled dot, then rings, then gone.
+    let t2 = t1 + ms(2000);
+    v.apply(browser_frame(Some((340.0, 200.0)), true), t2);
+    let press = draw_browser(&v, t2 + ms(80));
+    assert_eq!(find_symbol(&press, "◉").len(), 1, "the press");
+    assert!(find_symbol(&press, "◤").is_empty());
+    let ring = draw_browser(&v, t2 + ms(400));
+    assert!(!find_symbol(&ring, "(").is_empty() && !find_symbol(&ring, ")").is_empty(), "the ripple opens");
+    let after = draw_browser(&v, t2 + ms(1200));
+    assert!(find_symbol(&after, "◉").is_empty() && find_symbol(&after, ")").is_empty(), "and ends");
+    assert_eq!(find_symbol(&after, "◤").len(), 1, "the arrow stays on the target");
+    // A frame that is not a click keeps drawing the pointer as an arrow.
+    v.clear();
+    assert!(!v.visible(t2));
+}
+
+#[test]
+fn the_conversation_makes_room_for_the_mini_browser() {
+    let mut h = harness();
+    h.app.apply(Out::Lines(vec![Line::raw("uma linha longa da conversa que precisa caber ao lado da janela do navegador")]));
+    let wide = screen_rows(&mut h, 130, 36);
+    h.app.apply(Out::Browser(browser_frame(Some((100.0, 80.0)), false)));
+    let rows = screen_rows(&mut h, 130, 36);
+    let all = rows.join("\n");
+    assert!(all.contains("C:/proj/index.html") && all.contains("clicando"), "the window is on screen:\n{all}");
+    // It sits on the right, and the text stays on the left.
+    let addr = rows.iter().find(|r| r.contains("index.html")).unwrap();
+    assert!(addr.find("C:/proj").unwrap() > 70, "{addr}");
+    assert!(rows.iter().any(|r| r.contains("uma linha longa") && r.find("uma linha").unwrap() < 5));
+    assert!(!wide.join("\n").contains("index.html"));
+    // A small terminal keeps the text instead.
+    let mut small = harness();
+    small.app.apply(Out::Browser(browser_frame(Some((100.0, 80.0)), false)));
+    assert!(!screen_rows(&mut small, 80, 30).join("\n").contains("index.html"));
+    // A new job closes it.
+    h.app.apply(Out::ClearWork);
+    assert!(!screen_rows(&mut h, 130, 36).join("\n").contains("index.html"));
+}
+
+#[test]
+fn browse_reads_as_a_step_count_in_the_status_line() {
+    use coturbo_cli::tui::host::action_label;
+    use serde_json::json;
+    assert_eq!(action_label("browse", &json!({"actions": [{"do": "open"}, {"do": "snapshot"}, {"do": "click"}]})), "browse · 3 step(s)");
+}

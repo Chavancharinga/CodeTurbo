@@ -53,6 +53,7 @@ pub fn action_label(name: &str, input: &serde_json::Value) -> String {
     match name {
         "grep" => format!("grep \"{a}\""),
         "investigate" | "observe_app" => format!("{name} {target}"),
+        "browse" => format!("browse · {} step(s)", input["actions"].as_array().map_or(0, Vec::len)),
         other => format!("{other} {a}").trim().to_string(),
     }
 }
@@ -60,7 +61,7 @@ pub fn action_label(name: &str, input: &serde_json::Value) -> String {
 /// Tools that run the heavy engines: reverse engineering, looking at a
 /// running program and the design checks. They put the snail in turbo.
 fn is_heavy(tool: &str) -> bool {
-    matches!(tool, "investigate" | "observe_app" | "design_review" | "design_brief")
+    matches!(tool, "investigate" | "observe_app" | "design_review" | "design_brief" | "browse")
 }
 
 /// Whether a tool result carries a design check with blocking findings

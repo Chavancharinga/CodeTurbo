@@ -220,7 +220,8 @@ impl Mood {
         matches!(self, Mood::Alert | Mood::Denied)
     }
 
-    fn body(self) -> Rgb {
+    /// The colour of the snail, and of "turbo" in the name.
+    pub fn body(self) -> Rgb {
         match self {
             Mood::Calm => SOFT,
             Mood::Done => GREEN,
@@ -241,15 +242,41 @@ impl Mood {
         }
     }
 
-    /// Streak density: how many of every 8 cells of a streak are lit. The
-    /// walking moods leave next to nothing; the running ones a real trail.
+    /// Streak density: how many of every 8 cells of a streak are lit.
     fn density(self) -> usize {
         match self {
             Mood::Calm | Mood::Start | Mood::Done => 0,
-            Mood::Alert | Mood::Denied => 2,
+            Mood::Alert | Mood::Denied => 5,
             Mood::Run => 5,
             Mood::Hard => 7,
             Mood::Turbo => 8,
+        }
+    }
+
+    /// How far the trail reaches behind the shell. Only the running moods
+    /// leave a running trail; yellow and red leave a small one (neither
+    /// walking nor running); the walking ones leave none.
+    fn trail_len(self) -> usize {
+        match self {
+            Mood::Calm | Mood::Start | Mood::Done => 0,
+            Mood::Alert | Mood::Denied => 6,
+            Mood::Run | Mood::Hard | Mood::Turbo => TRAIL_LEN,
+        }
+    }
+
+    /// Quarter turns the spiral of the shell makes per frame: barely moving
+    /// while the snail is still or walking, fast when it runs, faster running
+    /// hard, and faster still in turbo. (A frame lasts 50 ms divided by the
+    /// mood's pace, so these are about 0.4, 0.9, 4, 8 and 14 quarter turns a second.)
+    pub fn spin(self) -> f32 {
+        match self {
+            Mood::Calm => 0.06,
+            Mood::Start | Mood::Done => 0.065,
+            Mood::Alert => 0.0625,
+            Mood::Denied => 0.083,
+            Mood::Run => 0.2,
+            Mood::Hard => 0.222,
+            Mood::Turbo => 0.25,
         }
     }
 }
@@ -257,18 +284,25 @@ impl Mood {
 /// Pixels of frame `i`: the wordmark (first `reveal` letters), then the
 /// track with the snail running in place at its end, trail and dust behind.
 fn canvas(s: &Snail, i: usize, track: usize, reveal: usize) -> Vec<Vec<Option<Rgb>>> {
-    canvas_mood(s, i, track, reveal, Mood::Run)
+    // The intro turns the shell a quarter turn at every frame.
+    canvas_with(s, i, track, reveal, Mood::Run, 1.0)
 }
 
-/// [`canvas`] for a mood.
+/// [`canvas`] for a mood, with the shell turning at the mood's own pace.
 fn canvas_mood(s: &Snail, i: usize, track: usize, reveal: usize, mood: Mood) -> Vec<Vec<Option<Rgb>>> {
+    canvas_with(s, i, track, reveal, mood, mood.spin())
+}
+
+/// `spin` is how many quarter turns the shell makes per frame.
+fn canvas_with(s: &Snail, i: usize, track: usize, reveal: usize, mood: Mood, spin: f32) -> Vec<Vec<Option<Rgb>>> {
     let h = canvas_h(s);
     // Rows above the sprite when its height is odd.
     let pad = h - (s.body.len() + 1);
     let t0 = word_width() + GAP;
     let mut px = vec![vec![None; t0 + track]; h];
     for (n, ch) in NAME.chars().enumerate().take(reveal) {
-        let color = if n < SPLIT { SOFT } else { BLUE };
+        // "turbo" wears the colour of the snail.
+        let color = if n < SPLIT { SOFT } else { mood.body() };
         for (gy, row) in glyph(ch).iter().enumerate() {
             for (gx, c) in row.bytes().enumerate() {
                 if c == b'#' {
@@ -288,10 +322,11 @@ fn canvas_mood(s: &Snail, i: usize, track: usize, reveal: usize, mood: Mood) -> 
     };
     let shell = pos + s.tail_room as isize;
     let (far, body) = (mood.trail_far(), mood.body());
+    let trail = mood.trail_len();
     for &(row, phase) in s.streaks {
-        for d in 1..=TRAIL_LEN {
+        for d in 1..=trail {
             if (d + 2 * i + 3 * phase) % 8 < mood.density() {
-                let t = 1.0 - d as f32 / TRAIL_LEN as f32;
+                let t = 1.0 - d as f32 / trail as f32;
                 // Flat out, the trail is hot near the shell: some cells burn yellow.
                 let color = if mood == Mood::Turbo && d <= 10 && (d + i + phase).is_multiple_of(5) {
                     lerp((150, 104, 16), SPARK, t)
@@ -306,12 +341,16 @@ fn canvas_mood(s: &Snail, i: usize, track: usize, reveal: usize, mood: Mood) -> 
     }
     // Dust kicked up behind the tail tip, drifting back and fading.
     let tip = shell + 1 - s.tail_len(i) as isize;
-    for d in 1..=8usize {
-        if (d + 2 * i).is_multiple_of(5) {
-            put(s.body.len(), tip - d as isize, lerp(far, body, 1.0 - d as f32 / 8.0));
+    if trail > 0 {
+        // Eight cells of dust behind a runner, as ever; three behind the small trails.
+        for d in 1..=(if trail >= TRAIL_LEN { 8 } else { 3 }) {
+            if (d + 2 * i).is_multiple_of(5) {
+                put(s.body.len(), tip - d as isize, lerp(far, body, 1.0 - d as f32 / 8.0));
+            }
         }
     }
-    for (y, x) in s.sprite(i) {
+    let turns = (i as f32 * spin) as usize;
+    for (y, x) in s.sprite(i, turns) {
         put(y, pos + x as isize, body);
     }
     if mood == Mood::Turbo {
@@ -376,13 +415,13 @@ impl Snail {
     }
 
     /// Lit pixels of the snail at frame `t`.
-    fn sprite(&self, t: usize) -> Vec<(usize, usize)> {
+    fn sprite(&self, t: usize, turns: usize) -> Vec<(usize, usize)> {
         let o = self.tail_room;
         let mut out = Vec::new();
         // Front edge of the row above, once the body starts.
         let mut above: Option<usize> = None;
         for (y, row) in self.body.iter().enumerate() {
-            let lit: Vec<usize> = (0..row.len()).filter(|&x| self.body_lit(y, x, t)).collect();
+            let lit: Vec<usize> = (0..row.len()).filter(|&x| self.body_lit(y, x, turns)).collect();
             out.extend(lit.iter().filter(|&&x| x < self.front_x).map(|&x| (y, o + x)));
             let front: Vec<usize> = lit.into_iter().filter(|&x| x >= self.front_x).collect();
             let (Some(&lo), Some(&hi)) = (front.first(), front.last()) else { continue };
@@ -690,11 +729,11 @@ mod mood_tests {
     }
 
     #[test]
-    fn run_is_the_intro_unchanged() {
+    fn the_intro_is_unchanged_by_the_moods() {
+        // The intro keeps its own quarter turn per frame; Run as a mood has its own spin.
         for i in [0, 7, 19, 40] {
-            let a = canvas(SNAIL, i, track_for(SNAIL, 100), 9);
-            let b = canvas_mood(SNAIL, i, track_for(SNAIL, 100), 9, Mood::Run);
-            assert_eq!(a, b);
+            let intro = canvas(SNAIL, i, track_for(SNAIL, 100), 9);
+            assert_eq!(intro, canvas_with(SNAIL, i, track_for(SNAIL, 100), 9, Mood::Run, 1.0));
         }
     }
 
@@ -776,5 +815,76 @@ mod mood_tests {
         let a = pixels_mood(0, 40, 100, Mood::Calm);
         let b = pixels_mood(0, 40, 100, Mood::Turbo);
         assert_eq!((a.len(), a[0].len()), (b.len(), b[0].len()));
+    }
+
+    /// Leftmost lit column of the track over several frames.
+    fn reach(m: Mood) -> usize {
+        let t0 = word_width() + GAP;
+        (0..16)
+            .filter_map(|i| {
+                let px = canvas_mood(SNAIL, i, track_for(SNAIL, 100), 9, m);
+                px.iter().filter_map(|r| r[t0..].iter().position(Option::is_some)).min()
+            })
+            .min()
+            .unwrap()
+    }
+
+    #[test]
+    fn only_the_running_moods_leave_a_running_trail() {
+        let (calm, start, done) = (reach(Mood::Calm), reach(Mood::Start), reach(Mood::Done));
+        assert_eq!((calm, start), (start, done), "the walking snails leave nothing behind them");
+        for m in [Mood::Alert, Mood::Denied] {
+            let r = reach(m);
+            assert!(r + 3 <= calm, "{m:?} leaves a small trail: reaches {r}, walking reaches {calm}");
+            assert!(r >= reach(Mood::Run) + 6, "{m:?} is far from a running trail: {r} vs {}", reach(Mood::Run));
+        }
+        assert!(reach(Mood::Run) + 6 <= calm);
+        assert!(reach(Mood::Hard) <= reach(Mood::Run) + 1 && reach(Mood::Turbo) <= reach(Mood::Run) + 1);
+    }
+
+    #[test]
+    fn no_dust_behind_a_walking_snail() {
+        // The only lit cells of a walking snail are the snail itself.
+        let t0 = word_width() + GAP;
+        let cols = |m| (0..16).map(|i| canvas_mood(SNAIL, i, track_for(SNAIL, 100), 9, m).iter().map(|r| r[t0..].iter().filter(|c| c.is_some()).count()).sum::<usize>()).collect::<Vec<_>>();
+        assert_eq!(cols(Mood::Calm), cols(Mood::Done));
+        let walking = cols(Mood::Start);
+        let sprite_only: Vec<usize> = (0..16).map(|i| SNAIL.sprite(i, 0).len()).collect();
+        assert_eq!(walking, sprite_only, "nothing but the snail");
+    }
+
+    #[test]
+    fn turbo_the_word_wears_the_color_of_the_snail() {
+        let word = |m: Mood| {
+            let px = canvas_mood(SNAIL, 5, track_for(SNAIL, 100), 9, m);
+            let t0 = word_width() + GAP;
+            // Columns of the letters of "turbo": after the first four, 6 columns each.
+            let (from, to) = (SPLIT * 6, word_width().min(t0));
+            let colors: std::collections::BTreeSet<Rgb> = px.iter().flat_map(|r| r[from..to].iter().flatten().copied()).collect();
+            colors
+        };
+        for (m, c) in [(Mood::Calm, SOFT), (Mood::Start, BLUE), (Mood::Done, GREEN), (Mood::Alert, YELLOW), (Mood::Denied, RED), (Mood::Run, BLUE), (Mood::Turbo, BLUE)] {
+            assert_eq!(word(m), [c].into_iter().collect(), "{m:?}");
+        }
+        // "code" stays white in every mood.
+        let px = canvas_mood(SNAIL, 5, track_for(SNAIL, 100), 9, Mood::Denied);
+        assert!(px.iter().flat_map(|r| r[..SPLIT * 6].iter().flatten()).all(|&c| c == SOFT));
+    }
+
+    #[test]
+    fn the_shell_turns_slowly_walking_fast_running_and_faster_running_hard() {
+        // Quarter turns a second: a frame is 50 ms divided by the pace.
+        let qps = |m: Mood| m.spin() * 20.0 * m.speed();
+        assert!((0.2..0.6).contains(&qps(Mood::Calm)), "still: {}", qps(Mood::Calm));
+        assert!((0.5..1.5).contains(&qps(Mood::Start)) && (0.5..1.5).contains(&qps(Mood::Done)));
+        assert!((2.5..6.0).contains(&qps(Mood::Run)), "running: {}", qps(Mood::Run));
+        assert!(qps(Mood::Hard) > qps(Mood::Run) * 1.6, "running hard: {}", qps(Mood::Hard));
+        assert!(qps(Mood::Turbo) > qps(Mood::Hard) * 1.4, "turbo: {}", qps(Mood::Turbo));
+        // It shows: the spiral of the shell changes much less often in a walk than in a run.
+        let changes = |m: Mood| {
+            let shell = |i: usize| SNAIL.sprite(0, (i as f32 * m.spin()) as usize);
+            (1..200).filter(|&i| shell(i) != shell(i - 1)).count()
+        };
+        assert!(changes(Mood::Calm) * 2 < changes(Mood::Run) && changes(Mood::Run) < changes(Mood::Turbo) + 1);
     }
 }
