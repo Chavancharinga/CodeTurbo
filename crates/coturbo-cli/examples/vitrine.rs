@@ -107,7 +107,8 @@ async fn main() {
             std::fs::write(site.join(format!("{name}.html")), html).unwrap();
         }
         let browser = coturbo_design::render::find_browser().expect("Edge or Chrome");
-        for (n, (name, _, _)) in pages.iter().enumerate() {
+        let count: usize = std::env::args().nth(2).and_then(|a| a.parse().ok()).unwrap_or(4);
+        for (n, (name, _, _)) in pages.iter().take(count).enumerate() {
             let mut got: Vec<Frame> = Vec::new();
             let actions = vec![Action::Open(format!("{name}.html")), Action::Click(Target::Text("Order".into()))];
             coturbo_browse::run(&browser, &site, &actions, (880, 560), &mut |mut f| {

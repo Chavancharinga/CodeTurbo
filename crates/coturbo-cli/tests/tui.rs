@@ -1274,8 +1274,9 @@ fn several_pages_share_the_space_of_one_window_with_only_the_address_on_top() {
         four.apply(frame(i, &format!("file:///site/{page}.html")), t0);
     }
     assert_eq!((one.windows(), four.windows()), (1, 4));
-    // Four pages fit in the room of one: the window is not four times taller.
-    assert!(four.rows_for(60) <= one.rows_for(60) * 2, "{} vs {}", four.rows_for(60), one.rows_for(60));
+    // Several pages lie across the screen, within the height they are given.
+    assert!(four.wide() && !one.wide());
+    assert!(four.rows_wide(60, 24) <= 24, "{}", four.rows_wide(60, 24));
     let later = t0 + Duration::from_secs(2);
     let area = ratatui::layout::Rect::new(0, 0, 60, 24);
     let mut buf = ratatui::buffer::Buffer::empty(area);
@@ -1313,4 +1314,17 @@ fn the_frame_hugs_the_page_and_the_caption_sits_below_it_outside() {
     let page_row = rows.iter().find(|r| r.contains('▀')).unwrap();
     assert_eq!(top.find('╭'), page_row.find('│'), "frame and page share their left edge:\n{text}");
     assert!(!rows[..bottom].iter().any(|r| r.contains("clicando")));
+}
+
+#[test]
+fn two_pages_stay_at_the_right_and_more_lie_across_the_screen() {
+    use coturbo_cli::tui::browser::BrowserView;
+    let t0 = std::time::Instant::now();
+    let mut v = BrowserView::default();
+    for i in 0..4 {
+        let mut f = browser_frame(None, false);
+        f.window = i;
+        v.apply(f, t0);
+        assert_eq!(v.wide(), i >= 2, "{} page(s)", i + 1);
+    }
 }

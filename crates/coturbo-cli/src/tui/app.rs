@@ -1004,7 +1004,15 @@ impl App {
         let mut body = Rect { x: body.x + 1, width: body.width.saturating_sub(2), ..body };
         // The mini browser takes the right of the screen while the agent uses a page.
         let mut browser_rect = None;
-        if self.browser.visible(now) && area.width >= 80 && area.height >= 20 {
+        if self.browser.visible(now) && area.width >= 80 && area.height >= 20 && self.browser.wide() {
+            // Several pages lie in a strip across the bottom of the conversation.
+            let ph = self.browser.rows_wide(body.width, (body.height * 3 / 5).max(8)).min(body.height.saturating_sub(4));
+            browser_rect = Some(Rect { x: body.x, y: body.bottom().saturating_sub(ph), width: body.width, height: ph });
+            let given = (ph as f32 * self.browser.progress(now)).round() as u16;
+            if given > 0 {
+                body.height = body.height.saturating_sub(given + 1);
+            }
+        } else if self.browser.visible(now) && area.width >= 80 && area.height >= 20 {
             let pw = (body.width / 2).clamp(40, 80);
             if body.width > pw + 30 {
                 let ph = self.browser.rows_for(pw).min(body.height);

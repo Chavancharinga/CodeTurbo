@@ -210,31 +210,33 @@ fn readable_on(bg: (u8, u8, u8)) -> Color {
     if lum > 140.0 { Color::Rgb(24, 24, 28) } else { Color::Rgb(245, 245, 248) }
 }
 
-/// Columns and rows of the grid for `n` pages in a window `width` wide: a
-/// page needs about twenty columns to be worth showing.
-fn grid(n: usize, width: u16) -> (usize, usize) {
-    let wanted = match n {
-        0 | 1 => 1,
-        2..=4 => 2,
-        _ => 3,
-    };
-    let cols = wanted.min((width as usize / 20).max(1));
-    (cols, n.max(1).div_ceil(cols))
+/// The grid that shows `n` pages of shape `size` largest inside an area `w`
+/// columns by `h` rows: its columns and rows.
+fn best_grid(n: usize, w: u16, h: u16, size: (u32, u32)) -> (usize, usize) {
+    let (vw, vh) = (size.0.max(1) as f32, size.1.max(1) as f32);
+    let n = n.max(1);
+    let mut best = (1, n, -1.0f32);
+    for cols in 1..=n {
+        let rows = n.div_ceil(cols);
+        let (cw, ch) = (w as usize / cols, h as usize / rows);
+        if cw < 14 || ch < 7 {
+            continue;
+        }
+        // The frame takes two columns and four rows around the page.
+        let scale = ((cw as f32 - 2.0) / vw).min((ch as f32 - 4.0) * 2.0 / vh);
+        if scale > best.2 + 1e-6 {
+            best = (cols, rows, scale);
+        }
+    }
+    (best.0, best.1)
 }
 
-/// The cell of each of `n` pages inside `rect`, row by row.
-fn cells(rect: Rect, n: usize) -> Vec<Rect> {
-    let (cols, rows) = grid(n, rect.width);
+/// The cell of each of `n` pages inside `rect`, row by row, all the same size.
+fn cells(rect: Rect, n: usize, size: (u32, u32)) -> Vec<Rect> {
+    let (cols, rows) = best_grid(n, rect.width, rect.height, size);
     let (cw, ch) = (rect.width / cols as u16, rect.height / rows as u16);
-    (0..n)
-        .map(|i| {
-            let (c, r) = ((i % cols) as u16, (i / cols) as u16);
-            // The last column and row take what is left over.
-            let w = if c as usize == cols - 1 { rect.width - cw * c } else { cw };
-            let h = if r as usize == rows - 1 { rect.height - ch * r } else { ch };
-            Rect { x: rect.x + cw * c, y: rect.y + ch * r, width: w, height: h }
-        })
-        .collect()
+    let x0 = rect.x + (rect.width - cw * cols as u16) / 2;
+    (0..n).map(|i| Rect { x: x0 + cw * (i % cols) as u16, y: rect.y + ch * (i / cols) as u16, width: cw, height: ch }).collect()
 }
 
 /// Where everything goes in the cell `cell`: the frame (as small as the
@@ -499,20 +501,33 @@ impl BrowserView {
         self.tabs.first().and_then(|t| t.pointer(now))
     }
 
-    /// Rows the window needs to show its pages whole at `cols` columns: with
-    /// several pages, the same space is shared between them.
+    /// Rows the window needs to show its page whole at `cols` columns.
     pub fn rows_for(&self, cols: u16) -> u16 {
-        let n = self.windows();
-        let (c, r) = grid(n, cols);
-        let cell = cols / c as u16;
-        let one = self.tabs.iter().find(|t| t.pixels.is_some()).map_or(4, |t| t.rows_for(cell));
-        one * r as u16
+        if self.windows() > 1 {
+            // Two pages, one above the other, in the panel at the side.
+            return self.rows_wide(cols, 60);
+        }
+        self.tabs.iter().find(|t| t.pixels.is_some()).map_or(4, |t| t.rows_for(cols))
+    }
+
+    /// With three or more pages the window lies across the screen; one or two
+    /// stay in the panel at the right (two are stacked there).
+    pub fn wide(&self) -> bool {
+        self.windows() > 2
+    }
+
+    /// Rows a window `width` columns wide needs for all its pages, at most `max`.
+    pub fn rows_wide(&self, width: u16, max: u16) -> u16 {
+        let Some(first) = self.tabs.iter().find(|t| t.pixels.is_some()) else { return 4 };
+        let (cols, rows) = best_grid(self.windows(), width, max, first.size);
+        (first.rows_for(width / cols as u16) * rows as u16).min(max)
     }
 
     /// The pages that are open, with the cell of each in a window at `rect`.
     fn placed(&self, rect: Rect) -> Vec<(usize, Rect)> {
         let open: Vec<usize> = (0..self.tabs.len()).filter(|&i| self.tabs[i].pixels.is_some()).collect();
-        open.iter().copied().zip(cells(rect, open.len())).collect()
+        let size = open.first().map_or((880, 560), |&i| self.tabs[i].size);
+        open.iter().copied().zip(cells(rect, open.len(), size)).collect()
     }
 
     /// With real pictures: once the window is fully open, each page is drawn as
