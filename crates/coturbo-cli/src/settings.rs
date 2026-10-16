@@ -51,7 +51,7 @@ pub fn detected(id: &str, creds: &Credentials) -> bool {
     match id {
         "claude-code" => on_path("claude"),
         "codex" => on_path("codex"),
-        "antigravity" => on_path("agy") || home(".local/bin/agy").is_some_and(|f| f.is_file() || f.with_extension("exe").is_file()),
+        "antigravity" => on_path("agy") || coturbo_providers::cli::agy_path().is_some(),
         "ollama" => on_path("ollama") || listening(11434),
         "lmstudio" => on_path("lms") || home(".lmstudio").is_some_and(|d| d.is_dir()) || listening(1234),
         _ => provider(id).is_some_and(|p| p.key_var.is_some()) && api_key(id, creds).is_some(),

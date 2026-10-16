@@ -98,9 +98,7 @@ pub async fn list(provider: &str, key: Option<&str>, base_url: Option<&str>) -> 
                 .map(|(a, b)| (a.to_string(), b.to_string()))
                 .to_vec());
         }
-        "antigravity" => {
-            return Ok([("padrao", "your Google plan's default")].map(|(a, b)| (a.to_string(), b.to_string())).to_vec());
-        }
+        "antigravity" => return antigravity_models().await,
         "codex" => {
             return Ok([("padrao", "your plan's default"), ("gpt-5-codex", "gpt-5-codex"), ("gpt-5", "gpt-5")]
                 .map(|(a, b)| (a.to_string(), b.to_string()))
@@ -122,4 +120,29 @@ pub async fn list(provider: &str, key: Option<&str>, base_url: Option<&str>) -> 
     }
     let body: Value = resp.json().await.map_err(|e| e.to_string())?;
     Ok(parse_named(provider, &body))
+}
+
+/// The models `agy models` lists for the signed-in account: `id<TAB>name` lines.
+async fn antigravity_models() -> Result<Vec<(String, String)>, String> {
+    let program = coturbo_providers::cli::resolve(coturbo_providers::cli::Tool::Antigravity);
+    let out = tokio::time::timeout(Duration::from_secs(40), tokio::process::Command::new(program).arg("models").output())
+        .await
+        .map_err(|_| "agy did not answer".to_string())?
+        .map_err(|e| format!("could not run agy: {e}"))?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let list = parse_agy_models(&text);
+    if list.is_empty() {
+        return Err("agy listed no models: sign in to Antigravity first".into());
+    }
+    Ok(list)
+}
+
+/// `id<TAB>name` lines of `agy models`.
+pub fn parse_agy_models(text: &str) -> Vec<(String, String)> {
+    text.lines()
+        .filter_map(|l| {
+            let (id, name) = l.split_once(char::from(9))?;
+            (!id.trim().is_empty()).then(|| (id.trim().to_string(), format!("{id} · {}", name.trim())))
+        })
+        .collect()
 }

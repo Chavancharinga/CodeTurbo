@@ -42,23 +42,35 @@ impl CliProvider {
 
 /// Whether the official program is installed (on the PATH).
 pub fn installed(tool: Tool) -> bool {
-    on_path(tool.program())
+    on_path(tool.program()) || (tool == Tool::Antigravity && agy_path().is_some())
+}
+
+/// Where the Antigravity installer may have put `agy` when its folder is not on the PATH.
+fn agy_homes() -> Vec<std::path::PathBuf> {
+    let mut out = Vec::new();
+    if let Some(home) = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }) {
+        out.push(std::path::PathBuf::from(home).join(".local").join("bin"));
+    }
+    if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+        out.push(std::path::PathBuf::from(local).join("agy").join("bin"));
+    }
+    out
+}
+
+/// The `agy` program, wherever it is installed.
+pub fn agy_path() -> Option<std::path::PathBuf> {
+    agy_homes().into_iter().flat_map(|d| [d.join("agy"), d.join("agy.exe")]).find(|f| f.is_file())
 }
 
 /// The program to run: the one on the PATH, or where the Antigravity
-/// installer puts `agy` (`~/.local/bin`) when that folder is not on it.
+/// installer puts `agy` when that folder is not on it.
 pub fn resolve(tool: Tool) -> std::path::PathBuf {
     let name = tool.program();
     if tool == Tool::Antigravity
         && !on_path(name)
-        && let Some(home) = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+        && let Some(f) = agy_path()
     {
-        let base = std::path::PathBuf::from(home).join(".local").join("bin");
-        for f in [base.join(name), base.join(format!("{name}.exe"))] {
-            if f.is_file() {
-                return f;
-            }
-        }
+        return f;
     }
     name.into()
 }
@@ -345,6 +357,85 @@ pub fn parse_antigravity(body: &str) -> Result<(String, Usage), String> {
     Ok((v["response"].as_str().unwrap_or_default().to_string(), usage))
 }
 
+/// What `agy -p --output-format stream-json` printed: the final result, and
+/// whether the model reached for Antigravity's own tools instead of ours.
+pub fn read_antigravity_stream(body: &str) -> Result<(String, Usage, bool), String> {
+    let mut native = false;
+    let mut result = None;
+    for line in body.lines().filter(|l| l.trim_start().starts_with('{')) {
+        let Ok(v) = serde_json::from_str::<Value>(line) else { continue };
+        match v["event"].as_str() {
+            Some("step_update") if v["step_update"]["step_type"] == "tool" => native = true,
+            Some("result") => result = Some(v["result"].to_string()),
+            _ => {}
+        }
+    }
+    let (text, usage) = parse_antigravity(&result.ok_or("no result")?)?;
+    Ok((text, usage, native))
+}
+
+/// One reply through Antigravity. Its own tools are not wanted here (the work
+/// goes through CodeTurbo's); when the model uses them anyway, it is told so
+/// and asked again, up to twice.
+async fn agy_complete(req: &Request, system: &str, prompt: &str, work: &std::path::Path, last: &std::path::Path, on_text: &mut TextSink<'_>) -> Result<Response, ProviderError> {
+    let mut nudge = String::new();
+    let mut total = Usage::default();
+    for attempt in 0..3 {
+        let full = format!(
+            "IMPORTANT: you are running inside a harness. Your built-in tools (file writing, shell, browsing) are DISABLED and must not be used;              anything you do with them is lost. To act, write <tool_call> blocks exactly as described below and nothing else.
+
+{system}
+
+{prompt}{nudge}"
+        );
+        // Print mode takes the prompt as an argument; a long one goes through a
+        // file, since command lines have a size limit.
+        let arg = if full.len() > 24_000 {
+            std::fs::write(last, &full).map_err(|e| ProviderError::Other(e.to_string()))?;
+            format!("Read the file {} (instructions and conversation) and answer it following exactly the format it asks for; do not use other tools.", last.display())
+        } else {
+            full
+        };
+        let mut cmd = tokio::process::Command::new(resolve(Tool::Antigravity));
+        cmd.arg("-p").arg(arg).args(["--output-format", "stream-json"]);
+        if !req.model.is_empty() && req.model != "padrao" {
+            cmd.arg("--model").arg(&req.model);
+        }
+        cmd.current_dir(work).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
+        let child = cmd.spawn().map_err(|e| ProviderError::Other(format!("could not start `agy` ({e}); install the Antigravity CLI and sign in")))?;
+        let out = tokio::time::timeout(Duration::from_secs(600), child.wait_with_output())
+            .await
+            .map_err(|_| ProviderError::Other("Antigravity did not answer in 10 minutes".into()))?
+            .map_err(|e| ProviderError::Other(e.to_string()))?;
+        let _ = std::fs::remove_file(last);
+        let body = String::from_utf8_lossy(&out.stdout).into_owned();
+        let (text, usage, native) = read_antigravity_stream(&body)
+            .map_err(|e| ProviderError::Other(format!("agy: {e} {}", String::from_utf8_lossy(&out.stderr).trim())))?;
+        total.input += usage.input;
+        total.cache_read += usage.cache_read;
+        total.output += usage.output;
+        let has_calls = text.contains(OPEN) || text.contains("<invoke ");
+        if native && !has_calls && attempt < 2 {
+            nudge = "
+
+(Your previous answer used built-in tools, which do nothing here. Answer again using only <tool_call> blocks.)".into();
+            continue;
+        }
+        // After tool results, Gemini often ends with no text at all: that is the
+        // end of the task, not a reason to ask again for minutes.
+        let text = if text.trim().is_empty() && req.messages.len() > 2 { "Done.".to_string() } else { text };
+        let content = parse_reply(&text, req.messages.len());
+        for b in &content {
+            if let ContentBlock::Text { text } = b {
+                on_text(Delta::Text(text.clone()));
+            }
+        }
+        let calls = content.iter().any(|b| matches!(b, ContentBlock::ToolUse { .. }));
+        return Ok(Response { content, stop_reason: if calls { "tool_use".into() } else { "end_turn".into() }, usage: total });
+    }
+    Err(ProviderError::Other("Antigravity kept using its own tools".into()))
+}
+
 impl Provider for CliProvider {
     fn complete<'a>(&'a self, req: &'a Request, on_text: &'a mut TextSink<'_>) -> BoxFuture<'a, Result<Response, ProviderError>> {
         Box::pin(async move {
@@ -359,6 +450,9 @@ impl Provider for CliProvider {
             // (streaming input); with none, the plain text prompt is used.
             let images = if self.tool == Tool::ClaudeCode { prompt_images(req) } else { Vec::new() };
             let streaming = !images.is_empty();
+            if self.tool == Tool::Antigravity {
+                return agy_complete(req, &system, &prompt, &work, &last, on_text).await;
+            }
             let mut cmd = tokio::process::Command::new(resolve(self.tool));
             match self.tool {
                 Tool::ClaudeCode => {
@@ -378,24 +472,7 @@ impl Provider for CliProvider {
                         cmd.arg("--model").arg(&req.model);
                     }
                 }
-                Tool::Antigravity => {
-                    // Print mode takes the prompt as an argument; a long one goes
-                    // through a file, since command lines have a size limit.
-                    let full = format!("{system}\n\n{prompt}");
-                    let text = if full.len() > 24_000 {
-                        std::fs::write(&last, &full).map_err(|e| ProviderError::Other(e.to_string()))?;
-                        format!(
-                            "Read the file {} (instructions and conversation) and answer it following exactly the format it asks for; do not use other tools.",
-                            last.display()
-                        )
-                    } else {
-                        full
-                    };
-                    cmd.args(["-p"]).arg(text).args(["--output-format", "json"]);
-                    if !req.model.is_empty() && req.model != "padrao" {
-                        cmd.arg("--model").arg(&req.model);
-                    }
-                }
+                Tool::Antigravity => unreachable!("handled by agy_complete"),
                 Tool::Codex => {
                     cmd.args(["exec", "--skip-git-repo-check", "--sandbox", "read-only", "--output-last-message"]).arg(&last);
                     if !req.model.is_empty() && req.model != "padrao" {
@@ -419,17 +496,7 @@ impl Provider for CliProvider {
             }
             let (text, usage, streamed) = match self.tool {
                 Tool::ClaudeCode => read_claude(&mut child, on_text).await?,
-                Tool::Antigravity => {
-                    let out = tokio::time::timeout(Duration::from_secs(600), child.wait_with_output())
-                        .await
-                        .map_err(|_| ProviderError::Other("Antigravity did not answer in 10 minutes".into()))?
-                        .map_err(|e| ProviderError::Other(e.to_string()))?;
-                    let _ = std::fs::remove_file(&last);
-                    let body = String::from_utf8_lossy(&out.stdout).into_owned();
-                    let (text, usage) = parse_antigravity(&body)
-                        .map_err(|e| ProviderError::Other(format!("agy: {e} {}", String::from_utf8_lossy(&out.stderr).trim())))?;
-                    (text, usage, false)
-                }
+                Tool::Antigravity => unreachable!("handled by agy_complete"),
                 Tool::Codex => {
                     let out = tokio::time::timeout(Duration::from_secs(600), child.wait_with_output())
                         .await

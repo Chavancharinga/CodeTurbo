@@ -349,3 +349,17 @@ fn the_code_being_written_is_read_from_a_call_that_is_still_streaming() {
     assert_eq!(tail.lines().count(), 14);
     assert!(tail.ends_with("line40") && tail.starts_with("line27"), "{tail}");
 }
+
+#[test]
+fn antigravity_stream_says_whether_the_model_used_its_own_tools() {
+    use coturbo_providers::cli::read_antigravity_stream;
+    let own = r#"{"event":"init","init":{"tools":["run_command"]}}
+{"event":"step_update","step_update":{"step_type":"tool","tool_name":"write_to_file","state":"DONE"}}
+{"event":"result","result":{"status":"SUCCESS","response":"Created it.\n","usage":{"input_tokens":10,"output_tokens":2}}}"#;
+    let (text, usage, native) = read_antigravity_stream(own).unwrap();
+    assert!(native && text.starts_with("Created") && usage.output == 2);
+    let plain = r#"{"event":"step_update","step_update":{"step_type":"agent_response","text_delta":"ok"}}
+{"event":"result","result":{"status":"SUCCESS","response":"ok","usage":{"input_tokens":1,"output_tokens":1}}}"#;
+    assert!(!read_antigravity_stream(plain).unwrap().2);
+    assert!(read_antigravity_stream("no json here").is_err());
+}

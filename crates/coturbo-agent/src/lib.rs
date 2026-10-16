@@ -634,7 +634,7 @@ impl<'a> Agent<'a> {
             let empty = calls.is_empty() && report.final_text.trim().is_empty() && !truncated && resp.stop_reason != "refusal";
             if empty && empty_retries < EMPTY_RETRIES {
                 empty_retries += 1;
-                host.on_event(Event::Notice("o modelo respondeu vazio; pedindo de novo"));
+                host.on_event(Event::Notice("the model answered with nothing; asking again"));
                 continue;
             }
             self.history.push(Message { role: Role::Assistant, content: resp.content });

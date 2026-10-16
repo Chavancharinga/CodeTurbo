@@ -1440,3 +1440,12 @@ fn a_report_in_a_box_is_wrapped_and_closed_on_a_straight_edge() {
     assert!(widths.iter().all(|w| *w == widths[0]), "every row the same width: {widths:?}");
     assert!(rows[1].spans.iter().any(|s| s.content.contains('┆')));
 }
+
+#[test]
+fn agy_models_are_read_from_its_listing() {
+    let text = "gemini-3.8-flash-high\tGemini 3.8 Flash (High)\nclaude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)\n";
+    let list = coturbo_cli::models::parse_agy_models(text);
+    assert_eq!(list[0].0, "gemini-3.8-flash-high");
+    assert!(list[1].1.contains("Claude Sonnet 4.6"));
+    assert!(coturbo_cli::models::parse_agy_models("Fetching available models...\n").is_empty());
+}
