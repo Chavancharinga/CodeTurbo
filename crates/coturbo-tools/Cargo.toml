@@ -10,6 +10,7 @@ futures-util.workspace = true
 coturbo-ast = { path = "../coturbo-ast" }
 coturbo-browse = { path = "../coturbo-browse" }
 coturbo-design = { path = "../coturbo-design" }
+coturbo-net = { path = "../coturbo-net" }
 coturbo-rea = { path = "../coturbo-rea" }
 coturbo-providers = { path = "../coturbo-providers" }
 coturbo-verify = { path = "../coturbo-verify" }

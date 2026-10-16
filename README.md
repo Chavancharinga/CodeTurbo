@@ -59,6 +59,14 @@ The agent studies how a website, a JavaScript or Electron app, a native binary
 SQLite database works, with file-and-line evidence, before building something
 similar. All in Rust, with no external tools.
 
+**Devices on your network**
+The agent finds what is on your local network (TVs, speakers, printers,
+cameras, lights, plugs, routers, computers) through Bonjour/mDNS, UPnP, the
+ARP table and an optional subnet sweep, and operates them on request: the
+device's own HTTP API, UPnP actions (play, pause, volume) and Wake-on-LAN.
+No hub or home-automation server is needed. Control reaches private addresses
+only, and every action is approved by you first.
+
 **Any provider, found automatically**
 CodeTurbo detects what is on your machine and lists only that: the official
 Claude Code, Codex and Antigravity CLIs (so your own plan is used), a running

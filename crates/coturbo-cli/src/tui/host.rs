@@ -54,6 +54,16 @@ pub fn action_label(name: &str, input: &serde_json::Value) -> String {
         "grep" => format!("grep \"{a}\""),
         "investigate" | "observe_app" => format!("{name} {target}"),
         "browse" => format!("browse · {} step(s)", input["actions"].as_array().map_or(0, Vec::len)),
+        "network_scan" => if input["sweep"].as_bool() == Some(true) { "network_scan · whole subnet".into() } else { "network_scan".into() },
+        "device_control" => {
+            let s = |k: &str| input[k].as_str().unwrap_or("");
+            match s("kind") {
+                "http" => format!("device_control {} {}", if s("method").is_empty() { "GET" } else { s("method") }, s("url")),
+                "upnp" => format!("device_control {} → {}", s("action"), s("control_url")),
+                "wake" => format!("device_control wake {}", s("mac")),
+                k => format!("device_control {k}"),
+            }
+        }
         other => format!("{other} {a}").trim().to_string(),
     }
 }

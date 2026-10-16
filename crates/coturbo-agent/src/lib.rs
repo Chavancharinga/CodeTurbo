@@ -248,6 +248,9 @@ fn system_prompt(mode: Mode) -> String {
          Be fast: every reply is a round trip, so put all the tool calls that do not depend on each other \
          in the same reply (reads, searches, independent edits, the checklist update with the work it tracks), \
          and do not read back a file you just wrote. \
+         You can see and operate the devices on the user's local network (TVs, speakers, printers, lights, plugs, \
+         cameras, routers, computers): network_scan lists them, device_control acts on one after the user approves. \
+         Never answer that you cannot reach the network; scan it. \
          Work like a senior engineer: read the relevant code before editing, find the root cause of an error \
          instead of patching symptoms, run what you changed (build, tests, the program), read the output, \
          and keep iterating until it really works; decide and act instead of asking when the next step is clear. \

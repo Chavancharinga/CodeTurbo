@@ -101,7 +101,9 @@ pub fn protocol_system(req: &Request) -> String {
         .map(|t| json!({"name": t.name, "description": t.description, "input": t.input_schema["properties"]}))
         .collect();
     format!(
-        "{}\n\nTools (you cannot run anything yourself; ask and the harness runs it):\n{}\n\n\
+        "{}\n\nThe harness runs on the user's own computer, inside their local network: through the tools below you reach \
+         their files, their programs and the devices on their network. Never say you cannot; call the tool.\n\n\
+         Tools (you cannot run anything yourself; ask and the harness runs it):\n{}\n\n\
          To use tools, write one block per call, exactly:\n{OPEN}{{\"name\": \"read_file\", \"input\": {{\"path\": \"src/main.rs\"}}}}{CLOSE}\n\
          You may write several blocks; their results come back in the next message. \
          When the task is done, answer in plain text with no {OPEN} block.",
@@ -412,7 +414,7 @@ pub struct AgySession {
     used: Usage,
 }
 
-const HARNESS_NOTE: &str = "IMPORTANT: you are running inside a harness. Your built-in tools (file writing, shell, browsing) are DISABLED and must not be used; anything you do with them is lost. To act, write <tool_call> blocks exactly as described below and nothing else.";
+const HARNESS_NOTE: &str = "IMPORTANT: you are running inside CodeTurbo, on the user's own computer and local network. Antigravity's built-in tools are switched off here; CodeTurbo's tools listed below replace them and DO work: files, shell commands, a real browser, and the devices on the user's network. Do everything by writing <tool_call> blocks exactly as described below; never answer that you cannot do something those tools can.";
 
 /// No word from agy for this long ends the turn.
 const AGY_IDLE: Duration = Duration::from_secs(300);

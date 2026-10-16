@@ -2,6 +2,7 @@
 //! agents offer (whole-file reads, search/replace edits, raw build output);
 //! `Ast` adds symbol-level reads/edits and compact compiler diagnostics.
 
+mod devices;
 mod fsops;
 mod shell;
 
@@ -48,7 +49,7 @@ pub const EDIT_TOOLS: &[&str] = &["write_file", "edit_file", "replace_symbol", "
 /// Fixed tier per tool. Unknown tools (MCP, third-party) are `Exec`.
 pub fn tier(name: &str) -> Tier {
     match name {
-        "read_file" | "read_symbol" | "list_files" | "grep" | "workspace_diagnostics" | "propose_plan" | "tasks" => Tier::Read,
+        "read_file" | "read_symbol" | "list_files" | "grep" | "workspace_diagnostics" | "propose_plan" | "tasks" | "network_scan" => Tier::Read,
         n if EDIT_TOOLS.contains(&n) || n == "design_brief" => Tier::Write,
         "design_review" => Tier::Read,
         _ => Tier::Exec,
@@ -275,6 +276,31 @@ impl Tools {
                         }, "required": ["title", "status"]}
                     })}),
                     &["items"],
+                ),
+            ),
+            spec(
+                "network_scan",
+                "List the devices on the user's local network (read-only): TVs, speakers, printers, cameras, lights, plugs, routers, computers. Finds them by Bonjour/mDNS, UPnP and the ARP table; sweep=true also checks common ports on every address of the local subnet (slower, finds silent devices). Returns each device's address, MAC, names, services, UPnP actions with their control URLs, and open ports. Use it before device_control.",
+                obj(json!({"sweep": {"type": "boolean", "description": "also probe common ports on the whole local /24 (about 10 s)"}, "seconds": {"type": "integer", "description": "how long to listen for announcements, 1-10 (default 3)"}}), &[]),
+            ),
+            spec(
+                "device_control",
+                "Act on a device of the user's LOCAL network (private addresses only; the user approves each call). kind=http: a request to the device's own API (e.g. Shelly http://ip/relay/0?turn=on, Tasmota http://ip/cm?cmnd=Power%20TOGGLE, Hue, ESPHome, a router page); kind=upnp: a UPnP action on a control URL from network_scan (e.g. AVTransport Play/Pause/Stop with args {\"InstanceID\": \"0\", \"Speed\": \"1\"}, RenderingControl SetVolume with {\"InstanceID\": \"0\", \"Channel\": \"Master\", \"DesiredVolume\": \"20\"}); kind=wake: Wake-on-LAN to a MAC. Read first (GET, status) before changing anything, and say what you will do.",
+                obj(
+                    json!({
+                        "kind": {"type": "string", "enum": ["http", "upnp", "wake"]},
+                        "method": s("http: GET, POST, PUT... (default GET)"),
+                        "url": s("http: full URL on the local network"),
+                        "headers": {"type": "object", "description": "http: extra headers"},
+                        "body": s("http: request body"),
+                        "control_url": s("upnp: the control URL from network_scan"),
+                        "service_type": s("upnp: e.g. urn:schemas-upnp-org:service:AVTransport:1"),
+                        "action": s("upnp: action name, e.g. Play"),
+                        "args": {"type": "object", "description": "upnp: action arguments"},
+                        "mac": s("wake: the MAC address"),
+                        "broadcast": s("wake: broadcast address, default 255.255.255.255")
+                    }),
+                    &["kind"],
                 ),
             ),
             spec("propose_plan", "Plan mode only: submit .codeturbo/plans/<slug>-plan.md for the user's approval.", obj(json!({"slug": s("plan slug")}), &["slug"])),
@@ -712,6 +738,8 @@ impl Tools {
             "observe_app" => self.observe_app(input).await,
             "tasks" => Self::tasks(input),
             "browse" => self.browse(input).await,
+            "network_scan" => devices::network_scan(input).await,
+            "device_control" => devices::device_control(input).await,
             _ => Err(format!("unknown tool: {name}")),
         };
         let mut out = r.unwrap_or_else(ToolOutput::err);
