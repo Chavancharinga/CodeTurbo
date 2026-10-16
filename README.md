@@ -11,6 +11,12 @@
 
 <p align="center"><b>Agente de código para terminal</b> · rápido · econômico · verificado</p>
 
+<p align="center">
+  <img src="docs/codeturbo.gif" alt="O caracol do CodeTurbo em cada estado: calmo, corre, corre muito, turbo, alerta e design negado" width="515">
+  <br>
+  <sub>O caracol mostra o que o agente faz: anda calmo quando ocioso, corre ao trabalhar, corre muito com as ferramentas e os motores, entra em turbo com faíscas, fica amarelo num alerta e vermelho quando o design é recusado.</sub>
+</p>
+
 ---
 
 O CodeTurbo é um agente de desenvolvimento de software para o terminal, escrito
