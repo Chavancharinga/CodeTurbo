@@ -1,7 +1,9 @@
 //! A mini janela do navegador dentro do terminal: mostra a página que o agente
 //! está usando, desenhada com meio-blocos (dois pixels por célula, como o
 //! logo), com o ponteiro do mouse andando até o alvo e o clique pulsando.
-//! Funciona em qualquer terminal: não depende de protocolo gráfico.
+//! Funciona em qualquer terminal. Onde o terminal desenha imagens (Kitty,
+//! iTerm2, Sixel), a página aparece como imagem de verdade, nítida, com o
+//! ponteiro desenhado nela; nos outros, em meios-blocos.
 
 use coturbo_browse::{Frame, Label};
 use ratatui::buffer::Buffer;
@@ -9,6 +11,9 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Widget};
+use ratatui_image::picker::Picker;
+use ratatui_image::protocol::StatefulProtocol;
+use ratatui_image::{Resize, StatefulImage};
 use std::time::{Duration, Instant};
 
 const BLUE: Color = Color::Rgb(47, 123, 255);
@@ -86,8 +91,76 @@ impl Pixels {
     }
 }
 
+/// The terminal's way of showing real pictures, and the page in it.
+struct Native {
+    picker: Picker,
+    page: Option<StatefulProtocol>,
+}
+
+impl std::fmt::Debug for Native {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Native")
+    }
+}
+
+/// Paints the agent's pointer (and, on a click, a ring) into the page's pixels.
+fn bake_pointer(px: &mut Pixels, at: (f32, f32), size: (u32, u32), clicked: bool) {
+    let k = px.w as f32 / size.0.max(1) as f32;
+    let (cx, cy) = (at.0 * k, at.1 * k);
+    let blend = |px: &mut Pixels, x: i32, y: i32, c: [u8; 3], a: f32| {
+        if x >= 0 && y >= 0 && (x as usize) < px.w && (y as usize) < px.h {
+            let i = (y as usize * px.w + x as usize) * 3;
+            for (n, v) in c.iter().enumerate() {
+                px.rgb[i + n] = (f32::from(px.rgb[i + n]) * (1.0 - a) + f32::from(*v) * a) as u8;
+            }
+        }
+    };
+    let unit = (px.w as f32 / 520.0).max(1.0);
+    if clicked {
+        let r = 20.0 * unit;
+        for y in (cy - r - 3.0) as i32..=(cy + r + 3.0) as i32 {
+            for x in (cx - r - 3.0) as i32..=(cx + r + 3.0) as i32 {
+                let d = ((x as f32 - cx).powi(2) + (y as f32 - cy).powi(2)).sqrt();
+                if d <= r {
+                    blend(px, x, y, [255, 214, 80], if d >= r - 3.0 * unit { 0.95 } else { 0.28 });
+                }
+            }
+        }
+    }
+    // An arrow, in the page's own pixels: black edge, white body.
+    let arrow = [(0.0, 0.0), (0.0, 17.0), (4.2, 13.2), (7.2, 20.0), (9.8, 18.8), (6.9, 12.4), (12.4, 12.0)];
+    let inside = |x: f32, y: f32| {
+        let mut c = false;
+        let mut j = arrow.len() - 1;
+        for i in 0..arrow.len() {
+            let (a, b) = (arrow[i], arrow[j]);
+            if (a.1 > y) != (b.1 > y) && x < (b.0 - a.0) * (y - a.1) / (b.1 - a.1) + a.0 {
+                c = !c;
+            }
+            j = i;
+        }
+        c
+    };
+    let edge = 1.6;
+    for y in (cy as i32 - 2)..(cy as i32 + (24.0 * unit) as i32) {
+        for x in (cx as i32 - 2)..(cx as i32 + (16.0 * unit) as i32) {
+            let (ax, ay) = ((x as f32 - cx) / unit, (y as f32 - cy) / unit);
+            if inside(ax, ay) {
+                blend(px, x, y, [255, 255, 255], 1.0);
+            } else if [(edge, 0.0), (-edge, 0.0), (0.0, edge), (0.0, -edge), (edge, edge), (-edge, -edge), (edge, -edge), (-edge, edge)]
+                .iter()
+                .any(|(dx, dy)| inside(ax + dx, ay + dy))
+            {
+                blend(px, x, y, [17, 17, 17], 1.0);
+            }
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct BrowserView {
+    /// The terminal draws real pictures: the page is one, not blocks.
+    native: Option<Native>,
     pixels: Option<Pixels>,
     url: String,
     title: String,
@@ -162,8 +235,26 @@ impl BrowserView {
         }
     }
 
+    /// The terminal can show real pictures: use them for the page.
+    pub fn set_picker(&mut self, picker: Picker) {
+        self.native = Some(Native { picker, page: None });
+    }
+
+    pub fn has_native(&self) -> bool {
+        self.native.is_some()
+    }
+
     pub fn apply(&mut self, f: Frame, now: Instant) {
         if let Some(p) = decode(&f.png) {
+            if let Some(n) = self.native.as_mut() {
+                let mut shot = p.clone();
+                if let Some(c) = f.cursor {
+                    bake_pointer(&mut shot, c, f.size, f.clicked);
+                }
+                if let Some(img) = image::RgbImage::from_raw(shot.w as u32, shot.h as u32, shot.rgb) {
+                    n.page = Some(n.picker.new_resize_protocol(image::DynamicImage::ImageRgb8(img)));
+                }
+            }
             self.pixels = Some(p);
         }
         self.url = f.url;
@@ -239,6 +330,23 @@ impl BrowserView {
         (inner * h / w / 2.0).ceil() as u16 + 4
     }
 
+    /// The area of the page inside the window drawn at `rect`.
+    fn page_in(rect: Rect) -> Rect {
+        let inner = Block::new().borders(Borders::ALL).inner(rect);
+        Rect { x: inner.x, y: inner.y + 1, width: inner.width, height: inner.height.saturating_sub(2) }
+    }
+
+    /// With real pictures: once the window is fully open, the page is drawn as
+    /// one (the cells below it stay as the frame).
+    pub fn draw_native(&mut self, f: &mut ratatui::Frame, rect: Rect, now: Instant) {
+        if self.progress(now) < 1.0 || rect.width < 12 || rect.height < 6 {
+            return;
+        }
+        if let Some(Native { page: Some(proto), .. }) = self.native.as_mut() {
+            f.render_stateful_widget(StatefulImage::default().resize(Resize::Fit(None)), Self::page_in(rect), proto);
+        }
+    }
+
     /// Draws the window into `rect`, as open as it is at `now`.
     pub fn draw(&self, buf: &mut Buffer, rect: Rect, now: Instant) {
         let p = self.progress(now);
@@ -270,6 +378,10 @@ impl BrowserView {
         let cap: String = caption.chars().take(inner.width as usize).collect();
         Line::styled(cap, Style::new().fg(BLUE).add_modifier(Modifier::BOLD)).render(caption_row, buf);
         let Some(px) = &self.pixels else { return };
+        // A real picture takes the page once the window is open.
+        if p >= 1.0 && self.native.as_ref().is_some_and(|n| n.page.is_some()) {
+            return;
+        }
         // Fit the page in the space, keeping its shape: a cell is one pixel wide and two tall.
         let (vw, vh) = (self.size.0.max(1) as f32, self.size.1.max(1) as f32);
         let scale = (page.width as f32 / vw).min(page.height as f32 * 2.0 / vh);

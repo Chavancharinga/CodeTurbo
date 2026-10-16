@@ -1188,3 +1188,45 @@ fn model_ids_lose_the_gemini_prefix() {
     let ids = parse_ids("gemini", &json!({"data": [{"id": "models/gemini-2.5-pro"}]}));
     assert_eq!(ids, ["gemini-2.5-pro"]);
 }
+
+#[test]
+fn only_providers_with_what_they_need_are_detected() {
+    let mut creds = Credentials::default();
+    // A hosted provider shows up once it has a key (its env var may also provide one).
+    creds.set("deepseek", "k");
+    assert!(settings::detected("deepseek", &creds));
+    assert!(!settings::detected("no-such-provider", &creds));
+    // A plan or local server is detected from the machine, never from a key.
+    assert_eq!(settings::detected("claude-code", &creds), coturbo_providers::cli::on_path("claude"));
+    assert_eq!(settings::detected("codex", &creds), coturbo_providers::cli::on_path("codex"));
+}
+
+#[test]
+fn with_a_picture_protocol_the_page_is_one_picture_with_the_pointer_in_it() {
+    use coturbo_cli::tui::browser::BrowserView;
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    use std::time::{Duration, Instant};
+    let t0 = Instant::now();
+    let mut v = BrowserView::default();
+    assert!(!v.has_native());
+    v.set_picker(ratatui_image::picker::Picker::halfblocks());
+    assert!(v.has_native());
+    v.apply(browser_frame(Some((60.0, 40.0)), true), t0);
+    let later = t0 + Duration::from_secs(2);
+    let area = ratatui::layout::Rect::new(0, 0, 60, 24);
+    let mut terminal = Terminal::new(TestBackend::new(60, 24)).unwrap();
+    terminal
+        .draw(|f| {
+            v.draw(f.buffer_mut(), area, later);
+            v.draw_native(f, area, later);
+        })
+        .unwrap();
+    let buf = terminal.backend().buffer().clone();
+    let text = buffer_text(&buf);
+    assert!(text.contains("clicando \"Sobre\""), "the window frame is still drawn:\n{text}");
+    // The page itself comes from the picture: it has the blue header of the fixture.
+    let blue = ratatui::style::Color::Rgb(47, 123, 255);
+    let any_blue = (0..24).flat_map(|y| (0..60).map(move |x| (x, y))).any(|(x, y)| buf[(x, y)].fg == blue || buf[(x, y)].bg == blue);
+    assert!(any_blue, "the page's header is in the picture:\n{text}");
+}

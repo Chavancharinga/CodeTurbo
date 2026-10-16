@@ -930,6 +930,10 @@ impl App {
         }
     }
 
+    pub fn set_graphics(&mut self, picker: ratatui_image::picker::Picker) {
+        self.browser.set_picker(picker);
+    }
+
     pub fn draw(&mut self, f: &mut Frame) {
         let area = f.area();
         let tick = self.started.elapsed();
@@ -1006,6 +1010,7 @@ impl App {
         f.render_widget(Paragraph::new(lines), body);
         if let Some(r) = browser_rect {
             self.browser.draw(f.buffer_mut(), r, now);
+            self.browser.draw_native(f, r, now);
         }
         if work_h > 0 {
             f.render_widget(Paragraph::new(work_lines), work);
@@ -1142,12 +1147,26 @@ fn draw_logo(buf: &mut Buffer, area: Rect, snail: usize, typed: usize, mood: Moo
     }
 }
 
+/// The terminal's picture protocol, when it has one: Kitty, iTerm2 or Sixel.
+/// `CODETURBO_GRAPHICS=off` keeps the page in blocks.
+fn graphics() -> Option<ratatui_image::picker::Picker> {
+    use ratatui_image::picker::ProtocolType;
+    if matches!(std::env::var("CODETURBO_GRAPHICS").as_deref(), Ok("off" | "0" | "blocks")) {
+        return None;
+    }
+    ratatui_image::picker::Picker::from_query_stdio().ok().filter(|p| p.protocol_type() != ProtocolType::Halfblocks)
+}
+
 /// Runs the screen until the user quits or the agent side hangs up.
 pub fn run(mut app: App, out: Receiver<Out>) -> std::io::Result<()> {
     use ratatui::crossterm::event::{DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture};
     use ratatui::crossterm::execute;
     let mut terminal = ratatui::try_init()?;
     let _ = execute!(std::io::stdout(), EnableBracketedPaste, EnableMouseCapture);
+    // Asked once, before any key is read: the terminal answers on its input.
+    if let Some(picker) = graphics() {
+        app.set_graphics(picker);
+    }
     let result = (|| -> std::io::Result<()> {
         loop {
             loop {

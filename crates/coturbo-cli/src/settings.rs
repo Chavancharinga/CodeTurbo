@@ -22,6 +22,7 @@ const fn p(id: &'static str, label: &'static str, key_var: Option<&'static str>,
 pub const PROVIDERS: &[ProviderInfo] = &[
     p("claude-code", "Claude Code (seu plano Claude, pelo app oficial)", None, None),
     p("codex", "Codex (seu plano ChatGPT, pelo app oficial)", None, None),
+    p("antigravity", "Antigravity (seu plano Google, pela CLI agy)", None, None),
     p("anthropic", "Anthropic (Claude)", Some("ANTHROPIC_API_KEY"), None),
     p("openai", "OpenAI (ou qualquer servidor compatível, com base_url)", Some("OPENAI_API_KEY"), None),
     p("gemini", "Google Gemini (Antigravity, AI Studio)", Some("GEMINI_API_KEY"), Some("https://generativelanguage.googleapis.com/v1beta/openai")),
@@ -34,6 +35,28 @@ pub const PROVIDERS: &[ProviderInfo] = &[
     p("lmstudio", "LM Studio (modelos locais, sem chave)", None, Some("http://localhost:1234/v1")),
     p("ollama", "Ollama (modelos locais, sem chave)", None, None),
 ];
+
+/// Whether something listens on a local port (a model server that is running).
+fn listening(port: u16) -> bool {
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(150)).is_ok()
+}
+
+/// Whether this computer has what `id` needs: the official program for the
+/// plans, the program or a running server for the local models, a key for
+/// the hosted ones. The picker lists only these.
+pub fn detected(id: &str, creds: &Credentials) -> bool {
+    use coturbo_providers::cli::on_path;
+    let home = |sub: &str| std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(|h| std::path::PathBuf::from(h).join(sub));
+    match id {
+        "claude-code" => on_path("claude"),
+        "codex" => on_path("codex"),
+        "antigravity" => on_path("agy") || home(".local/bin/agy").is_some_and(|f| f.is_file() || f.with_extension("exe").is_file()),
+        "ollama" => on_path("ollama") || listening(11434),
+        "lmstudio" => on_path("lms") || home(".lmstudio").is_some_and(|d| d.is_dir()) || listening(1234),
+        _ => provider(id).is_some_and(|p| p.key_var.is_some()) && api_key(id, creds).is_some(),
+    }
+}
 
 pub fn provider(id: &str) -> Option<&'static ProviderInfo> {
     PROVIDERS.iter().find(|p| p.id == id)

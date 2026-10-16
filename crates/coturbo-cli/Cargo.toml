@@ -29,6 +29,8 @@ ratatui = { version = "0.30", default-features = false, features = ["crossterm"]
 toml_edit = "0.25.17"
 unicode-width = "0.2.2"
 png = "0.18.1"
+ratatui-image = { version = "11.1.0", default-features = false, features = ["crossterm"] }
+image = { version = "0.25", default-features = false }
 
 [dev-dependencies]
 coturbo-design = { path = "../coturbo-design" }

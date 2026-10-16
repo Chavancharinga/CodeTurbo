@@ -16,6 +16,8 @@ use tokio::io::AsyncWriteExt;
 pub enum Tool {
     ClaudeCode,
     Codex,
+    /// Antigravity CLI (`agy`), signed in with the user's Google account.
+    Antigravity,
 }
 
 impl Tool {
@@ -23,6 +25,7 @@ impl Tool {
         match self {
             Tool::ClaudeCode => "claude",
             Tool::Codex => "codex",
+            Tool::Antigravity => "agy",
         }
     }
 }
@@ -39,11 +42,34 @@ impl CliProvider {
 
 /// Whether the official program is installed (on the PATH).
 pub fn installed(tool: Tool) -> bool {
+    on_path(tool.program())
+}
+
+/// The program to run: the one on the PATH, or where the Antigravity
+/// installer puts `agy` (`~/.local/bin`) when that folder is not on it.
+pub fn resolve(tool: Tool) -> std::path::PathBuf {
+    let name = tool.program();
+    if tool == Tool::Antigravity
+        && !on_path(name)
+        && let Some(home) = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+    {
+        let base = std::path::PathBuf::from(home).join(".local").join("bin");
+        for f in [base.join(name), base.join(format!("{name}.exe"))] {
+            if f.is_file() {
+                return f;
+            }
+        }
+    }
+    name.into()
+}
+
+/// Whether `program` is on the PATH.
+pub fn on_path(program: &str) -> bool {
     let exts: &[&str] = if cfg!(windows) { &["exe", "cmd", "bat"] } else { &[""] };
     std::env::var_os("PATH").is_some_and(|p| {
         std::env::split_paths(&p).any(|d| {
             exts.iter().any(|e| {
-                let f = if e.is_empty() { d.join(tool.program()) } else { d.join(format!("{}.{e}", tool.program())) };
+                let f = if e.is_empty() { d.join(program) } else { d.join(format!("{program}.{e}")) };
                 f.is_file()
             })
         })
@@ -308,6 +334,17 @@ async fn read_claude(child: &mut tokio::process::Child, on_text: &mut TextSink<'
     Ok((text, claude_usage(&v), shown))
 }
 
+/// The reply and token counts from the JSON `agy -p --output-format json` prints.
+pub fn parse_antigravity(body: &str) -> Result<(String, Usage), String> {
+    let v: Value = serde_json::from_str(body.trim()).map_err(|_| "resposta inesperada".to_string())?;
+    if v["status"].as_str().is_some_and(|s| s != "SUCCESS") || v["error"].is_string() {
+        return Err(v["error"].as_str().unwrap_or("a execução falhou").to_string());
+    }
+    let n = |k: &str| v["usage"][k].as_u64().unwrap_or(0);
+    let usage = Usage { input: n("input_tokens").saturating_sub(n("cache_read_tokens")), cache_write: 0, cache_read: n("cache_read_tokens"), output: n("output_tokens") };
+    Ok((v["response"].as_str().unwrap_or_default().to_string(), usage))
+}
+
 impl Provider for CliProvider {
     fn complete<'a>(&'a self, req: &'a Request, on_text: &'a mut TextSink<'_>) -> BoxFuture<'a, Result<Response, ProviderError>> {
         Box::pin(async move {
@@ -322,7 +359,7 @@ impl Provider for CliProvider {
             // (streaming input); with none, the plain text prompt is used.
             let images = if self.tool == Tool::ClaudeCode { prompt_images(req) } else { Vec::new() };
             let streaming = !images.is_empty();
-            let mut cmd = tokio::process::Command::new(self.tool.program());
+            let mut cmd = tokio::process::Command::new(resolve(self.tool));
             match self.tool {
                 Tool::ClaudeCode => {
                     cmd.args(["-p", "--tools", "", "--no-session-persistence", "--strict-mcp-config"]);
@@ -337,6 +374,24 @@ impl Provider for CliProvider {
                     // this child process is affected, not the user's own `claude`.
                     cmd.env("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1").env("DISABLE_TELEMETRY", "1");
                     cmd.arg("--system-prompt").arg(&system);
+                    if !req.model.is_empty() && req.model != "padrao" {
+                        cmd.arg("--model").arg(&req.model);
+                    }
+                }
+                Tool::Antigravity => {
+                    // Print mode takes the prompt as an argument; a long one goes
+                    // through a file, since command lines have a size limit.
+                    let full = format!("{system}\n\n{prompt}");
+                    let text = if full.len() > 24_000 {
+                        std::fs::write(&last, &full).map_err(|e| ProviderError::Other(e.to_string()))?;
+                        format!(
+                            "Leia o arquivo {} (instruções e conversa) e responda a ele seguindo exatamente o formato pedido; não use outras ferramentas.",
+                            last.display()
+                        )
+                    } else {
+                        full
+                    };
+                    cmd.args(["-p"]).arg(text).args(["--output-format", "json"]);
                     if !req.model.is_empty() && req.model != "padrao" {
                         cmd.arg("--model").arg(&req.model);
                     }
@@ -357,12 +412,24 @@ impl Provider for CliProvider {
                 Tool::ClaudeCode if streaming => stream_message(&prompt, &images),
                 Tool::ClaudeCode => prompt,
                 Tool::Codex => format!("{system}\n\n{prompt}"),
+                Tool::Antigravity => String::new(),
             };
             if let Some(mut stdin) = child.stdin.take() {
                 stdin.write_all(input.as_bytes()).await.map_err(|e| ProviderError::Other(e.to_string()))?;
             }
             let (text, usage, streamed) = match self.tool {
                 Tool::ClaudeCode => read_claude(&mut child, on_text).await?,
+                Tool::Antigravity => {
+                    let out = tokio::time::timeout(Duration::from_secs(600), child.wait_with_output())
+                        .await
+                        .map_err(|_| ProviderError::Other("o Antigravity não respondeu em 10 minutos".into()))?
+                        .map_err(|e| ProviderError::Other(e.to_string()))?;
+                    let _ = std::fs::remove_file(&last);
+                    let body = String::from_utf8_lossy(&out.stdout).into_owned();
+                    let (text, usage) = parse_antigravity(&body)
+                        .map_err(|e| ProviderError::Other(format!("agy: {e} {}", String::from_utf8_lossy(&out.stderr).trim())))?;
+                    (text, usage, false)
+                }
                 Tool::Codex => {
                     let out = tokio::time::timeout(Duration::from_secs(600), child.wait_with_output())
                         .await
@@ -372,7 +439,7 @@ impl Provider for CliProvider {
                     let text = std::fs::read_to_string(&last).unwrap_or(stdout);
                     let _ = std::fs::remove_file(&last);
                     if !out.status.success() && text.trim().is_empty() {
-                        return Err(ProviderError::Other(format!("codex: {}", String::from_utf8_lossy(&out.stderr).trim())));
+                        return Err(ProviderError::Other(format!("{}: {}", self.tool.program(), String::from_utf8_lossy(&out.stderr).trim())));
                     }
                     // Codex does not report tokens here: an estimate.
                     let est = |s: &str| (s.len() / 4) as u64;

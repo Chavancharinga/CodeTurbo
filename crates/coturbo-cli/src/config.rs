@@ -237,9 +237,13 @@ pub fn make_provider(cfg: &Config, key: Option<String>) -> Result<Box<dyn Provid
             Some(url) => Box::new(OpenAiCompat::new(url.clone(), None)),
             None => Box::new(OpenAiCompat::ollama()),
         },
-        "claude-code" | "codex" => {
+        "claude-code" | "codex" | "antigravity" => {
             use coturbo_providers::cli::{CliProvider, Tool, installed};
-            let tool = if cfg.provider == "codex" { Tool::Codex } else { Tool::ClaudeCode };
+            let tool = match cfg.provider.as_str() {
+                "codex" => Tool::Codex,
+                "antigravity" => Tool::Antigravity,
+                _ => Tool::ClaudeCode,
+            };
             if !installed(tool) {
                 return Err(format!(
                     "o programa `{}` não está instalado; instale a ferramenta oficial e faça login nela para usar o seu plano",
@@ -297,7 +301,7 @@ pub fn sees_images(provider: &str, model: &str) -> bool {
         // Claude Code reads the images CodeTurbo saves for it; the Codex
         // text protocol carries none.
         "claude-code" => true,
-        "codex" => false,
+        "codex" | "antigravity" => false,
         "anthropic" => true,
         "openai" => any(&["gpt-4o", "gpt-4.1", "gpt-5", "o3", "o4"]),
         _ => any(&[

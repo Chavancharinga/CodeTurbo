@@ -98,6 +98,9 @@ pub async fn list(provider: &str, key: Option<&str>, base_url: Option<&str>) -> 
                 .map(|(a, b)| (a.to_string(), b.to_string()))
                 .to_vec());
         }
+        "antigravity" => {
+            return Ok([("padrao", "padrão do seu plano Google")].map(|(a, b)| (a.to_string(), b.to_string())).to_vec());
+        }
         "codex" => {
             return Ok([("padrao", "padrão do seu plano"), ("gpt-5-codex", "gpt-5-codex"), ("gpt-5", "gpt-5")]
                 .map(|(a, b)| (a.to_string(), b.to_string()))

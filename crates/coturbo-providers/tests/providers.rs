@@ -321,3 +321,14 @@ fn the_result_is_found_among_the_streamed_events() {
     assert_eq!(r["usage"]["input_tokens"], 5);
     assert!(result_message("{\"type\":\"system\"}\n").is_none());
 }
+
+#[test]
+fn antigravity_json_gives_the_reply_and_tokens() {
+    use coturbo_providers::cli::parse_antigravity;
+    let ok = r#"{"conversation_id":"c","status":"SUCCESS","response":"oi\n","usage":{"input_tokens":100,"output_tokens":7,"cache_read_tokens":60}}"#;
+    let (text, usage) = parse_antigravity(ok).unwrap();
+    assert_eq!(text, "oi\n");
+    assert_eq!((usage.input, usage.cache_read, usage.output), (40, 60, 7));
+    assert!(parse_antigravity(r#"{"status":"ERROR","error":"authentication required"}"#).unwrap_err().contains("authentication"));
+    assert!(parse_antigravity("nada").is_err());
+}

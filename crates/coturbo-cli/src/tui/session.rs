@@ -515,7 +515,10 @@ impl Session {
 
     /// Picks a provider. `ready`: the current one is actually working.
     async fn choose_provider(&mut self, ready: bool) -> bool {
-        let options = PROVIDERS
+        // Only what this computer has: installed plans, local servers, keys already given.
+        let here: Vec<&settings::ProviderInfo> =
+            PROVIDERS.iter().filter(|p| settings::detected(p.id, &self.creds) || (ready && p.id == self.cfg.provider)).collect();
+        let mut options: Vec<Choice> = here
             .iter()
             .map(|p| {
                 let note = if p.id == self.cfg.provider && ready {
@@ -536,7 +539,17 @@ impl Session {
                 Choice::new(p.id, format!("{}{note}", p.label))
             })
             .collect();
-        let Some(id) = self.select("Escolha o provedor".into(), options, false).await else { return false };
+        options.push(Choice::new("__outro", "Conectar outro provedor com chave de API…"));
+        let Some(mut id) = self.select("Escolha o provedor".into(), options, false).await else { return false };
+        if id == "__outro" {
+            let rest: Vec<Choice> = PROVIDERS
+                .iter()
+                .filter(|p| !here.iter().any(|h| h.id == p.id) && (p.key_var.is_some() || p.base_url.is_some() || p.id == "ollama"))
+                .map(|p| Choice::new(p.id, p.label))
+                .collect();
+            let Some(other) = self.select("Conectar provedor".into(), rest, false).await else { return false };
+            id = other;
+        }
         let Some(info) = settings::provider(&id) else { return false };
         if info.key_var.is_some() && settings::api_key(&id, &self.creds).is_none() && !self.ask_key(&id).await {
             return false;
