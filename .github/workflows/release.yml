@@ -1,6 +1,6 @@
-# Publica uma versão a cada tag v*: compila o codeturbo para cada plataforma,
-# anexa os pacotes ao rascunho da versão e só então a publica, para que o
-# aviso de atualização nunca aponte para uma versão sem executáveis.
+# Publishes a release for each v* tag: builds codeturbo for every platform,
+# attaches the packages to the draft release and only then publishes it, so
+# the update notice never points at a release without binaries.
 name: Release
 
 on:
@@ -39,8 +39,25 @@ jobs:
           targets: ${{ matrix.target }}
       - if: contains(matrix.target, 'musl')
         run: sudo apt-get update && sudo apt-get install -y musl-tools
-      - run: cargo build --release --locked -p coturbo-cli --target ${{ matrix.target }}
-      - name: Empacotar e anexar
+      - name: Build
+        shell: bash
+        run: |
+          # Linux: a static-pie binary. Android (Termux) only starts
+          # position-independent executables; a plain static one fails
+          # with "unexpected e_type: 2".
+          if [[ "${{ matrix.target }}" == *musl ]]; then
+            export RUSTFLAGS="-C target-feature=+crt-static -C relocation-model=pie"
+          fi
+          cargo build --release --locked -p coturbo-cli --target ${{ matrix.target }}
+      - name: Check the Linux binary is position independent
+        if: contains(matrix.target, 'musl')
+        run: |
+          bin="target/${{ matrix.target }}/release/codeturbo"
+          readelf -h "$bin" | grep -E 'Type:'
+          readelf -h "$bin" | grep -q 'DYN' || { echo "not a PIE binary: Android cannot run it"; exit 1; }
+          readelf -d "$bin" | grep -q NEEDED && { echo "the binary links shared libraries"; exit 1; } || true
+          "$bin" --version
+      - name: Package and upload
         shell: bash
         run: |
           bin=codeturbo
