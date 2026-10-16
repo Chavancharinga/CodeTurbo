@@ -411,3 +411,27 @@ async fn browse_drives_a_page_shows_every_step_and_stays_in_the_project() {
     let seen = frames.lock().unwrap();
     assert!(seen.len() >= 5 && seen.iter().any(|f| f.clicked && f.cursor.is_some()), "{} frames for the screen", seen.len());
 }
+
+#[tokio::test]
+async fn browse_keeps_the_page_between_calls_until_the_session_ends() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("index.html"),
+        "<!doctype html><meta charset=utf-8><title>Viva</title><input id=n placeholder=Nome><button onclick=\"document.getElementById('o').textContent='Oi, '+document.getElementById('n').value\">Dizer</button><p id=o></p>",
+    )
+    .unwrap();
+    let t = Tools::new(dir.path(), Mode::Naive);
+    if coturbo_design::render::find_browser().is_none() {
+        return;
+    }
+    let first = t.call("browse", &json!({"actions": [{"do": "open", "url": "index.html"}, {"do": "fill", "selector": "#n", "value": "Rui"}]})).await;
+    assert!(!first.is_error, "{first:?}");
+    // The next call does not open anything: the page is already there, with the name in it.
+    let second = t.call("browse", &json!({"actions": [{"do": "click", "text": "Dizer"}, {"do": "text", "selector": "#o"}]})).await;
+    assert!(!second.is_error && second.content.contains("Oi, Rui"), "{second:?}");
+    // The session ends: the browser goes with it, and the next one starts blank.
+    t.shutdown().await;
+    let third = t.call("browse", &json!({"actions": [{"do": "click", "text": "Dizer"}]})).await;
+    assert!(third.content.contains("ERRO: não achei"), "a new browser starts on a blank page: {third:?}");
+    t.shutdown().await;
+}

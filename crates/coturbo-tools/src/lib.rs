@@ -81,7 +81,20 @@ pub struct Tools {
     /// Where `browse` sends each picture of the page, so the screen can show
     /// the agent using it.
     browse_sink: Option<BrowseSink>,
+    /// The browser `browse` keeps open between calls, so the page is still
+    /// there for the next steps. It closes after a while with no use.
+    browse_live: Arc<tokio::sync::Mutex<Option<LiveBrowser>>>,
+    /// `browse` opens a real window the user watches, not one without a window.
+    browse_window: bool,
 }
+
+struct LiveBrowser {
+    browser: coturbo_browse::Browser,
+    last_used: std::time::Instant,
+}
+
+/// How long an unused browser stays open.
+const BROWSER_IDLE: std::time::Duration = std::time::Duration::from_secs(120);
 
 /// Receives the pictures of a `browse` session as they are taken.
 pub type BrowseSink = Arc<dyn Fn(coturbo_browse::Frame) + Send + Sync>;
@@ -113,7 +126,14 @@ fn arg<'a>(input: &'a Value, key: &str) -> Result<&'a str, String> {
 impl Tools {
     pub fn new(root: &Path, mode: Mode) -> Self {
         let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
-        Self { root, mode, lsp: None, native_checks: false, seen: std::sync::Mutex::new(std::collections::HashMap::new()), browse_sink: None }
+        Self { root, mode, lsp: None, native_checks: false, seen: std::sync::Mutex::new(std::collections::HashMap::new()), browse_sink: None, browse_live: Arc::default(), browse_window: false }
+    }
+
+    /// Makes `browse` open a real window beside the terminal, with the agent's
+    /// pointer drawn on the page, so the user sees the actual page.
+    pub fn with_browse_window(mut self, on: bool) -> Self {
+        self.browse_window = on;
+        self
     }
 
     /// Shows the pages `browse` visits: every picture goes to `sink`.
@@ -255,6 +275,68 @@ impl Tools {
         v
     }
 
+    /// Runs `actions` in the browser kept open for `browse`, opening one if
+    /// there is none (or the old one stopped answering).
+    async fn run_live(&self, path: &Path, actions: &[coturbo_browse::Action], mut on_frame: impl FnMut(coturbo_browse::Frame) + Send) -> Result<coturbo_browse::Report, String> {
+        let mut guard = self.browse_live.lock().await;
+        for attempt in 0..2 {
+            if guard.is_none() {
+                let browser = coturbo_browse::Browser::open_with(path, (880, 560), self.browse_window).await?;
+                *guard = Some(LiveBrowser { browser, last_used: std::time::Instant::now() });
+                self.watch_browser();
+            }
+            let live = guard.as_mut().expect("opened above");
+            match live.browser.run(&self.root, actions, &mut on_frame).await {
+                Ok(report) => {
+                    live.last_used = std::time::Instant::now();
+                    return Ok(report);
+                }
+                Err(e) => {
+                    // A browser that stopped answering is put away; one fresh try.
+                    if let Some(l) = guard.take() {
+                        l.browser.close().await;
+                    }
+                    if attempt == 1 {
+                        return Err(e);
+                    }
+                }
+            }
+        }
+        Err("o navegador não abriu".into())
+    }
+
+    /// Closes the kept browser once it has gone unused for a while.
+    fn watch_browser(&self) {
+        let live = self.browse_live.clone();
+        // A window someone is watching stays longer than one nobody sees.
+        let idle = if self.browse_window { BROWSER_IDLE * 3 } else { BROWSER_IDLE };
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                let mut guard = live.lock().await;
+                match guard.as_ref() {
+                    None => break,
+                    Some(l) if l.last_used.elapsed() >= idle => {
+                        if let Some(l) = guard.take() {
+                            drop(guard);
+                            l.browser.close().await;
+                        }
+                        break;
+                    }
+                    Some(_) => {}
+                }
+            }
+        });
+    }
+
+    /// Closes the browser `browse` keeps open (when the session ends).
+    pub async fn shutdown(&self) {
+        let live = self.browse_live.lock().await.take();
+        if let Some(l) = live {
+            l.browser.close().await;
+        }
+    }
+
     /// Drives a real browser through `actions`, showing every step.
     async fn browse(&self, input: &Value) -> Res {
         use coturbo_browse::{Action, resolve_url};
@@ -274,7 +356,7 @@ impl Tools {
             }
         }
         let sink = self.browse_sink.clone();
-        let report = coturbo_browse::run(&browser, &self.root, &actions, (880, 560), &mut |f| {
+        let report = self.run_live(&browser, &actions, move |f| {
             if let Some(s) = &sink {
                 s(f);
             }

@@ -60,6 +60,31 @@ async fn main() {
     std::fs::create_dir_all(&site).unwrap();
     std::fs::write(site.join("index.html"), SITE).unwrap();
     let browser = coturbo_design::render::find_browser().expect("Edge ou Chrome");
+    // With an address as the second argument, it just visits it and draws the screen.
+    if let Some(url) = std::env::args().nth(2) {
+        let actions = vec![Action::Open(url), Action::Wait(1500), Action::Scroll(500), Action::Wait(800)];
+        let mut frames: Vec<Frame> = Vec::new();
+        let report = coturbo_browse::run(&browser, &site, &actions, (1100, 700), &mut |f| frames.push(f)).await.expect("navegação");
+        eprintln!("{}\n{} quadros", report.log.join("\n"), frames.len());
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let (cancel, _crx) = tokio::sync::mpsc::unbounded_channel();
+        let status = Status {
+            provider: "claude-code".into(),
+            model: "sonnet".into(),
+            approval: "edição livre".into(),
+            usage: "tokens ↑8.2k ⟳4.0k ↓1.1k".into(),
+            folder: r"C:\Users\danie\Music\CoTurbon\sandbox\github_tour".into(),
+            ..Status::default()
+        };
+        let mut app = App::new(status, tx, cancel, Arc::new(AtomicBool::new(false)));
+        app.apply(Out::Lines(vec![line(vec![Span::raw("› abra o meu GitHub e navegue")]), Line::default(), tool("browse", "· 4 step(s)")]));
+        app.apply(Out::Browser(frames.last().expect("quadro").clone()));
+        std::thread::sleep(Duration::from_millis(800));
+        let mut term = Terminal::new(TestBackend::new(140, 36)).unwrap();
+        term.draw(|f| app.draw(f)).unwrap();
+        std::fs::write(out.join("github.html"), screen_html::html(term.backend().buffer())).unwrap();
+        return;
+    }
     let actions = vec![
         Action::Open("index.html".into()),
         Action::Snapshot,

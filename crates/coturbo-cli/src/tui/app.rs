@@ -577,6 +577,9 @@ impl App {
             KeyCode::Esc => {
                 if self.busy.is_some() {
                     let _ = self.cancel.send(());
+                } else if self.browser.visible(Instant::now()) {
+                    // With nothing running, Esc closes the mini browser first.
+                    self.browser.dismiss(Instant::now());
                 } else {
                     self.scroll = 0;
                 }
@@ -952,6 +955,7 @@ impl App {
         let q_h = question.as_ref().map_or(0, |(_, l)| (l.len() as u16 + 2).min(area.height / 2));
 
         let now = Instant::now();
+        self.browser.set_idle(self.busy.is_none());
         let work_lines = if area.height >= 22 && self.work.visible(self.busy.is_some(), now) {
             self.work.lines(area.width as usize, now, tick.as_millis())
         } else {
@@ -982,7 +986,7 @@ impl App {
         let mut body = Rect { x: body.x + 1, width: body.width.saturating_sub(2), ..body };
         // The mini browser takes the right of the screen while the agent uses a page.
         let mut browser_rect = None;
-        if self.browser.visible(now) && area.width >= 96 && area.height >= 20 {
+        if self.browser.visible(now) && area.width >= 80 && area.height >= 20 {
             let pw = (body.width / 2).clamp(40, 80);
             if body.width > pw + 30 {
                 let ph = self.browser.rows_for(pw).min(body.height);

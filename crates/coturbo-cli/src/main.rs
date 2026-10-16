@@ -221,7 +221,10 @@ async fn real_main(cli: Cli) -> Result<ExitCode, String> {
             let tools = make_tools(&root, mode, &cfg);
             let mut agent = Agent::new(provider.as_ref(), &tools, agent_config(&cfg)?);
             agent.set_plan_mode(cli.opts.plan);
-            let report = agent.run_task(&task, &mut host).await.map_err(|e| e.to_string())?;
+            let result = agent.run_task(&task, &mut host).await;
+            // The browser `browse` kept open goes away with the task.
+            tools.shutdown().await;
+            let report = result.map_err(|e| e.to_string())?;
             println!();
             eprintln!("{}", stop_note(&report));
             eprintln!("{}", status_line(&report.usage, pricer.cost(&report.usage)));

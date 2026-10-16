@@ -926,6 +926,11 @@ fn browser_frame(cursor: Option<(f32, f32)>, clicked: bool) -> coturbo_browse::F
         clicked,
         size: (400, 260),
         caption: "clicando \"Sobre\"".into(),
+        labels: vec![
+            coturbo_browse::Label { x: 20.0, y: 10.0, w: 260.0, h: 30.0, text: "Casa do Cafe".into(), kind: "h1".into() },
+            coturbo_browse::Label { x: 270.0, y: 150.0, w: 110.0, h: 36.0, text: "Fazer pedido".into(), kind: "button".into() },
+            coturbo_browse::Label { x: 20.0, y: 200.0, w: 6.0, h: 14.0, text: "ZQJ".into(), kind: "span".into() },
+        ],
     }
 }
 
@@ -954,8 +959,8 @@ fn the_mini_browser_draws_the_page_the_address_and_what_the_agent_does() {
     let mut v = BrowserView::default();
     assert!(!v.visible(t0), "nothing to show before the first picture");
     v.apply(browser_frame(None, false), t0);
-    assert!(v.visible(t0) && v.visible(t0 + Duration::from_secs(24)));
-    assert!(!v.visible(t0 + Duration::from_secs(26)), "it goes away a while after the last picture");
+    assert!(v.visible(t0) && v.visible(t0 + Duration::from_secs(300)), "it stays open: no timer closes it under a person's eyes");
+    assert!(!v.visible(t0 + Duration::from_secs(700)), "only a window forgotten for ten minutes goes away");
     let buf = draw_browser(&v, t0 + Duration::from_secs(1));
     let text = buffer_text(&buf);
     assert!(text.contains("C:/proj/index.html") && !text.contains("file://"), "the address, without the scheme:\n{text}");
@@ -1056,6 +1061,7 @@ fn the_mini_browser_opens_from_the_corner_page_on_top_to_bottom_and_closes_back(
     assert!(p(0) < 0.05 && p(100) < p(250) && p(250) < p(400) && p(400) < 1.0, "{} {} {}", p(100), p(250), p(400));
     assert_eq!(p(700), 1.0);
     assert_eq!(p(20_000), 1.0, "and stays open");
+    assert_eq!(p(300_000), 1.0, "for minutes");
     // It grows from the top right corner: the left edge of the frame travels to the left.
     let left = |t: u64| find_symbol(&draw_browser(&v, t0 + ms(t)), "╭").first().map(|c| c.0);
     let (a, b, c) = (left(120).unwrap(), left(280).unwrap(), left(700).unwrap());
@@ -1075,7 +1081,7 @@ fn the_mini_browser_opens_from_the_corner_page_on_top_to_bottom_and_closes_back(
     assert!(!early.is_empty() && early.len() < later.len() && later.len() < full.len(), "{} < {} < {}", early.len(), later.len(), full.len());
     assert_eq!(early.first(), full.first(), "it reveals downwards from the same top row");
     // It closes after the lingering, shrinking back, and is gone after that.
-    let linger = ms(25_000);
+    let linger = ms(600_000);
     assert_eq!(v.progress(t0 + linger), 1.0);
     let half = v.progress(t0 + linger + ms(170));
     assert!(half > 0.1 && half < 0.9, "{half}");
@@ -1103,4 +1109,61 @@ fn the_conversation_gives_way_as_the_window_opens() {
     let open = screen_rows(&mut h, 130, 36).join("\n");
     assert!(open.contains("index.html") && open.contains("clicando"), "{open}");
     assert!(!open.contains("uma linha longa da conversa que precisa caber ao lado da janela do navegador"), "the text wrapped to make room");
+}
+
+#[test]
+fn the_page_texts_are_written_over_the_blur_so_it_can_be_read() {
+    use coturbo_cli::tui::browser::BrowserView;
+    use ratatui::style::{Color, Modifier};
+    use std::time::{Duration, Instant};
+    let t0 = Instant::now();
+    let mut v = BrowserView::default();
+    v.apply(browser_frame(None, false), t0);
+    let buf = draw_browser(&v, t0 + Duration::from_secs(1));
+    let text = buffer_text(&buf);
+    assert!(text.contains("Casa do Cafe"), "the heading of the page is readable:\n{text}");
+    assert!(text.contains("Fazer pedido") || text.contains("Fazer ped"), "the button is readable:\n{text}");
+    // The letters sit where the heading is (top left), on the blue header, in a colour that reads on it.
+    let cells: Vec<(u16, u16)> = (0..buf.area.height).flat_map(|y| (0..buf.area.width).map(move |x| (x, y))).collect();
+    let word_at = |x: u16, y: u16, w: &str| w.chars().enumerate().all(|(i, c)| x + (i as u16) < buf.area.width && buf[(x + i as u16, y)].symbol() == c.to_string());
+    let (x, y) = *cells.iter().find(|&&(x, y)| word_at(x, y, "Casa do")).expect("the heading");
+    let cell = &buf[(x, y)];
+    let lum = |c: Color| match c {
+        Color::Rgb(r, g, b) => 0.299 * f32::from(r) + 0.587 * f32::from(g) + 0.114 * f32::from(b),
+        _ => 0.0,
+    };
+    assert!(matches!(cell.bg, Color::Rgb(..)), "the letter sits on the colour of the page behind it: {:?}", cell.bg);
+    assert!((lum(cell.fg) - lum(cell.bg)).abs() > 90.0, "readable: letters {:?} on {:?}", cell.fg, cell.bg);
+    assert!(cell.modifier.contains(Modifier::BOLD), "a heading is bold");
+    // The button sits low and to the right; its letters read on it.
+    let (bx, by) = *cells.iter().find(|&&(x, y)| buf[(x, y)].symbol() == "F" && y > 8).expect("the F of the button");
+    assert!(bx > x + 15 && by > y + 4, "right and below the heading: ({bx},{by}) vs ({x},{y})");
+    assert_eq!(text.matches("Casa do Cafe").count(), 1, "written once");
+    // A text too small to say anything in cells is left out.
+    assert!(!text.contains("ZQJ"), "a 6 px wide text is lost in a cell");
+}
+
+#[test]
+fn esc_closes_the_mini_browser_when_nothing_is_running() {
+    use std::time::Duration;
+    let mut h = harness();
+    h.app.apply(Out::Browser(browser_frame(Some((100.0, 80.0)), false)));
+    std::thread::sleep(Duration::from_millis(650));
+    assert!(screen_rows(&mut h, 130, 36).join("\n").contains("Esc fecha"), "the caption says how to close it when idle");
+    // While a task runs, Esc interrupts the task and leaves the window alone.
+    h.app.apply(Out::Busy(Some("think".into())));
+    h.press(KeyCode::Esc);
+    assert!(h.cancel.try_recv().is_ok(), "the task was interrupted");
+    let working = screen_rows(&mut h, 130, 36).join("\n");
+    assert!(!working.contains("Esc fecha") && working.contains("index.html"), "no hint while it works, and the window stays");
+    h.app.apply(Out::Busy(None));
+    // Idle: Esc closes it, shrinking away.
+    h.press(KeyCode::Esc);
+    std::thread::sleep(Duration::from_millis(500));
+    assert!(!screen_rows(&mut h, 130, 36).join("\n").contains("index.html"), "closed");
+    // A narrow terminal (80 columns) still shows the window.
+    let mut narrow = harness();
+    narrow.app.apply(Out::Browser(browser_frame(Some((100.0, 80.0)), false)));
+    std::thread::sleep(Duration::from_millis(650));
+    assert!(screen_rows(&mut narrow, 80, 30).join("\n").contains("index.html"));
 }

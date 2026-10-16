@@ -28,6 +28,7 @@ pub struct Launched {
     child: tokio::process::Child,
     profile: PathBuf,
     pub port: u16,
+    closed: bool,
 }
 
 fn unique_profile() -> PathBuf {
@@ -37,11 +38,18 @@ fn unique_profile() -> PathBuf {
 }
 
 /// Starts the browser listening on a free port; waits for it to say which.
-pub async fn launch(browser: &Path, size: (u32, u32)) -> Result<Launched, String> {
+/// With `visible` it is a real window the user can watch; otherwise it has no window.
+pub async fn launch(browser: &Path, size: (u32, u32), visible: bool) -> Result<Launched, String> {
     let profile = unique_profile();
     let mut cmd = tokio::process::Command::new(browser);
-    cmd.args(["--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--allow-file-access-from-files", "--remote-debugging-port=0"])
-        .arg(format!("--user-data-dir={}", profile.display()))
+    cmd.args(["--no-first-run", "--no-default-browser-check", "--allow-file-access-from-files", "--remote-debugging-port=0"]);
+    if visible {
+        // A small window of its own, away from the user's profile and tabs.
+        cmd.args(["--new-window", "--disable-features=msEdgeWelcomePage,msEdgeSplitWindow", "--disable-session-crashed-bubble"]);
+    } else {
+        cmd.args(["--headless=new", "--disable-gpu"]);
+    }
+    cmd.arg(format!("--user-data-dir={}", profile.display()))
         .arg(format!("--window-size={},{}", size.0, size.1))
         .arg("about:blank")
         .stdin(std::process::Stdio::null())
@@ -55,7 +63,7 @@ pub async fn launch(browser: &Path, size: (u32, u32)) -> Result<Launched, String
         if let Ok(text) = std::fs::read_to_string(&file)
             && let Some(port) = text.lines().next().and_then(|l| l.trim().parse::<u16>().ok())
         {
-            return Ok(Launched { child, profile, port });
+            return Ok(Launched { child, profile, port, closed: false });
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
@@ -80,13 +88,8 @@ impl Launched {
 
     /// Closes the browser, politely first, then for sure, and drops its profile.
     pub async fn close(mut self) {
-        if let Ok(resp) = reqwest::get(format!("http://127.0.0.1:{}/json/version", self.port)).await
-            && let Ok(v) = resp.json::<Value>().await
-            && let Some(url) = v["webSocketDebuggerUrl"].as_str()
-            && let Ok(mut c) = Cdp::connect(url).await
-        {
-            let _ = tokio::time::timeout(Duration::from_secs(3), c.call("Browser.close", json!({}))).await;
-        }
+        self.closed = true;
+        ask_to_close(self.port).await;
         let _ = self.child.kill().await;
         // The files may stay locked for a moment after the browser exits.
         for _ in 0..10 {
@@ -95,6 +98,43 @@ impl Launched {
             }
             tokio::time::sleep(Duration::from_millis(200)).await;
         }
+    }
+}
+
+/// Asks the browser on `port` to close itself.
+async fn ask_to_close(port: u16) {
+    let version = tokio::time::timeout(Duration::from_secs(2), reqwest::get(format!("http://127.0.0.1:{port}/json/version"))).await;
+    if let Ok(Ok(resp)) = version
+        && let Ok(v) = resp.json::<Value>().await
+        && let Some(url) = v["webSocketDebuggerUrl"].as_str()
+        && let Ok(Ok(mut c)) = tokio::time::timeout(Duration::from_secs(2), Cdp::connect(url)).await
+    {
+        let _ = tokio::time::timeout(Duration::from_secs(3), c.call("Browser.close", json!({}))).await;
+    }
+}
+
+/// A browser dropped without being closed (a test that ended, a task that was
+/// interrupted, a panic) is closed here, so none is ever left behind.
+impl Drop for Launched {
+    fn drop(&mut self) {
+        if self.closed {
+            return;
+        }
+        let (port, profile) = (self.port, self.profile.clone());
+        let _ = self.child.start_kill();
+        // Off the current runtime, which may be shutting down.
+        let worker = std::thread::spawn(move || {
+            if let Ok(rt) = tokio::runtime::Builder::new_current_thread().enable_all().build() {
+                rt.block_on(ask_to_close(port));
+            }
+            for _ in 0..10 {
+                if std::fs::remove_dir_all(&profile).is_ok() || !profile.exists() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(200));
+            }
+        });
+        let _ = worker.join();
     }
 }
 

@@ -102,3 +102,43 @@ pub fn read_text(target: Option<Value>) -> String {
     };
     format!("const e={pick};return (e.innerText||'').replace(/\\n{{3,}}/g,'\\n\\n').trim().slice(0,2500);")
 }
+
+/// The visible texts of the page with where they are, so a small picture of
+/// it can still be read: headings, paragraphs, links, buttons, fields.
+pub fn labels() -> String {
+    r#"const out=[];const W=innerWidth,H=innerHeight;
+const els=document.querySelectorAll('h1,h2,h3,h4,h5,p,li,a,button,label,summary,th,td,dt,dd,input,textarea,select,figcaption,span,strong,em,[role=button],[role=tab],[role=menuitem]');
+for(const e of els){
+  const tag=e.tagName.toLowerCase();
+  let t='';
+  if(tag==='input'||tag==='textarea'){t=e.value||e.placeholder||'';}
+  else if(tag==='select'){t=(e.selectedOptions&&e.selectedOptions[0]&&e.selectedOptions[0].textContent)||'';}
+  else{t=[...e.childNodes].filter(n=>n.nodeType===3).map(n=>n.textContent).join(' ');}
+  t=t.replace(/\s+/g,' ').trim();
+  if(!t||!vis(e))continue;
+  const r=e.getBoundingClientRect();
+  if(r.bottom<0||r.top>H||r.right<0||r.left>W)continue;
+  out.push({x:Math.round(r.left),y:Math.round(r.top),w:Math.round(r.width),h:Math.round(r.height),t:t.slice(0,90),k:tag});
+  if(out.length>=160)break;
+}
+return JSON.stringify(out);"#
+        .to_string()
+}
+
+/// Draws the agent's pointer and its clicks on the page itself, so a person
+/// watching the real window sees where it goes: an arrow that glides to the
+/// target and a ring that opens where it clicks. It ignores the mouse, so it
+/// never gets in the way of what it is pointing at.
+pub const POINTER: &str = r##"(()=>{
+if(window.__ctCursor)return;
+const c=document.createElement('div');c.id='__ct_cursor';
+c.style.cssText='position:fixed;left:0;top:0;width:30px;height:30px;z-index:2147483647;pointer-events:none;transform:translate(-120px,-120px);transition:transform 380ms cubic-bezier(.25,.8,.3,1);filter:drop-shadow(0 2px 3px rgba(0,0,0,.45))';
+c.innerHTML='<svg width="30" height="30" viewBox="0 0 30 30"><path d="M4 2 L4 23 L9.6 18.2 L13.4 26.4 L16.6 25 L12.9 17 L20.4 16.6 Z" fill="#fff" stroke="#111" stroke-width="1.7" stroke-linejoin="round"/></svg>';
+(document.documentElement||document.body).appendChild(c);window.__ctCursor=c;
+window.__ctMove=(x,y)=>{c.style.transform='translate('+x+'px,'+y+'px)';};
+window.__ctClick=(x,y)=>{const r=document.createElement('div');
+r.style.cssText='position:fixed;left:'+(x-19)+'px;top:'+(y-19)+'px;width:38px;height:38px;box-sizing:border-box;border-radius:50%;border:3px solid #ffd650;background:rgba(255,214,80,.25);z-index:2147483646;pointer-events:none;opacity:.95;transform:scale(.5);transition:transform 650ms cubic-bezier(.2,.7,.3,1),opacity 650ms ease-out';
+(document.documentElement||document.body).appendChild(r);
+requestAnimationFrame(()=>requestAnimationFrame(()=>{r.style.transform='scale(2.3)';r.style.opacity='0';}));
+setTimeout(()=>r.remove(),800);};
+})();"##;

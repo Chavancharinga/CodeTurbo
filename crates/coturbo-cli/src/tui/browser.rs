@@ -3,7 +3,7 @@
 //! logo), com o ponteiro do mouse andando até o alvo e o clique pulsando.
 //! Funciona em qualquer terminal: não depende de protocolo gráfico.
 
-use coturbo_browse::Frame;
+use coturbo_browse::{Frame, Label};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
@@ -14,8 +14,9 @@ use std::time::{Duration, Instant};
 const BLUE: Color = Color::Rgb(47, 123, 255);
 const DIM: Color = Color::Rgb(110, 125, 150);
 const BORDER: Color = Color::Rgb(36, 66, 130);
-/// How long the window stays after the last picture.
-const LINGER: Duration = Duration::from_secs(25);
+/// How long the window stays after the last picture: until the user closes it
+/// (Esc) or a new task starts; ten minutes is only the limit for a forgotten one.
+const LINGER: Duration = Duration::from_secs(600);
 /// The window grows from the corner in this long, and shrinks back in [`CLOSE`].
 const OPEN: Duration = Duration::from_millis(520);
 const CLOSE: Duration = Duration::from_millis(340);
@@ -101,6 +102,10 @@ pub struct BrowserView {
     touched: Option<Instant>,
     /// When the window began to open.
     opened_at: Option<Instant>,
+    /// The texts of the page, drawn over the picture so it can be read.
+    labels: Vec<Label>,
+    /// Nothing is running: the caption says how to close the window.
+    idle: bool,
     steps: usize,
 }
 
@@ -109,7 +114,54 @@ fn ease(t: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
+/// Black or white, whichever reads better on `bg`.
+fn readable_on(bg: (u8, u8, u8)) -> Color {
+    let lum = 0.299 * f32::from(bg.0) + 0.587 * f32::from(bg.1) + 0.114 * f32::from(bg.2);
+    if lum > 140.0 { Color::Rgb(24, 24, 28) } else { Color::Rgb(245, 245, 248) }
+}
+
 impl BrowserView {
+    /// Writes the page's own texts over the picture, where they are on the
+    /// page and in colours that read on what is behind them: a headline, a
+    /// button, a menu. The picture alone is only a blur of colours.
+    fn overlay(&self, buf: &mut Buffer, grid: &[(u8, u8, u8)], (out_w, out_h): (usize, usize), (ox, oy): (u16, u16), scale: f32, rows: usize) {
+        let mut taken = vec![vec![false; out_w]; out_h / 2];
+        let mut labels: Vec<&Label> = self.labels.iter().collect();
+        labels.sort_by(|a, b| (a.y, a.x).partial_cmp(&(b.y, b.x)).unwrap_or(std::cmp::Ordering::Equal));
+        for l in labels {
+            let col = (l.x * scale).round().max(0.0) as usize;
+            let room = ((l.w * scale).round() as usize).max(1);
+            // Wide texts show their start; narrow ones need a few cells to say anything.
+            let want = room.max(if l.kind.starts_with('h') { room } else { 4 }).min(out_w.saturating_sub(col));
+            if col >= out_w || want < 3 || room < 2 {
+                continue;
+            }
+            let tall = l.h * scale / 2.0 > 3.0;
+            let row0 = if tall { (l.y * scale / 2.0).round() } else { ((l.y + l.h / 2.0) * scale / 2.0).round() }.max(0.0) as usize;
+            let text: Vec<char> = l.text.chars().filter(|c| !c.is_control()).take(want).collect();
+            // Try the row, then the next one, when something is already written there.
+            let Some(row) = [row0, row0 + 1].into_iter().find(|&r| r < rows && taken[r][col..(col + text.len()).min(out_w)].iter().all(|t| !t)) else { continue };
+            let mut style = Modifier::empty();
+            if l.kind.starts_with('h') || l.kind == "button" || l.kind == "strong" {
+                style |= Modifier::BOLD;
+            }
+            if l.kind == "a" {
+                style |= Modifier::UNDERLINED;
+            }
+            for (i, ch) in text.iter().enumerate() {
+                let c = col + i;
+                if c >= out_w {
+                    break;
+                }
+                let (top, bottom) = (grid[row * 2 * out_w + c], grid[(row * 2 + 1).min(out_h - 1) * out_w + c]);
+                let bg = ((top.0 / 2 + bottom.0 / 2), (top.1 / 2 + bottom.1 / 2), (top.2 / 2 + bottom.2 / 2));
+                let cell = &mut buf[(ox + c as u16, oy + row as u16)];
+                cell.set_symbol(&ch.to_string()).set_fg(readable_on(bg)).set_bg(Color::Rgb(bg.0, bg.1, bg.2)).set_style(Style::new().add_modifier(style));
+                taken[row][c] = true;
+            }
+        }
+    }
+
     pub fn apply(&mut self, f: Frame, now: Instant) {
         if let Some(p) = decode(&f.png) {
             self.pixels = Some(p);
@@ -118,6 +170,7 @@ impl BrowserView {
         self.title = f.title;
         self.caption = f.caption;
         self.size = f.size;
+        self.labels = f.labels;
         // The pointer sets off from where it is drawn now.
         let here = self.pointer(now);
         if f.cursor != self.to {
@@ -137,6 +190,17 @@ impl BrowserView {
 
     pub fn clear(&mut self) {
         *self = Self::default();
+    }
+
+    pub fn set_idle(&mut self, idle: bool) {
+        self.idle = idle;
+    }
+
+    /// The user closes the window: it shrinks away.
+    pub fn dismiss(&mut self, now: Instant) {
+        if self.visible(now) {
+            self.touched = now.checked_sub(LINGER);
+        }
     }
 
     /// Whether the window is on screen: a while after the last picture, and
@@ -202,7 +266,8 @@ impl BrowserView {
         let page = Rect { x: inner.x, y: inner.y + 1, width: inner.width, height: inner.height.saturating_sub(2) };
         // The caption under the page.
         let caption_row = Rect { x: inner.x, y: inner.bottom().saturating_sub(1), width: inner.width, height: 1 };
-        let cap: String = self.caption.chars().take(inner.width as usize).collect();
+        let caption = if self.idle { format!("{} · Esc fecha", self.caption) } else { self.caption.clone() };
+        let cap: String = caption.chars().take(inner.width as usize).collect();
         Line::styled(cap, Style::new().fg(BLUE).add_modifier(Modifier::BOLD)).render(caption_row, buf);
         let Some(px) = &self.pixels else { return };
         // Fit the page in the space, keeping its shape: a cell is one pixel wide and two tall.
@@ -220,6 +285,7 @@ impl BrowserView {
                 cell.set_symbol("▀").set_fg(Color::Rgb(t.0, t.1, t.2)).set_bg(Color::Rgb(b.0, b.1, b.2));
             }
         }
+        self.overlay(buf, &grid, (out_w, out_h), (ox, oy), scale, shown_rows.min(out_h / 2));
         // The pointer, and the click.
         let Some((cx, cy)) = self.pointer(now) else { return };
         let (mx, my) = ((cx * scale).round() as i32, (cy * scale / 2.0).round() as i32);

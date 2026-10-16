@@ -157,3 +157,29 @@ async fn it_uses_references_scrolls_and_resizes_for_a_phone() {
     assert!(frames.iter().any(|f| f.size == (390, 844)), "the phone frames carry their size");
     assert_eq!(r.shots.len(), 1, "the photo asked for is the last state, so the same picture is not kept twice");
 }
+
+#[tokio::test]
+async fn the_browser_stays_open_between_calls_with_the_page_as_it_was() {
+    let dir = site();
+    let Some(path) = coturbo_design::render::find_browser() else { return };
+    let mut browser = coturbo_browse::Browser::open(&path, (1000, 650)).await.expect("opens");
+    let mut frames = Vec::new();
+    // First call: open the page and fill the form, without sending it.
+    let first = browser.run(dir.path(), &[Action::Open("index.html".into()), Action::Fill(Target::Selector("#nome".into()), "Joana".into())], &mut |f| frames.push(f)).await.unwrap();
+    assert!(first.log.join("\n").contains("preencheu #nome com \"Joana\""), "{:?}", first.log);
+    // Second call, no open: the page is still there with what was typed, so sending works.
+    let second = browser.run(dir.path(), &[Action::Click(Target::Text("Enviar".into())), Action::Text(Some(Target::Selector("#out".into())))], &mut |f| frames.push(f)).await.unwrap();
+    let log = second.log.join("\n");
+    assert!(log.contains("clicou em \"Enviar\"") && log.contains("Olá, Joana"), "the second call continued the first: {log}");
+    // And a third call sees the scroll and the page, not a blank one.
+    let third = browser.run(dir.path(), &[Action::Scroll(300), Action::Snapshot], &mut |f| frames.push(f)).await.unwrap();
+    let log = third.log.join("\n");
+    assert!(log.contains("rolou até") && log.contains("Loja da Ana") && log.contains("link \"Sobre\""), "{log}");
+    // Findings are per call: the console error of the page load is reported once, not again.
+    assert!(first.problems.iter().any(|p| p.contains("falhou ao carregar o carrinho")), "{:?}", first.problems);
+    assert!(!second.problems.iter().any(|p| p.contains("falhou ao carregar o carrinho")), "{:?}", second.problems);
+    // The pictures of every call carry the texts of the page.
+    assert!(frames.iter().any(|f| f.labels.iter().any(|l| l.text == "Bem-vinda" && l.kind == "h1")), "the headline is among the labels");
+    assert!(frames.iter().any(|f| f.labels.iter().any(|l| l.text == "Comprar" && l.kind == "button" && l.w > 20.0 && l.y > 0.0)));
+    browser.close().await;
+}

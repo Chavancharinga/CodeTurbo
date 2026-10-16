@@ -16,6 +16,18 @@ use serde_json::{Value, json};
 use std::path::Path;
 use std::time::Duration;
 
+/// A piece of text of the page and where it sits, in page pixels.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Label {
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+    pub text: String,
+    /// The tag it came from (`h1`, `a`, `button`...).
+    pub kind: String,
+}
+
 /// What the page looks like after a step, and where the pointer is.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Frame {
@@ -31,6 +43,8 @@ pub struct Frame {
     pub size: (u32, u32),
     /// What the agent is doing.
     pub caption: String,
+    /// The texts of the page, to read it in a small picture.
+    pub labels: Vec<Label>,
 }
 
 /// What the whole session found.
@@ -100,6 +114,8 @@ fn key_info(k: &str) -> (String, String, u32, String) {
 }
 
 struct Session {
+    /// A window the user watches: the agent's pointer is drawn on the page.
+    visible: bool,
     cdp: cdp::Cdp,
     size: (u32, u32),
     cursor: Option<(f32, f32)>,
@@ -186,10 +202,21 @@ impl Session {
         }
     }
 
+    async fn page_labels(&mut self) -> Vec<Label> {
+        let Ok(v) = self.eval_json(&script::labels()).await else { return Vec::new() };
+        let n = |l: &Value, k: &str| l[k].as_f64().unwrap_or(0.0) as f32;
+        v.as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|l| Some(Label { x: n(l, "x"), y: n(l, "y"), w: n(l, "w"), h: n(l, "h"), text: l["t"].as_str()?.to_string(), kind: l["k"].as_str().unwrap_or("").to_string() }))
+            .collect()
+    }
+
     async fn frame(&mut self, caption: &str, clicked: bool, on_frame: &mut (dyn FnMut(Frame) + Send)) -> Vec<u8> {
         self.refresh_state().await;
         let png = self.shoot().await;
-        on_frame(Frame { png: png.clone(), url: self.url.clone(), title: self.title.clone(), cursor: self.cursor, clicked, size: self.size, caption: caption.to_string() });
+        let labels = self.page_labels().await;
+        on_frame(Frame { png: png.clone(), url: self.url.clone(), title: self.title.clone(), cursor: self.cursor, clicked, size: self.size, caption: caption.to_string(), labels });
         png
     }
 
@@ -200,6 +227,21 @@ impl Session {
         if navigated {
             self.cdp.wait_for("Page.loadEventFired", 10).await;
             self.cdp.listen(250).await;
+        }
+    }
+
+    /// In a window the user watches, glides the drawn pointer to `(x, y)`.
+    async fn glide(&mut self, x: f64, y: f64) {
+        if self.visible {
+            let _ = self.eval(&format!("window.__ctMove&&window.__ctMove({x},{y});return 1")).await;
+            self.cdp.listen(430).await;
+        }
+    }
+
+    /// And opens the ring of a click there.
+    async fn ring(&mut self, x: f64, y: f64) {
+        if self.visible {
+            let _ = self.eval(&format!("window.__ctClick&&window.__ctClick({x},{y});return 1")).await;
         }
     }
 
@@ -256,10 +298,12 @@ impl Session {
                 }
                 // The pointer arrives first, then presses.
                 self.cursor = Some((x as f32, y as f32));
+                self.glide(x, y).await;
                 self.mouse("mouseMoved", x, y).await?;
                 self.cdp.forget("Page.frameNavigated");
                 self.cdp.forget("Page.loadEventFired");
                 self.frame(&a.caption(), false, on_frame).await;
+                self.ring(x, y).await;
                 self.mouse("mousePressed", x, y).await?;
                 self.mouse("mouseReleased", x, y).await?;
                 self.settle().await;
@@ -278,7 +322,9 @@ impl Session {
                 }
                 let (x, y) = (g["x"].as_f64().unwrap_or(0.0), g["y"].as_f64().unwrap_or(0.0));
                 self.cursor = Some((x as f32, y as f32));
+                self.glide(x, y).await;
                 self.mouse("mouseMoved", x, y).await?;
+                self.ring(x, y).await;
                 self.mouse("mousePressed", x, y).await?;
                 self.mouse("mouseReleased", x, y).await?;
                 self.eval(&script::select_all(&t.to_json())).await?;
@@ -342,42 +388,130 @@ impl Session {
     }
 }
 
-async fn run_in(browser: &Path, root: &Path, actions: &[Action], size: (u32, u32), on_frame: &mut (dyn FnMut(Frame) + Send), launched: &cdp::Launched) -> Result<Report, String> {
-    let ws = launched.page_socket().await?;
-    let mut cdp = cdp::Cdp::connect(&ws).await?;
-    for domain in ["Page.enable", "Runtime.enable", "Network.enable"] {
-        cdp.call(domain, json!({})).await?;
-    }
-    cdp.call("Emulation.setDeviceMetricsOverride", json!({"width": size.0, "height": size.1, "deviceScaleFactor": 1, "mobile": false})).await?;
-    let _ = browser;
-    let mut s = Session { cdp, size, cursor: None, url: String::new(), title: String::new(), seen: Vec::new(), requests: Default::default(), report: Report::default() };
-    for (i, a) in actions.iter().enumerate() {
-        let line = match s.step(a, root, on_frame).await {
-            Ok(lines) => lines.join("\n"),
-            Err(e) => {
-                s.report.log.push(format!("{}. {} → ERRO: {e}", i + 1, a.caption()));
-                s.collect_problems();
-                // A step that fails ends the session: the next ones depend on it.
-                break;
-            }
-        };
-        s.collect_problems();
-        s.report.log.push(format!("{}. {}", i + 1, line));
-    }
-    // The state the page was left in.
-    let png = s.frame("fim", false, on_frame).await;
-    if s.report.shots.last() != Some(&png) {
-        s.report.shots.push(png);
-    }
-    s.collect_problems();
-    Ok(s.report)
+/// Evaluates an expression that answers with JSON text.
+async fn page_json(cdp: &mut cdp::Cdp, expression: &str) -> Option<Value> {
+    let r = cdp.call("Runtime.evaluate", json!({"expression": expression, "returnByValue": true})).await.ok()?;
+    serde_json::from_str(r["result"]["value"].as_str()?).ok()
 }
 
-/// Runs the actions in a fresh browser, calling `on_frame` after every step.
+/// A browser that stays open between calls: the page, where it is scrolled
+/// and the cookies are still there for the next steps.
+pub struct Browser {
+    launched: cdp::Launched,
+    s: Session,
+}
+
+impl Browser {
+    /// Opens a browser window of `size`.
+    pub async fn open(browser: &Path, size: (u32, u32)) -> Result<Browser, String> {
+        Self::open_with(browser, size, false).await
+    }
+
+    /// Opens a browser; with `visible`, a real small window the user can
+    /// watch, at the right edge of the screen, with the agent's pointer on it.
+    pub async fn open_with(browser: &Path, size: (u32, u32), visible: bool) -> Result<Browser, String> {
+        let launched = cdp::launch(browser, size, visible).await?;
+        match Self::connect(&launched, size, visible).await {
+            Ok(s) => Ok(Browser { launched, s }),
+            Err(e) => {
+                launched.close().await;
+                Err(e)
+            }
+        }
+    }
+
+    async fn connect(launched: &cdp::Launched, size: (u32, u32), visible: bool) -> Result<Session, String> {
+        let ws = launched.page_socket().await?;
+        let mut cdp = cdp::Cdp::connect(&ws).await?;
+        for domain in ["Page.enable", "Runtime.enable", "Network.enable"] {
+            cdp.call(domain, json!({})).await?;
+        }
+        let mut size = size;
+        if visible {
+            // The pointer, on every page that loads.
+            cdp.call("Page.addScriptToEvaluateOnNewDocument", json!({"source": script::POINTER})).await?;
+            size = Self::place_window(&mut cdp, &ws, size).await;
+        } else {
+            cdp.call("Emulation.setDeviceMetricsOverride", json!({"width": size.0, "height": size.1, "deviceScaleFactor": 1, "mobile": false})).await?;
+        }
+        Ok(Session { visible, cdp, size, cursor: None, url: String::new(), title: String::new(), seen: Vec::new(), requests: Default::default(), report: Report::default() })
+    }
+
+    /// Puts the window at the right edge of the screen, tall and narrow, so it
+    /// sits beside the terminal; returns the size of the page inside it. A
+    /// browser that will not be moved stays where it opened.
+    async fn place_window(cdp: &mut cdp::Cdp, ws: &str, fallback: (u32, u32)) -> (u32, u32) {
+        let read = |v: &Value, k: &str| v[k].as_f64().unwrap_or(0.0);
+        let screen = page_json(cdp, "JSON.stringify({w: screen.availWidth, h: screen.availHeight})").await;
+        if let (Some(screen), Some(target)) = (screen, ws.rsplit('/').next()) {
+            let (sw, sh) = (read(&screen, "w"), read(&screen, "h"));
+            if sw > 400.0 && sh > 300.0 {
+                let width = (sw * 0.40).clamp(520.0, 980.0);
+                let height = (sh - 40.0).max(400.0);
+                if let Ok(win) = cdp.call("Browser.getWindowForTarget", json!({"targetId": target})).await
+                    && let Some(id) = win["windowId"].as_i64()
+                {
+                    let bounds = json!({"left": (sw - width - 6.0).max(0.0), "top": 10, "width": width, "height": height, "windowState": "normal"});
+                    let _ = cdp.call("Browser.setWindowBounds", json!({"windowId": id, "bounds": bounds})).await;
+                    cdp.listen(500).await;
+                }
+            }
+        }
+        match page_json(cdp, "JSON.stringify({w: innerWidth, h: innerHeight})").await {
+            Some(v) if read(&v, "w") > 100.0 && read(&v, "h") > 100.0 => (read(&v, "w") as u32, read(&v, "h") as u32),
+            _ => fallback,
+        }
+    }
+
+    /// Runs `actions` on the page as it is now, calling `on_frame` after every step.
+    pub async fn run(&mut self, root: &Path, actions: &[Action], on_frame: &mut (dyn FnMut(Frame) + Send)) -> Result<Report, String> {
+        tokio::time::timeout(Duration::from_secs(150), self.run_steps(root, actions, on_frame))
+            .await
+            .unwrap_or_else(|_| Err("a navegação passou de 150 s e foi interrompida".into()))
+    }
+
+    async fn run_steps(&mut self, root: &Path, actions: &[Action], on_frame: &mut (dyn FnMut(Frame) + Send)) -> Result<Report, String> {
+        let s = &mut self.s;
+        // Each call reports its own findings; what the page said before is not repeated.
+        s.report = Report::default();
+        s.seen.clear();
+        let _ = s.cdp.take_events();
+        // Is the browser still there? A cheap question that fails when it is not.
+        s.eval("return 1").await.map_err(|e| format!("o navegador não responde: {e}"))?;
+        for (i, a) in actions.iter().enumerate() {
+            let line = match s.step(a, root, on_frame).await {
+                Ok(lines) => lines.join("\n"),
+                Err(e) => {
+                    s.report.log.push(format!("{}. {} → ERRO: {e}", i + 1, a.caption()));
+                    s.collect_problems();
+                    // A step that fails ends the call: the next ones depend on it.
+                    break;
+                }
+            };
+            s.collect_problems();
+            s.report.log.push(format!("{}. {}", i + 1, line));
+        }
+        // The state the page was left in.
+        let png = s.frame("fim", false, on_frame).await;
+        if s.report.shots.last() != Some(&png) {
+            s.report.shots.push(png);
+        }
+        s.collect_problems();
+        Ok(std::mem::take(&mut s.report))
+    }
+
+    /// Closes the window.
+    pub async fn close(self) {
+        self.launched.close().await;
+    }
+}
+
+/// Runs the actions in a fresh browser, calling `on_frame` after every step,
+/// and closes it.
 pub async fn run(browser: &Path, root: &Path, actions: &[Action], size: (u32, u32), on_frame: &mut (dyn FnMut(Frame) + Send)) -> Result<Report, String> {
-    let launched = cdp::launch(browser, size).await?;
-    let result = tokio::time::timeout(Duration::from_secs(150), run_in(browser, root, actions, size, on_frame, &launched)).await.unwrap_or_else(|_| Err("a navegação passou de 150 s e foi interrompida".into()));
-    launched.close().await;
+    let mut b = Browser::open(browser, size).await?;
+    let result = b.run(root, actions, on_frame).await;
+    b.close().await;
     result
 }
 
