@@ -141,9 +141,11 @@ fn task(verify: &str) -> Task {
 
 /// A check that passes when `done.txt` exists, with a command every system
 /// has and no option that a shell could rewrite (`grep` is not on a plain
-/// Windows PATH, and `findstr /c:...` is mangled under Git Bash).
+/// Windows PATH, and `findstr /c:...` is mangled under Git Bash). On Windows
+/// the shell may be cmd or Git Bash: `type` only reads files in cmd, while
+/// `dir` lists a file in both and fails when it is missing.
 fn check_done_file() -> &'static str {
-    if cfg!(windows) { "type done.txt" } else { "cat done.txt" }
+    if cfg!(windows) { "dir done.txt" } else { "cat done.txt" }
 }
 
 #[tokio::test]
