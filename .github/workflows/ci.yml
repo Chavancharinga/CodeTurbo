@@ -6,7 +6,7 @@ on:
   pull_request:
 
 jobs:
-  check:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -14,4 +14,32 @@ jobs:
         with:
           components: clippy, rustfmt
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+  # Every change is tested on the three desktop systems CodeTurbo ships for.
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --workspace --locked
+
+  # Termux: the Android build must compile and be a PIE executable.
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - name: Build for Android
+        run: |
+          tc="$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$tc/aarch64-linux-android24-clang"
+          export CC_aarch64_linux_android="$tc/aarch64-linux-android24-clang"
+          export AR_aarch64_linux_android="$tc/llvm-ar"
+          cargo build --locked -p coturbo-cli --target aarch64-linux-android
+          readelf -h target/aarch64-linux-android/debug/codeturbo | grep -q DYN
