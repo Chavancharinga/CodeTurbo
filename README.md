@@ -109,7 +109,7 @@ Windows (PowerShell):
 irm https://raw.githubusercontent.com/Chavancharinga/CodeTurbo/main/install.ps1 | iex
 ```
 
-Linux and macOS:
+Linux, macOS and Android (Termux):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Chavancharinga/CodeTurbo/main/install.sh | sh

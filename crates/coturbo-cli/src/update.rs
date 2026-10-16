@@ -42,7 +42,7 @@ pub fn asset_name() -> Option<String> {
 }
 
 fn client() -> Result<reqwest::Client, String> {
-    reqwest::Client::builder()
+    coturbo_providers::dns::client_builder()
         .user_agent(concat!("codeturbo/", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(|e| e.to_string())

@@ -1,4 +1,4 @@
-# Instala o CodeTurbo no Windows. No PowerShell:
+# Installs CodeTurbo on Windows. In PowerShell:
 #   irm https://raw.githubusercontent.com/Chavancharinga/CodeTurbo/main/install.ps1 | iex
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -11,11 +11,11 @@ $tmp = Join-Path ([IO.Path]::GetTempPath()) ('codeturbo-' + [guid]::NewGuid())
 
 New-Item -ItemType Directory -Force -Path $tmp, $dir | Out-Null
 try {
-    Write-Host 'Baixando o CodeTurbo...'
+    Write-Host 'Downloading CodeTurbo...'
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
     Invoke-WebRequest -Uri $url -OutFile (Join-Path $tmp 'codeturbo.tar.gz') -UseBasicParsing
     tar -xzf (Join-Path $tmp 'codeturbo.tar.gz') -C $tmp
-    if ($LASTEXITCODE -ne 0) { throw 'Falha ao extrair o pacote do CodeTurbo.' }
+    if ($LASTEXITCODE -ne 0) { throw 'Could not extract the CodeTurbo package.' }
     Copy-Item (Join-Path $tmp 'codeturbo.exe') (Join-Path $dir 'codeturbo.exe') -Force
 }
 finally {
@@ -30,5 +30,5 @@ if (($userPath -split ';') -notcontains $dir) {
     $env:Path = "$env:Path;$dir"
 }
 
-Write-Host "CodeTurbo instalado em $dir"
-Write-Host 'Para começar, abra um novo terminal e execute: codeturbo'
+Write-Host "CodeTurbo installed at $dir"
+Write-Host 'To start, open a new terminal and run: codeturbo'

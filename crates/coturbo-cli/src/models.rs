@@ -62,7 +62,7 @@ pub fn parse_named(provider: &str, body: &Value) -> Vec<(String, String)> {
 
 /// Fetches the model list of `provider`: `(id, label)`.
 pub async fn list(provider: &str, key: Option<&str>, base_url: Option<&str>) -> Result<Vec<(String, String)>, String> {
-    let client = reqwest::Client::builder()
+    let client = coturbo_providers::dns::client_builder()
         .timeout(Duration::from_secs(10))
         .user_agent(concat!("codeturbo/", env!("CARGO_PKG_VERSION")))
         .build()

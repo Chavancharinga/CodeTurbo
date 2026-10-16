@@ -3,6 +3,7 @@
 
 pub mod anthropic;
 pub mod cli;
+pub mod dns;
 mod http;
 pub mod openai;
 pub mod reply_stream;

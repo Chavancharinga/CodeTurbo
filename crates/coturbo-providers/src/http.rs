@@ -32,7 +32,7 @@ pub(crate) enum Frame<'a> {
 /// An HTTP client that gives up on a dead connection instead of waiting
 /// forever: 15s to connect, 90s without any byte from the server.
 pub(crate) fn client() -> reqwest::Client {
-    reqwest::Client::builder()
+    crate::dns::client_builder()
         .connect_timeout(Duration::from_secs(15))
         .read_timeout(Duration::from_secs(90))
         .build()
