@@ -373,7 +373,7 @@ impl App {
         }
         match self.flash {
             Some((m, at)) if now.saturating_duration_since(at) < FLASH => m,
-            _ if self.mood == Mood::Done && self.done_at.is_some_and(|t| now.saturating_duration_since(t) >= GREEN_FOR) => Mood::Calm,
+            _ if matches!(self.mood, Mood::Done | Mood::Alert | Mood::Denied) && self.done_at.is_some_and(|t| now.saturating_duration_since(t) >= GREEN_FOR) => Mood::Calm,
             _ => self.mood,
         }
     }
@@ -397,14 +397,13 @@ impl App {
                 let since = self.busy.as_ref().map_or_else(Instant::now, |(_, t)| *t);
                 match (&label, self.mood) {
                     // The work ended: green once there was work, white if there never was.
-                    (None, Mood::Calm) => {}
-                    (None, Mood::Done) => {}
+                    (None, Mood::Calm | Mood::Done | Mood::Alert | Mood::Denied) => {}
                     (None, _) => {
                         self.mood = Mood::Done;
                         self.done_at = Some(Instant::now());
                     }
                     // A new task begins: blue, walking.
-                    (Some(_), Mood::Calm | Mood::Done) => self.mood = Mood::Start,
+                    (Some(_), Mood::Calm | Mood::Done | Mood::Alert | Mood::Denied) => self.mood = Mood::Start,
                     _ => {}
                 }
                 self.busy = label.map(|l| (l, since));
@@ -419,6 +418,11 @@ impl App {
             Out::Live(l) => self.live = l,
             Out::Mood(m) if m.is_flash() => self.flash = Some((m, Instant::now())),
             Out::Mood(m) => self.mood = m,
+            Out::Ended(m) => {
+                self.mood = m;
+                self.flash = None;
+                self.done_at = Some(Instant::now());
+            }
             Out::Status(s) => self.status = s,
             Out::Usage(u) => self.status.usage = u,
             Out::Context(c) => self.status.context = Some(c),

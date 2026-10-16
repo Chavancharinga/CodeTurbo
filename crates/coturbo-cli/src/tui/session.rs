@@ -7,6 +7,7 @@ use super::host::TuiHost;
 use super::text::ansi_line;
 use super::{Choice, In, Out, Question, Status};
 use crate::config::{self, Config, Pricer};
+use crate::splash::Mood;
 use crate::settings::{self, Credentials, PROVIDERS};
 use crate::status::{status_line, stop_note};
 use crate::{models, update};
@@ -505,12 +506,21 @@ impl Session {
                 if !report.final_text.trim().is_empty() {
                     self.last_answer = Some(report.final_text.clone());
                 }
+                if report.verified == Some(false) {
+                    self.send(Out::Ended(Mood::Denied));
+                } else if !matches!(report.stop, coturbo_agent::Stop::Done | coturbo_agent::Stop::PlanSaved) {
+                    self.send(Out::Ended(Mood::Alert));
+                }
                 agent.compact();
             }
-            Some(Err(e)) => self.warn(format!("error: {e}")),
+            Some(Err(e)) => {
+                self.send(Out::Ended(Mood::Alert));
+                self.warn(format!("error: {e}"));
+            }
             None => {
                 agent.interrupted();
                 self.send(Out::CloseQuestion);
+                self.send(Out::Ended(Mood::Alert));
                 self.warn("task interrupted");
             }
         }

@@ -146,6 +146,9 @@ pub enum Out {
     /// How the snail should feel. Alert and denied are short flashes that
     /// give way to the working mood.
     Mood(crate::splash::Mood),
+    /// The task ended with a problem (an error, an interruption, not
+    /// verified): the snail stays yellow, or red, instead of turning green.
+    Ended(crate::splash::Mood),
     Status(Status),
     /// Session tokens and cost, updated after every model response.
     Usage(String),

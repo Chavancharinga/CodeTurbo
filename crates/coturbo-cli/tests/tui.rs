@@ -899,6 +899,22 @@ fn green_goes_back_to_white_after_ten_idle_minutes() {
     assert_eq!(h.app.mood_at(now + GREEN_FOR + Duration::from_secs(5)), Mood::Start);
 }
 
+#[test]
+fn a_task_that_fails_leaves_the_snail_yellow_not_green() {
+    use coturbo_cli::splash::Mood;
+    use std::time::{Duration, Instant};
+    let mut h = harness();
+    h.app.apply(Out::Busy(Some("think".into())));
+    h.app.apply(Out::Mood(Mood::Run));
+    h.app.apply(Out::Busy(None));
+    h.app.apply(Out::Ended(Mood::Alert));
+    let now = Instant::now();
+    assert_eq!(h.app.mood_at(now), Mood::Alert, "an error is yellow");
+    assert_eq!(h.app.mood_at(now + Duration::from_secs(60)), Mood::Alert, "and stays yellow, not a short flash");
+    h.app.apply(Out::Busy(Some("think".into())));
+    assert_eq!(h.app.mood_at(Instant::now()), Mood::Start, "the next task is blue again");
+}
+
 /// A PNG with a blue header, a white page and a red button, for the mini browser.
 fn page_png(w: u32, h: u32) -> Vec<u8> {
     let mut data = Vec::new();
