@@ -6,24 +6,28 @@
 pub type Rgb = (u8, u8, u8);
 pub type Grid = Vec<Vec<Option<Rgb>>>;
 
-/// How long every column takes to slide into place.
-const SLIDE_MS: f32 = 800.0;
-/// The columns start one after the other over this long.
-const STAGGER_MS: f32 = 450.0;
-/// Time from the first column to the last one landing.
-pub const INTRO_MS: u128 = (SLIDE_MS + STAGGER_MS) as u128;
+/// TerminalTextEffects' `slide` at its defaults: the picture is split into rows,
+/// each row is added `GAP_FRAMES` after the one above, and every character of a
+/// row sets off from just outside the left edge, at the same speed, with an
+/// in-out-quad easing, to its place. The row forms as its characters spread.
+const FRAME_MS: f32 = 1000.0 / 60.0;
+const GAP_FRAMES: f32 = 2.0;
+/// Cells per frame; a little faster than the original's 0.8 so a wide header
+/// does not make the start of every session wait.
+const SPEED: f32 = 1.1;
+/// Everything has landed by this time, whatever the width of the header.
+pub const INTRO_MS: u128 = 2800;
 /// The glint comes back this often, and takes [`GLINT_MS`] to cross.
 const GLINT_EVERY_MS: u128 = 6500;
 const GLINT_MS: f32 = 1100.0;
 
-fn ease_out(t: f32) -> f32 {
+fn in_out_quad(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
-    1.0 - (1.0 - t).powi(3)
+    if t < 0.5 { 2.0 * t * t } else { 1.0 - (-2.0 * t + 2.0).powi(2) / 2.0 }
 }
 
-/// The grid `ms` after the start: each column slides in from outside the
-/// terminal, rows alternating between the right and the left, the columns
-/// setting off one after the other. After [`INTRO_MS`] it is the grid itself.
+/// The grid `ms` after the start, with every row sliding in from the left.
+/// After [`INTRO_MS`] it is the grid itself.
 pub fn slide_in(grid: &Grid, ms: u128) -> Grid {
     if ms >= INTRO_MS || grid.is_empty() {
         return grid.clone();
@@ -31,13 +35,17 @@ pub fn slide_in(grid: &Grid, ms: u128) -> Grid {
     let width = grid[0].len();
     let mut out: Grid = vec![vec![None; width]; grid.len()];
     for (r, row) in grid.iter().enumerate() {
-        let from_right = (r / 2) % 2 == 0;
+        // A row of text is two rows of half-block pixels.
+        let delay = (r / 2) as f32 * GAP_FRAMES * FRAME_MS;
         for (c, px) in row.iter().enumerate() {
             let Some(px) = px else { continue };
-            let delay = STAGGER_MS * c as f32 / width.max(1) as f32;
-            let left = 1.0 - ease_out((ms as f32 - delay) / SLIDE_MS);
-            let at = if from_right { c as f32 + left * (width - c + 2) as f32 } else { c as f32 - left * (c + 3) as f32 };
-            let x = at.round() as i64;
+            let distance = (c + 1) as f32;
+            let duration = distance / SPEED * FRAME_MS;
+            let progress = (ms as f32 - delay) / duration;
+            if progress <= 0.0 {
+                continue;
+            }
+            let x = (-1.0 + distance * in_out_quad(progress)).round() as i64;
             if (0..width as i64).contains(&x) {
                 out[r][x as usize] = Some(*px);
             }

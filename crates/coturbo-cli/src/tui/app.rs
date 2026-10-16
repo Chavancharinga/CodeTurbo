@@ -474,9 +474,15 @@ impl App {
             MouseEventKind::Down(MouseButton::Left) => {
                 let b = self.body;
                 if (b.x..b.x + b.width).contains(&m.column) && (b.y..b.y + b.height).contains(&m.row)
-                    && let Some(&entry) = self.owners.get((m.row - b.y) as usize)
                 {
-                    self.transcript.toggle_fold(entry);
+                    // A click on the row of a block, or one row off it, opens or closes it.
+                    let at = (m.row - b.y) as usize;
+                    let near = [at, at.wrapping_sub(1), at + 1];
+                    for entry in near.iter().filter_map(|&i| self.owners.get(i)) {
+                        if self.transcript.toggle_fold(*entry) {
+                            break;
+                        }
+                    }
                 }
             }
             _ => {}

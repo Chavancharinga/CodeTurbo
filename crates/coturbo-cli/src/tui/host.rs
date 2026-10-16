@@ -24,15 +24,15 @@ pub const PREVIEW_ROWS: usize = 10;
 /// [`PREVIEW_ROWS`] rows plus a note, with the full diff kept for Ctrl+B.
 pub fn diff_fold(diff: &str, width: usize) -> Out {
     let full: Vec<Line<'static>> =
-        view::render_diff_upto(diff, width, true, usize::MAX).iter().map(|r| ansi_line(&format!("    {r}"))).collect();
+        view::render_diff_upto(diff, width, true, usize::MAX).iter().map(|r| ansi_line(&format!("  {r}"))).collect();
     if full.len() <= PREVIEW_ROWS {
         return Out::Clipped(full);
     }
     let hint = Style::new().add_modifier(Modifier::DIM);
     let mut preview = full[..PREVIEW_ROWS].to_vec();
-    preview.push(Line::styled(format!("      … {} more lines · click or Ctrl+B to view", full.len() - PREVIEW_ROWS), hint));
+    preview.push(Line::styled(format!("  … {} more lines · click or Ctrl+B to view", full.len() - PREVIEW_ROWS), hint));
     let mut full = full;
-    full.push(Line::styled("      click or Ctrl+B to collapse", hint));
+    full.push(Line::styled("  click or Ctrl+B to collapse", hint));
     Out::Fold { preview, full }
 }
 
@@ -261,7 +261,7 @@ impl Host for TuiHost {
                 let mut lines = vec![Line::default(), ansi_line(&tool_line(name, input, output))];
                 if let Some(d) = diff {
                     let (add, del) = view::diff_stat(d);
-                    lines.push(ansi_line(&format!("    \x1b[32m+{add}\x1b[0m \x1b[31m-{del}\x1b[0m")));
+                    lines.push(ansi_line(&format!("  \x1b[32m+{add}\x1b[0m \x1b[31m-{del}\x1b[0m")));
                     self.lines(lines);
                     self.send(diff_fold(d, self.width.saturating_sub(6)));
                 } else {

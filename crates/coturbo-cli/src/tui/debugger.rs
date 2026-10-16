@@ -101,7 +101,7 @@ pub fn render(findings: &[Finding], root: &Path, width: usize) -> Vec<Line<'stat
     if findings.is_empty() {
         return Vec::new();
     }
-    let outer = width.max(34);
+    let outer = width.max(36) - 2;
     // The box takes two columns of border and one of air on each side.
     let width = outer - 4;
     let errors: Vec<u32> = findings.iter().filter(|f| f.error).map(|f| f.line).collect();
@@ -159,6 +159,7 @@ fn boxed(body: Vec<Line<'static>>, width: usize, color: Color, summary: &str) ->
     let fill = inner.saturating_sub(used + 1);
     let mut out = vec![Line::default()];
     out.push(Line::from(vec![
+        Span::raw("  "),
         Span::styled("┌", edge),
         Span::styled(tag, Style::new().fg(Color::Black).bg(color).add_modifier(Modifier::BOLD)),
         Span::styled(summary.to_string(), edge.add_modifier(Modifier::BOLD)),
@@ -166,11 +167,11 @@ fn boxed(body: Vec<Line<'static>>, width: usize, color: Color, summary: &str) ->
     ]));
     for line in body {
         let shown: usize = line.spans.iter().map(|s| s.content.chars().count()).sum();
-        let mut spans = vec![Span::styled("┆ ", edge)];
+        let mut spans = vec![Span::raw("  "), Span::styled("┆ ", edge)];
         spans.extend(line.spans);
         spans.push(Span::styled(format!("{} ┆", " ".repeat((inner - 2).saturating_sub(shown))), edge));
         out.push(Line::from(spans));
     }
-    out.push(Line::styled(format!("└{}┘", "┄".repeat(inner)), edge));
+    out.push(Line::styled(format!("  └{}┘", "┄".repeat(inner)), edge));
     out
 }

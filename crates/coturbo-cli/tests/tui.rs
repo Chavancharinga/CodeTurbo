@@ -1364,9 +1364,9 @@ fn the_code_box_sits_beside_the_pages_not_under_them() {
 #[test]
 fn the_logo_slides_in_from_outside_and_lands_exactly() {
     use coturbo_cli::tui::fx::{INTRO_MS, slide_in};
-    let w = 40;
+    let w = 150;
     let mut grid = vec![vec![None; w]; 4];
-    for (r, c) in [(0usize, 3usize), (1, 20), (2, 35), (3, 10)] {
+    for (r, c) in [(0usize, 3usize), (1, 20), (2, 120), (3, 140)] {
         grid[r][c] = Some((200, 100, 50));
     }
     let count = |g: &coturbo_cli::tui::fx::Grid| g.iter().flatten().filter(|p| p.is_some()).count();
@@ -1391,4 +1391,31 @@ fn a_glint_lights_part_of_the_picture_now_and_then() {
     };
     assert!(lit(500) > 0 && lit(500) < 60 * 6, "a band, not the whole picture");
     assert_eq!(lit(3000), 0, "and most of the time nothing is lit");
+}
+
+#[test]
+fn clicking_folded_code_still_works_with_pages_and_the_code_box_open() {
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let mut h = harness();
+    h.app.apply(Out::Busy(Some("write_file x".into())));
+    let full: Vec<Line<'static>> = (0..30).map(|i| Line::raw(format!("linha {i}"))).collect();
+    let mut preview = full[..10].to_vec();
+    preview.push(Line::raw("… mais 20"));
+    h.app.apply(Out::Fold { preview, full });
+    for i in 0..2 {
+        let mut f = browser_frame(None, false);
+        f.window = i;
+        h.app.apply(Out::Browser(f));
+    }
+    h.app.apply(Out::Live(Some(("writing x".into(), vec![Line::raw("let a = 1;")]))));
+    std::thread::sleep(std::time::Duration::from_millis(700));
+    let mut term = Terminal::new(TestBackend::new(150, 44)).unwrap();
+    term.draw(|f| h.app.draw(f)).unwrap();
+    let buf = term.backend().buffer().clone();
+    let row = (0..44).find(|&y| (0..150).map(|x| buf[(x, y)].symbol().to_string()).collect::<String>().contains("linha 3")).expect("the code is on screen");
+    let click = |row| Event::Mouse(MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column: 5, row, modifiers: KeyModifiers::NONE });
+    h.app.on_event(click(row), false);
+    assert_eq!(h.app.transcript().lines().len(), 30, "a click opens the code");
 }
