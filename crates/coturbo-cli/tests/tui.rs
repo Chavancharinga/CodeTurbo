@@ -523,3 +523,120 @@ fn folders_are_trusted_once_and_recognized_after() {
         assert!(too_broad(std::path::Path::new(&home)), "the home folder is too broad");
     }
 }
+
+fn screen_rows(h: &mut Harness, w: u16, hgt: u16) -> Vec<String> {
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    let mut term = Terminal::new(TestBackend::new(w, hgt)).unwrap();
+    term.draw(|f| h.app.draw(f)).unwrap();
+    let buf = term.backend().buffer().clone();
+    (0..buf.area.height).map(|y| (0..buf.area.width).map(|x| buf[(x, y)].symbol().to_string()).collect()).collect()
+}
+
+#[test]
+fn the_footer_shows_the_folder_next_to_the_model() {
+    let mut h = harness();
+    h.app.apply(Out::Status(Status {
+        provider: "claude-code".into(),
+        model: "haiku".into(),
+        approval: "edição livre".into(),
+        folder: r"C:\Users\danie\Music\CoTurbon".into(),
+        ..Status::default()
+    }));
+    let rows = screen_rows(&mut h, 110, 30);
+    let last = rows.last().unwrap();
+    assert!(last.contains(r"claude-code · haiku · edição livre · C:\Users\danie\Music\CoTurbon"), "{last}");
+}
+
+#[test]
+fn a_long_folder_is_cut_to_its_last_three_folders() {
+    let mut h = harness();
+    h.app.apply(Out::Status(Status {
+        provider: "claude-code".into(),
+        model: "haiku".into(),
+        approval: "edição livre".into(),
+        usage: "tokens ↑0 ⟳0 ↓0".into(),
+        folder: r"C:\Users\danie\Music\CoTurbon\sandbox\paint\src".into(),
+        ..Status::default()
+    }));
+    // Not enough room for the whole path: only the last three folders show.
+    let rows = screen_rows(&mut h, 90, 30);
+    let last = rows.last().unwrap();
+    assert!(last.contains(r"…\sandbox\paint\src"), "{last}");
+    assert!(!last.contains("Users"), "{last}");
+    assert!(last.contains("tokens ↑0"), "the usage stays at the right: {last}");
+}
+
+#[test]
+fn the_snail_follows_what_the_agent_is_doing() {
+    use coturbo_cli::splash::Mood;
+    let mut h = harness();
+    assert_eq!(h.app.mood(), Mood::Calm, "idle at the start");
+    h.app.apply(Out::Busy(Some("think".into())));
+    assert_eq!(h.app.mood(), Mood::Run, "asked for code");
+    h.app.apply(Out::Mood(Mood::Hard));
+    assert_eq!(h.app.mood(), Mood::Hard);
+    h.app.apply(Out::Mood(Mood::Turbo));
+    assert_eq!(h.app.mood(), Mood::Turbo);
+    // A flash goes over the working mood, which comes back afterwards.
+    h.app.apply(Out::Mood(Mood::Denied));
+    assert_eq!(h.app.mood(), Mood::Denied);
+    h.app.apply(Out::Mood(Mood::Alert));
+    assert_eq!(h.app.mood(), Mood::Alert);
+    h.app.apply(Out::Busy(None));
+    assert_eq!(h.app.mood(), Mood::Alert, "the flash outlives the end of the task for a moment");
+}
+
+#[test]
+fn the_snail_is_yellow_while_a_question_waits() {
+    use coturbo_cli::splash::Mood;
+    let mut h = harness();
+    h.app.apply(Out::Mood(Mood::Turbo));
+    let (reply, _rx) = tokio::sync::oneshot::channel();
+    h.app.apply(Out::Ask(Question::Confirm { title: "Confiar nesta pasta?".into(), reply }));
+    assert_eq!(h.app.mood(), Mood::Alert);
+    h.app.apply(Out::CloseQuestion);
+    assert_eq!(h.app.mood(), Mood::Turbo, "the working mood returns once answered");
+}
+
+#[test]
+fn the_snail_changes_color_on_screen() {
+    use coturbo_cli::splash::Mood;
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    let colors = |mood: Mood| {
+        let mut h = harness();
+        h.app.apply(Out::Mood(mood));
+        let mut term = Terminal::new(TestBackend::new(100, 30)).unwrap();
+        term.draw(|f| h.app.draw(f)).unwrap();
+        let buf = term.backend().buffer().clone();
+        (0..8).flat_map(|y| (0..100).map(move |x| (x, y))).map(|(x, y)| (buf[(x, y)].fg, buf[(x, y)].bg)).collect::<Vec<_>>()
+    };
+    let has = |cs: &[(Color, Color)], c: Color| cs.iter().any(|&(f, b)| f == c || b == c);
+    let yellow = Color::Rgb(255, 196, 38);
+    let red = Color::Rgb(240, 70, 60);
+    let blue = Color::Rgb(47, 123, 255);
+    assert!(has(&colors(Mood::Alert), yellow));
+    assert!(has(&colors(Mood::Denied), red));
+    let calm = colors(Mood::Calm);
+    assert!(has(&calm, blue) && !has(&calm, yellow) && !has(&calm, red));
+}
+
+#[test]
+fn state_labels_use_the_tool_names_in_english() {
+    use coturbo_cli::tui::host::{action_label, busy_label, design_refused};
+    use serde_json::json;
+    assert_eq!(busy_label("thinking"), "think");
+    assert_eq!(busy_label("verifying"), "verify: build, clippy, tests");
+    assert_eq!(action_label("read_file", &json!({"path": "src/main.rs"})), "read_file src/main.rs");
+    assert_eq!(action_label("write_file", &json!({"path": "a.html"})), "write_file a.html");
+    assert_eq!(action_label("edit_file", &json!({"path": "b.rs"})), "edit_file b.rs");
+    assert_eq!(action_label("grep", &json!({"pattern": "fn main"})), "grep \"fn main\"");
+    assert_eq!(action_label("bash", &json!({"command": "cargo build"})), "bash cargo build");
+    assert_eq!(action_label("investigate", &json!({"target": "steam.exe"})), "investigate steam.exe");
+    assert_eq!(action_label("observe_app", &json!({"target": "mspaint.exe"})), "observe_app mspaint.exe");
+    assert_eq!(action_label("list_files", &json!({})), "list_files");
+    assert!(design_refused("design index.html: 2 bloqueante(s), 1 aviso(s)\n- P0 ..."));
+    assert!(!design_refused("design index.html: 0 bloqueante(s), 3 aviso(s)"));
+    assert!(!design_refused("check src/lib.rs: clean"));
+}

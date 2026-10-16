@@ -114,6 +114,7 @@ pub async fn run(launch: Launch) -> Result<ExitCode, String> {
         plan: launch.plan,
         usage: status_line(&Usage::default(), None),
         context: None,
+        folder: super::path::folder_text(&launch.root),
     };
     let (screen, rx, cancel) = Screen::spawn(initial, closing.clone());
     let channels = Channels { out: screen.out.clone(), rx, cancel, closing: closing.clone() };
@@ -194,6 +195,7 @@ impl Session {
             plan: self.plan,
             usage: status_line(&total, self.pricer().cost(&total)),
             context: None,
+            folder: super::path::folder_text(&self.root),
         }));
     }
 
@@ -266,7 +268,7 @@ impl Session {
         }
         let mut lines = vec![
             Line::default(),
-            Line::styled(format!("Primeira vez nesta pasta: {}", self.root.display()), Style::new().fg(Color::Yellow)),
+            Line::styled(format!("Primeira vez nesta pasta: {}", super::path::folder_text(&self.root)), Style::new().fg(Color::Yellow)),
             Line::raw("  O CodeTurbo vai ler e alterar arquivos aqui e pode rodar comandos, conforme o modo de aprovação."),
             Line::raw("  Confie apenas em pastas cujo conteúdo você conhece."),
         ];
@@ -277,7 +279,8 @@ impl Session {
             ));
         }
         self.send(Out::Lines(lines));
-        let title = "Confiar nesta pasta?".to_string();
+        // The folder goes in the question itself, so it is the last thing read before answering.
+        let title = format!("Confiar nesta pasta? {}", super::path::short_path(&super::path::folder_text(&self.root), 60));
         if !self.ask(|reply| Question::Confirm { title, reply }, false).await {
             self.warn("pasta não autorizada: nada será lido nem alterado. Abra o CodeTurbo na pasta do seu projeto.");
             return false;
@@ -467,7 +470,7 @@ impl Session {
         let mut base = self.spent;
         base += agent.session_usage();
         let mut host = TuiHost::new(self.out.clone(), self.pricer(), self.root.clone(), self.verbose, base);
-        self.send(Out::Busy(Some("pensando".into())));
+        self.send(Out::Busy(Some("think".into())));
         let started = std::time::Instant::now();
         let result = tokio::select! {
             r = agent.run_task(text, &mut host) => Some(r),

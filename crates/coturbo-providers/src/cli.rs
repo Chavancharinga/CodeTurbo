@@ -54,13 +54,27 @@ const CLOSE: &str = "</tool_call>";
 
 /// The system prompt plus how to call tools in plain text.
 pub fn protocol_system(req: &Request) -> String {
+    protocol_system_with_eyes(req, false)
+}
+
+/// [`protocol_system`], telling Claude Code (`eyes`) that it can look at the
+/// attached images with its own Read tool.
+pub fn protocol_system_with_eyes(req: &Request, eyes: bool) -> String {
     let tools: Vec<Value> = req
         .tools
         .iter()
         .map(|t| json!({"name": t.name, "description": t.description, "input": t.input_schema["properties"]}))
         .collect();
+    // With images in the conversation, Claude Code gets its own Read tool to
+    // look at them; say so, or it asks the harness for a `Read` that does not exist.
+    let eyes = if eyes && image_count(req) > 0 {
+        "\n\nException: images are attached as files (./vision-N.png). To look at one, use your OWN built-in Read tool \
+         directly, right now, before answering. It is not one of the harness tools below: never write it as a tool call block."
+    } else {
+        ""
+    };
     format!(
-        "{}\n\nTools (you cannot run anything yourself; ask and the harness runs it):\n{}\n\n\
+        "{}{eyes}\n\nTools (you cannot run anything yourself; ask and the harness runs it):\n{}\n\n\
          To use tools, write one block per call, exactly:\n{OPEN}{{\"name\": \"read_file\", \"input\": {{\"path\": \"src/main.rs\"}}}}{CLOSE}\n\
          You may write several blocks; their results come back in the next message. \
          When the task is done, answer in plain text with no {OPEN} block.",
@@ -234,7 +248,7 @@ fn claude_usage(v: &Value) -> Usage {
 impl Provider for CliProvider {
     fn complete<'a>(&'a self, req: &'a Request, on_text: &'a mut TextSink<'_>) -> BoxFuture<'a, Result<Response, ProviderError>> {
         Box::pin(async move {
-            let system = protocol_system(req);
+            let system = protocol_system_with_eyes(req, self.tool == Tool::ClaudeCode);
             let prompt = protocol_prompt(req);
             // Outside the project: the official tool must not load its own
             // project instructions or touch files.

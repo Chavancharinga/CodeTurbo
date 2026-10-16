@@ -4,6 +4,7 @@
 use super::text::ansi_line;
 use super::{Out, Question, StreamKind};
 use crate::config::Pricer;
+use crate::splash::Mood;
 use crate::status::{status_line, tool_line};
 use crate::view;
 use coturbo_agent::plan::{PlanChoice, PlanReview};
@@ -38,30 +39,37 @@ pub fn diff_fold(diff: &str, width: usize) -> Out {
 /// What the agent is waiting on, in the user's words.
 pub fn busy_label(waiting: &str) -> String {
     match waiting {
-        "thinking" => "pensando".into(),
-        "verifying" => "verificando: compilação, análise e testes".into(),
-        "design" => "verificando o design no navegador (computador e celular)".into(),
+        "thinking" => "think".into(),
+        "verifying" => "verify: build, clippy, tests".into(),
+        "design" => "design_review: desktop and phone".into(),
         other => other.into(),
     }
 }
 
-/// What a tool call is doing, in the user's words.
+/// What a tool call is doing: the tool's own name and what it works on.
 pub fn action_label(name: &str, input: &serde_json::Value) -> String {
     let a = arg(input);
+    let target = input["target"].as_str().unwrap_or("");
     match name {
-        "read_file" | "read_symbol" => format!("lendo {a}"),
-        "write_file" => format!("escrevendo {a}"),
-        "edit_file" | "replace_symbol" | "insert_symbol" => format!("editando {a}"),
-        "list_files" => "listando arquivos".into(),
-        "grep" => format!("buscando \"{a}\""),
-        "bash" => format!("rodando `{a}`"),
-        "workspace_diagnostics" => "checando o projeto inteiro".into(),
-        "design_brief" => "definindo o design do projeto".into(),
-        "design_review" => format!("abrindo {a} no navegador"),
-        "investigate" => format!("investigando {}", input["target"].as_str().unwrap_or("")),
-        "propose_plan" => "preparando o plano".into(),
-        other => format!("executando {other} {a}").trim().to_string(),
+        "grep" => format!("grep \"{a}\""),
+        "investigate" | "observe_app" => format!("{name} {target}"),
+        other => format!("{other} {a}").trim().to_string(),
     }
+}
+
+/// Tools that run the heavy engines: reverse engineering, looking at a
+/// running program and the design checks. They put the snail in turbo.
+fn is_heavy(tool: &str) -> bool {
+    matches!(tool, "investigate" | "observe_app" | "design_review" | "design_brief")
+}
+
+/// Whether a tool result carries a design check with blocking findings
+/// (`design <path>: 2 bloqueante(s), 1 aviso(s)`).
+pub fn design_refused(text: &str) -> bool {
+    text.lines().any(|l| {
+        l.starts_with("design ")
+            && l.find(" bloqueante(s)").is_some_and(|i| l[..i].rsplit(' ').next().and_then(|n| n.parse::<u32>().ok()).is_some_and(|n| n > 0))
+    })
 }
 
 pub struct TuiHost {
@@ -80,12 +88,17 @@ pub struct TuiHost {
     /// Model responses so far in this task, and the last tool run.
     turns: u32,
     last_step: Option<String>,
+    /// Tools run in this task, whether a heavy engine ran, and the mood last
+    /// sent to the screen.
+    tools: u32,
+    heavy: bool,
+    mood: Option<Mood>,
 }
 
 impl TuiHost {
     pub fn new(out: Sender<Out>, pricer: Pricer, root: PathBuf, verbose: bool, base: Usage) -> Self {
         let width = terminal_size::terminal_size().map_or(100, |(w, _)| w.0 as usize).min(140);
-        Self { out, pricer, root, verbose, limits: None, base, width, label: String::new(), composing_path: None, turns: 0, last_step: None }
+        Self { out, pricer, root, verbose, limits: None, base, width, label: String::new(), composing_path: None, turns: 0, last_step: None, tools: 0, heavy: false, mood: None }
     }
 
     fn send(&self, m: Out) {
@@ -96,7 +109,34 @@ impl TuiHost {
         self.send(Out::Lines(lines));
     }
 
+    /// The snail's pace follows the effort: it runs for an answer, runs hard
+    /// once tools are in play, and goes flat out on the heavy engines or a
+    /// long task.
+    fn working_mood(&self) -> Mood {
+        if self.heavy || self.turns >= 8 {
+            Mood::Turbo
+        } else if self.tools > 0 {
+            Mood::Hard
+        } else {
+            Mood::Run
+        }
+    }
+
+    fn feel(&mut self) {
+        let m = self.working_mood();
+        if self.mood != Some(m) {
+            self.mood = Some(m);
+            self.send(Out::Mood(m));
+        }
+    }
+
+    /// A short flash (alert, denied) over the working mood.
+    fn flash(&self, m: Mood) {
+        self.send(Out::Mood(m));
+    }
+
     fn busy(&mut self, label: String) {
+        self.feel();
         if self.label != label {
             self.label.clone_from(&label);
             self.send(Out::Busy(Some(label)));
@@ -118,25 +158,34 @@ impl Host for TuiHost {
     fn on_event(&mut self, ev: Event<'_>) {
         match ev {
             Event::Waiting("thinking") if self.turns > 0 => {
-                let last = self.last_step.clone().map(|s| format!(" · último: {s}")).unwrap_or_default();
-                self.busy(format!("pensando no próximo passo · rodada {}{last}", self.turns + 1));
+                let last = self.last_step.clone().map(|s| format!(" · last: {s}")).unwrap_or_default();
+                self.busy(format!("think · round {}{last}", self.turns + 1));
             }
-            Event::Waiting(what) => self.busy(busy_label(what)),
+            Event::Waiting(what) => {
+                // The final checks are the heaviest work of a task.
+                self.heavy |= matches!(what, "verifying" | "design");
+                self.busy(busy_label(what));
+            }
             Event::Thinking(delta) => {
-                self.busy("raciocinando".into());
+                self.busy("think".into());
                 self.send(Out::Stream(StreamKind::Thinking, delta.to_string()));
             }
             Event::Text(delta) => {
-                self.busy("escrevendo".into());
+                self.busy("write".into());
                 self.send(Out::Stream(StreamKind::Text, delta.to_string()));
             }
             Event::Limits(headers) => self.limits = view::limits_summary(headers),
             Event::ToolStart { name, input } => {
                 self.composing_path = None;
+                self.tools += 1;
+                self.heavy |= is_heavy(name);
                 self.busy(action_label(name, input));
             }
             Event::ToolEnd { name, input, output, diff } => {
                 self.last_step = Some(format!("{name} {}", arg(input)).trim().to_string());
+                if design_refused(&output.content) {
+                    self.flash(Mood::Denied);
+                }
                 let mut lines = vec![Line::default(), ansi_line(&tool_line(name, input, output))];
                 if let Some(d) = diff {
                     let (add, del) = view::diff_stat(d);
@@ -165,6 +214,10 @@ impl Host for TuiHost {
             }
             Event::Gate { ok, summary } => {
                 let color = if ok { Color::Green } else { Color::Red };
+                if !ok {
+                    // A refused design turns the snail red; any other failed check, yellow.
+                    self.flash(if summary.to_lowercase().contains("design") { Mood::Denied } else { Mood::Alert });
+                }
                 let mut summary = summary.lines();
                 let mut lines =
                     vec![Line::default(), Line::styled(summary.next().unwrap_or("").to_string(), Style::new().fg(color))];
@@ -175,19 +228,13 @@ impl Host for TuiHost {
                 if let Some(p) = path {
                     self.composing_path = Some(p.to_string());
                 }
-                let what = match tool {
-                    "write_file" => "escrevendo",
-                    "edit_file" | "replace_symbol" | "insert_symbol" => "editando",
-                    "bash" => "preparando o comando",
-                    "design_brief" => "definindo o design",
-                    "design_review" => "abrindo a página",
-                    _ => "preparando",
-                };
-                let target = self.composing_path.clone().unwrap_or_else(|| if what == "preparando" { tool.to_string() } else { String::new() });
-                let size = if chars >= 1000 { format!("{:.1}k caracteres", chars as f64 / 1000.0) } else { format!("{chars} caracteres") };
-                self.busy(format!("{what} {target} · {size}").replace("  ", " "));
+                // The tool being written and what it is writing to.
+                let target = self.composing_path.clone().unwrap_or_default();
+                let size = if chars >= 1000 { format!("{:.1}k chars", chars as f64 / 1000.0) } else { format!("{chars} chars") };
+                self.busy(format!("{tool} {target} · {size}").replace("  ", " "));
             }
             Event::Notice(msg) => {
+                self.flash(Mood::Alert);
                 self.lines(vec![Line::styled(format!("  ! {msg}"), Style::new().fg(Color::Yellow))]);
             }
         }
@@ -202,7 +249,7 @@ impl Host for TuiHost {
                 self.send(diff_fold(diff, self.width.saturating_sub(6)));
             }
             self.label.clear();
-            self.send(Out::Busy(Some("aguardando sua resposta".into())));
+            self.send(Out::Busy(Some("wait: your answer".into())));
             self.ask(|reply| Question::Approve { title, reply }, Decision::Deny(Some("o usuário não respondeu".into()))).await
         })
     }
@@ -215,7 +262,7 @@ impl Host for TuiHost {
             lines.push(Line::styled("──", header));
             self.lines(lines);
             self.label.clear();
-            self.send(Out::Busy(Some("aguardando sua resposta".into())));
+            self.send(Out::Busy(Some("wait: your answer".into())));
             let path = self.root.join(&plan.path);
             let keep_allowed = plan.keep_context_allowed();
             let title = "O que fazer com o plano?".to_string();
@@ -230,7 +277,7 @@ impl Host for TuiHost {
                 Line::styled(format!("  ! alteração suspeita: {}", finding.render()), Style::new().fg(Color::Yellow)),
             ]);
             self.label.clear();
-            self.send(Out::Busy(Some("aguardando sua resposta".into())));
+            self.send(Out::Busy(Some("wait: your answer".into())));
             let title = "Esta alteração é legítima?".to_string();
             self.ask(|reply| Question::Confirm { title, reply }, false).await
         })

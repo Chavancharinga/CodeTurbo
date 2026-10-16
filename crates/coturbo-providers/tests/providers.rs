@@ -292,3 +292,15 @@ fn the_subscription_provider_shows_only_the_latest_images() {
     // The files are named exactly as the prompt refers to them.
     assert!(files.iter().all(|(name, _)| prompt.contains(&format!("./{name}"))), "{prompt}");
 }
+
+#[test]
+fn claude_code_is_told_about_its_own_read_tool_only_when_there_are_images() {
+    use coturbo_providers::cli::protocol_system;
+    let mut req = request();
+    assert!(!protocol_system(&req).contains("built-in Read"));
+    req.messages.push(Message { role: Role::User, content: vec![ContentBlock::Image { media_type: "image/png".into(), data: "aGk=".into() }] });
+    // The shared prompt (also used for Codex, which gets no images) stays unchanged.
+    assert!(!protocol_system(&req).contains("built-in Read"));
+    assert!(coturbo_providers::cli::protocol_system_with_eyes(&req, true).contains("built-in Read"));
+    assert!(!coturbo_providers::cli::protocol_system_with_eyes(&request(), true).contains("built-in Read"));
+}

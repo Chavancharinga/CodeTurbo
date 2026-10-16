@@ -173,9 +173,82 @@ fn lerp(a: Rgb, b: Rgb, t: f32) -> Rgb {
     (m(a.0, b.0), m(a.1, b.1), m(a.2, b.2))
 }
 
+const YELLOW: Rgb = (255, 196, 38);
+const SPARK: Rgb = (255, 232, 96);
+const RED: Rgb = (240, 70, 60);
+
+/// How the snail feels: its colour, pace, trail and sparks follow what the
+/// agent is doing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Mood {
+    /// Idle: walks slowly and leaves next to no trail.
+    #[default]
+    Calm,
+    /// Working on an answer: the run of the intro.
+    Run,
+    /// Tools and engines at work: runs hard, with a dense trail.
+    Hard,
+    /// Flat out: a blue trail with yellow in it and sparks from the shell.
+    Turbo,
+    /// Something needs attention: the snail turns yellow.
+    Alert,
+    /// The design check refused the work: the snail turns red.
+    Denied,
+}
+
+impl Mood {
+    /// Animation frames per tick; 1.0 is the pace of the intro.
+    pub fn speed(self) -> f32 {
+        match self {
+            Mood::Calm => 0.45,
+            Mood::Run | Mood::Alert => 1.0,
+            Mood::Denied => 0.6,
+            Mood::Hard => 1.8,
+            Mood::Turbo => 2.8,
+        }
+    }
+
+    /// Whether the mood is a short flash that gives way to the working mood.
+    pub fn is_flash(self) -> bool {
+        matches!(self, Mood::Alert | Mood::Denied)
+    }
+
+    fn body(self) -> Rgb {
+        match self {
+            Mood::Alert => YELLOW,
+            Mood::Denied => RED,
+            _ => BLUE,
+        }
+    }
+
+    /// The far, dark end of the trail.
+    fn trail_far(self) -> Rgb {
+        match self {
+            Mood::Alert => (84, 62, 10),
+            Mood::Denied => (84, 22, 18),
+            _ => TRAIL_FAR,
+        }
+    }
+
+    /// Streak density: how many of every 8 cells of a streak are lit.
+    fn density(self) -> usize {
+        match self {
+            Mood::Calm => 0,
+            Mood::Run | Mood::Alert | Mood::Denied => 5,
+            Mood::Hard => 7,
+            Mood::Turbo => 8,
+        }
+    }
+}
+
 /// Pixels of frame `i`: the wordmark (first `reveal` letters), then the
 /// track with the snail running in place at its end, trail and dust behind.
 fn canvas(s: &Snail, i: usize, track: usize, reveal: usize) -> Vec<Vec<Option<Rgb>>> {
+    canvas_mood(s, i, track, reveal, Mood::Run)
+}
+
+/// [`canvas`] for a mood.
+fn canvas_mood(s: &Snail, i: usize, track: usize, reveal: usize, mood: Mood) -> Vec<Vec<Option<Rgb>>> {
     let h = canvas_h(s);
     // Rows above the sprite when its height is odd.
     let pad = h - (s.body.len() + 1);
@@ -201,11 +274,20 @@ fn canvas(s: &Snail, i: usize, track: usize, reveal: usize) -> Vec<Vec<Option<Rg
         }
     };
     let shell = pos + s.tail_room as isize;
+    let (far, body) = (mood.trail_far(), mood.body());
     for &(row, phase) in s.streaks {
         for d in 1..=TRAIL_LEN {
-            if (d + 2 * i + 3 * phase) % 8 < 5 {
+            if (d + 2 * i + 3 * phase) % 8 < mood.density() {
                 let t = 1.0 - d as f32 / TRAIL_LEN as f32;
-                put(row, shell - d as isize, lerp(TRAIL_FAR, BLUE, t * t));
+                // Flat out, the trail is hot near the shell: some cells burn yellow.
+                let color = if mood == Mood::Turbo && d <= 10 && (d + i + phase).is_multiple_of(5) {
+                    lerp((150, 104, 16), SPARK, t)
+                } else if mood == Mood::Turbo {
+                    lerp(far, body, t.sqrt())
+                } else {
+                    lerp(far, body, t * t)
+                };
+                put(row, shell - d as isize, color);
             }
         }
     }
@@ -213,11 +295,27 @@ fn canvas(s: &Snail, i: usize, track: usize, reveal: usize) -> Vec<Vec<Option<Rg
     let tip = shell + 1 - s.tail_len(i) as isize;
     for d in 1..=8usize {
         if (d + 2 * i).is_multiple_of(5) {
-            put(s.body.len(), tip - d as isize, lerp(TRAIL_FAR, BLUE, 1.0 - d as f32 / 8.0));
+            put(s.body.len(), tip - d as isize, lerp(far, body, 1.0 - d as f32 / 8.0));
         }
     }
     for (y, x) in s.sprite(i) {
-        put(y, pos + x as isize, BLUE);
+        put(y, pos + x as isize, body);
+    }
+    if mood == Mood::Turbo {
+        // Sparks leave the middle of the shell and stream back, cooling from
+        // bright yellow to a dull ember.
+        let (sy, sx, n) = s.spiral;
+        let (cy, cx) = ((sy + n / 2) as isize, (s.tail_room + sx + n / 2) as isize);
+        for k in 0..5usize {
+            let age = (i + 2 * k) % 9;
+            let lift = [0isize, -1, 1, 0, -1][k];
+            let color = match age {
+                0..=2 => SPARK,
+                3..=5 => lerp(YELLOW, (200, 110, 20), (age - 3) as f32 / 3.0),
+                _ => (120, 84, 14),
+            };
+            put((cy + lift) as usize, pos + cx - (age + age / 2) as isize, color);
+        }
     }
     px
 }
@@ -364,6 +462,13 @@ pub fn frame_with(s: &Snail, i: usize, width: usize) -> Vec<String> {
 /// `width` cells wide: for exporting the logo as an image.
 pub fn pixels(i: usize, width: usize) -> Vec<Vec<Option<(u8, u8, u8)>>> {
     canvas(SNAIL, i, track_for(SNAIL, width), (i / 2).min(NAME.len()))
+}
+
+/// Pixels for the interface: the snail at animation frame `snail` in `mood`,
+/// with the name typed in as of frame `typed` (the two advance at different
+/// paces, because the snail's pace follows its mood).
+pub fn pixels_mood(snail: usize, typed: usize, width: usize, mood: Mood) -> Vec<Vec<Option<(u8, u8, u8)>>> {
+    canvas_mood(SNAIL, snail, track_for(SNAIL, width), (typed / 2).min(NAME.len()), mood)
 }
 
 /// Frames in one seamless loop of the running snail once the name is shown
@@ -554,5 +659,88 @@ impl Spinner {
 impl Drop for Spinner {
     fn drop(&mut self) {
         self.stop();
+    }
+}
+
+#[cfg(test)]
+mod mood_tests {
+    use super::*;
+
+    fn lit(px: &[Vec<Option<Rgb>>]) -> Vec<Rgb> {
+        px.iter().flatten().flatten().copied().collect()
+    }
+
+    /// Cells of the track only (the word is excluded).
+    fn track(px: &[Vec<Option<Rgb>>]) -> Vec<Rgb> {
+        let t0 = word_width() + GAP;
+        px.iter().flat_map(|r| r[t0..].iter().flatten().copied()).collect()
+    }
+
+    #[test]
+    fn run_is_the_intro_unchanged() {
+        for i in [0, 7, 19, 40] {
+            let a = canvas(SNAIL, i, track_for(SNAIL, 100), 9);
+            let b = canvas_mood(SNAIL, i, track_for(SNAIL, 100), 9, Mood::Run);
+            assert_eq!(a, b);
+        }
+    }
+
+    #[test]
+    fn calm_leaves_next_to_no_trail() {
+        let calm = track(&canvas_mood(SNAIL, 11, track_for(SNAIL, 100), 9, Mood::Calm));
+        let run = track(&canvas_mood(SNAIL, 11, track_for(SNAIL, 100), 9, Mood::Run));
+        assert!(calm.len() + 8 < run.len(), "calm {} vs run {}", calm.len(), run.len());
+    }
+
+    #[test]
+    fn the_trail_gets_denser_with_effort() {
+        let n = |m| (0..8).map(|i| track(&canvas_mood(SNAIL, i, track_for(SNAIL, 100), 9, m)).len()).sum::<usize>();
+        assert!(n(Mood::Calm) < n(Mood::Run) && n(Mood::Run) < n(Mood::Hard) && n(Mood::Hard) < n(Mood::Turbo));
+    }
+
+    #[test]
+    fn alert_is_yellow_and_denied_is_red_and_the_rest_blue() {
+        let body = |m| {
+            let px = canvas_mood(SNAIL, 3, track_for(SNAIL, 100), 0, m);
+            lit(&px)
+        };
+        assert!(body(Mood::Alert).contains(&YELLOW) && !body(Mood::Alert).contains(&BLUE));
+        assert!(body(Mood::Denied).contains(&RED) && !body(Mood::Denied).contains(&BLUE));
+        for m in [Mood::Calm, Mood::Run, Mood::Hard, Mood::Turbo] {
+            assert!(body(m).contains(&BLUE), "{m:?}");
+        }
+    }
+
+    #[test]
+    fn turbo_has_yellow_sparks_and_yellow_in_the_trail_and_others_do_not() {
+        let warm = |c: &Rgb| c.0 > 200 && c.1 > 150 && c.2 < 130;
+        let count = |m| (0..12).map(|i| track(&canvas_mood(SNAIL, i, track_for(SNAIL, 100), 9, m)).iter().filter(|c| warm(c)).count()).sum::<usize>();
+        assert!(count(Mood::Turbo) > 12, "turbo yellow cells: {}", count(Mood::Turbo));
+        assert_eq!(count(Mood::Run), 0);
+        assert_eq!(count(Mood::Hard), 0);
+        assert_eq!(count(Mood::Calm), 0);
+    }
+
+    #[test]
+    fn sparks_start_inside_the_shell() {
+        // At age 0 a spark sits on the middle of the shell: at least one
+        // bright spark pixel falls where the body would be drawn.
+        let px = canvas_mood(SNAIL, 0, track_for(SNAIL, 100), 9, Mood::Turbo);
+        assert!(track(&px).contains(&SPARK));
+    }
+
+    #[test]
+    fn the_faster_the_effort_the_faster_the_frames() {
+        assert!(Mood::Calm.speed() < Mood::Run.speed());
+        assert!(Mood::Run.speed() < Mood::Hard.speed());
+        assert!(Mood::Hard.speed() < Mood::Turbo.speed());
+        assert!(Mood::Alert.is_flash() && Mood::Denied.is_flash() && !Mood::Turbo.is_flash());
+    }
+
+    #[test]
+    fn pixels_mood_keeps_the_picture_the_same_size() {
+        let a = pixels_mood(0, 40, 100, Mood::Calm);
+        let b = pixels_mood(0, 40, 100, Mood::Turbo);
+        assert_eq!((a.len(), a[0].len()), (b.len(), b[0].len()));
     }
 }

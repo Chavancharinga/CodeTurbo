@@ -9,6 +9,7 @@ pub mod app;
 pub mod commands;
 pub mod host;
 pub mod input;
+pub mod path;
 pub mod session;
 pub mod text;
 
@@ -36,6 +37,8 @@ pub struct Status {
     pub usage: String,
     /// Share of the context window used by the last request.
     pub context: Option<u32>,
+    /// The project folder, shown at the right of the model.
+    pub folder: String,
 }
 
 /// One entry of a [`Question::Select`] list.
@@ -73,6 +76,9 @@ pub enum Out {
     Stream(StreamKind, String),
     /// What the agent is doing; `None` when it is idle.
     Busy(Option<String>),
+    /// How the snail should feel. Alert and denied are short flashes that
+    /// give way to the working mood.
+    Mood(crate::splash::Mood),
     Status(Status),
     /// Session tokens and cost, updated after every model response.
     Usage(String),

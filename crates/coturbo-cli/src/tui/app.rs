@@ -5,7 +5,7 @@ use super::commands::{self, Command, Parsed};
 use super::input::Input;
 use super::text;
 use super::{Choice, In, Out, Question, Status, StreamKind};
-use crate::splash;
+use crate::splash::{self, Mood};
 use coturbo_agent::Decision;
 use coturbo_agent::plan::PlanChoice;
 use ratatui::Frame;
@@ -32,6 +32,9 @@ const BORDER: Color = Color::Rgb(36, 66, 130);
 const YELLOW: Color = Color::Rgb(240, 190, 80);
 const PANEL: Color = Color::Rgb(16, 22, 36);
 /// The text box grows with its content up to this many rows.
+/// How long an alert or a refusal keeps the snail yellow or red.
+const FLASH: Duration = Duration::from_millis(4500);
+
 const MAX_INPUT_ROWS: usize = 8;
 /// Entries of a long list shown at once.
 const LIST_ROWS: usize = 8;
@@ -246,6 +249,13 @@ pub struct App {
     /// Rows a PageUp moves: the conversation height at the last draw.
     page: usize,
     busy: Option<(String, Instant)>,
+    /// The snail's working mood, a short flash over it (alert, denied), how
+    /// far its animation has run and when it was last drawn: the pace follows
+    /// the mood, so the frame is a running total, not the clock.
+    mood: Mood,
+    flash: Option<(Mood, Instant)>,
+    phase: f32,
+    last_draw: Instant,
     status: Status,
     asking: Option<Asking>,
     suggest: usize,
@@ -273,6 +283,10 @@ impl App {
             scroll: 0,
             page: 10,
             busy: None,
+            mood: Mood::Calm,
+            flash: None,
+            phase: 0.0,
+            last_draw: Instant::now(),
             status,
             asking: None,
             suggest: 0,
@@ -302,6 +316,18 @@ impl App {
         self.asking.is_some()
     }
 
+    /// The mood the snail shows now: yellow while a question waits for the
+    /// user, a flash (alert, denied) for a few seconds, else the working mood.
+    pub fn mood(&self) -> Mood {
+        if self.asking.is_some() {
+            return Mood::Alert;
+        }
+        match self.flash {
+            Some((m, at)) if at.elapsed() < FLASH => m,
+            _ => self.mood,
+        }
+    }
+
     pub fn closing(&self) -> bool {
         self.closing.load(Ordering::SeqCst)
     }
@@ -317,8 +343,15 @@ impl App {
             Out::Stream(kind, delta) => self.transcript.stream(kind, &delta),
             Out::Busy(label) => {
                 let since = self.busy.as_ref().map_or_else(Instant::now, |(_, t)| *t);
+                match (&label, self.mood) {
+                    (None, _) => self.mood = Mood::Calm,
+                    (Some(_), Mood::Calm) => self.mood = Mood::Run,
+                    _ => {}
+                }
                 self.busy = label.map(|l| (l, since));
             }
+            Out::Mood(m) if m.is_flash() => self.flash = Some((m, Instant::now())),
+            Out::Mood(m) => self.mood = m,
             Out::Status(s) => self.status = s,
             Out::Usage(u) => self.status.usage = u,
             Out::Context(c) => self.status.context = Some(c),
@@ -850,7 +883,7 @@ impl App {
             Some((Question::Plan { .. }, Stage::Write)) => Some("o que mudar"),
             Some((_, Stage::Write)) => Some("motivo"),
             Some((Question::Select { .. }, _)) => Some("filtrar"),
-            Some((Question::Secret { .. }, _)) => Some("chave de API"),
+            Some((Question::Secret { .. }, _)) => Some("API key"),
             _ if self.status.plan => Some("modo plano: somente leitura"),
             _ => None,
         }
@@ -859,7 +892,14 @@ impl App {
     pub fn draw(&mut self, f: &mut Frame) {
         let area = f.area();
         let tick = self.started.elapsed();
-        let frame = (tick.as_millis() / splash::FRAME.as_millis()) as usize;
+        // The name types itself in on the clock; the snail's frame is a
+        // running total so a change of mood changes the pace, never jumps.
+        let typed = (tick.as_millis() / splash::FRAME.as_millis()) as usize;
+        let mood = self.mood();
+        let dt = self.last_draw.elapsed().min(Duration::from_millis(250));
+        self.last_draw = Instant::now();
+        self.phase += dt.as_secs_f32() / splash::FRAME.as_secs_f32() * mood.speed();
+        let frame = self.phase as usize;
         let logo = area.width as usize >= splash::logo_width() + 2 && area.height as usize >= splash::ROWS + 12;
         let header_h = if logo { splash::ROWS as u16 + 1 } else { 2 };
 
@@ -884,7 +924,7 @@ impl App {
         .areas(area);
 
         if logo {
-            draw_logo(f.buffer_mut(), header, frame);
+            draw_logo(f.buffer_mut(), header, frame, typed, mood);
         } else {
             let name = Line::from(vec![
                 Span::styled(" Code", Style::new().fg(SOFT).add_modifier(Modifier::BOLD)),
@@ -962,6 +1002,13 @@ impl App {
             right.push_str(&format!(" · contexto {c}%"));
         }
         right.push(' ');
+        // The folder sits next to the model; what does not fit is cut down to
+        // the last three folders, then fewer.
+        let room = (status.width as usize).saturating_sub(left.chars().count() + right.chars().count() + 4);
+        if !s.folder.is_empty() && room >= 6 {
+            left.push_str(" · ");
+            left.push_str(&super::path::short_path(&s.folder, room));
+        }
         f.render_widget(Paragraph::new(Line::styled(left, dim())), status);
         f.render_widget(Paragraph::new(Line::styled(right, dim())).alignment(Alignment::Right), status);
 
@@ -997,8 +1044,8 @@ impl App {
 
 /// The logo with the snail at frame `i`, drawn with half blocks: the same
 /// pixels as the terminal intro.
-fn draw_logo(buf: &mut Buffer, area: Rect, i: usize) {
-    let px = splash::pixels(i, area.width as usize);
+fn draw_logo(buf: &mut Buffer, area: Rect, snail: usize, typed: usize, mood: Mood) {
+    let px = splash::pixels_mood(snail, typed, area.width as usize, mood);
     for (row, pair) in px.chunks(2).enumerate() {
         let y = area.y + row as u16;
         if y >= area.bottom() || pair.len() < 2 {
