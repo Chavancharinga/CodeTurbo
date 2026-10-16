@@ -93,10 +93,11 @@ agente mantém abertas.
 
 <p align="center"><img src="docs/screens/live-code.png" alt="Código sendo escrito ao vivo numa caixa, ao lado de duas páginas reais do GitHub" width="900"></p>
 
-**Bugs encontrados e corrigidos à vista.** Cada alteração aparece como diff,
-linha a linha, enquanto a lista de tarefas avança.
+**Um debugger que aponta a linha exata.** Quando uma checagem falha, as linhas
+com problema aparecem com a coluna e o motivo, o caracol fica amarelo e a
+correção começa sozinha.
 
-<p align="center"><img src="docs/screens/fixing.png" alt="Diffs de duas correções, a lista de tarefas e duas páginas do GitHub" width="900"></p>
+<p align="center"><img src="docs/screens/debugger.png" alt="O debugger mostrando duas falhas de lint com suas linhas, a barra FIX começando" width="900"></p>
 
 **A verificação a toda velocidade.** O caracol corre com tudo enquanto a análise
 e os testes carregam, barra a barra.

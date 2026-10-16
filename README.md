@@ -90,10 +90,11 @@ open.
 
 <p align="center"><img src="docs/screens/live-code.png" alt="Code being written live in a box, next to two real GitHub pages" width="900"></p>
 
-**Bugs found and fixed in the open.** Every change is shown as a diff, line by
-line, while the task list moves forward.
+**A debugger that points at the exact line.** When a check fails, the failing
+lines are shown with the column and the reason, the snail turns yellow, and the
+fix starts on its own.
 
-<p align="center"><img src="docs/screens/fixing.png" alt="Diffs of two fixes, the task list and two GitHub pages" width="900"></p>
+<p align="center"><img src="docs/screens/debugger.png" alt="The debugger showing two lint failures with their lines, the FIX bar starting" width="900"></p>
 
 **The verification gate at full speed.** The snail goes flat out while lint and
 tests load, bar by bar.
