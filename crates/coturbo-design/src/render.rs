@@ -264,8 +264,12 @@ async fn run(browser: &Path, size: (u32, u32), args: &[String]) -> Result<String
     let n = RUNS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     let profile = std::env::temp_dir().join(format!("codeturbo-render-{}-{n}", std::process::id()));
     let mut cmd = tokio::process::Command::new(browser);
-    cmd.args(["--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--allow-file-access-from-files"])
-        .arg(format!("--window-size={},{}", size.0, size.1))
+    cmd.args(["--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--allow-file-access-from-files"]);
+    // Hosted CI runners on Linux forbid the browser's own sandbox.
+    if cfg!(target_os = "linux") && std::env::var_os("CI").is_some() {
+        cmd.arg("--no-sandbox");
+    }
+    cmd.arg(format!("--window-size={},{}", size.0, size.1))
         .arg(format!("--user-data-dir={}", profile.display()))
         .args(args)
         .stdin(std::process::Stdio::null())
