@@ -956,7 +956,7 @@ fn the_mini_browser_draws_the_page_the_address_and_what_the_agent_does() {
     v.apply(browser_frame(None, false), t0);
     assert!(v.visible(t0) && v.visible(t0 + Duration::from_secs(24)));
     assert!(!v.visible(t0 + Duration::from_secs(26)), "it goes away a while after the last picture");
-    let buf = draw_browser(&v, t0);
+    let buf = draw_browser(&v, t0 + Duration::from_secs(1));
     let text = buffer_text(&buf);
     assert!(text.contains("C:/proj/index.html") && !text.contains("file://"), "the address, without the scheme:\n{text}");
     assert!(text.contains("clicando \"Sobre\""), "what the agent is doing:\n{text}");
@@ -1016,6 +1016,8 @@ fn the_conversation_makes_room_for_the_mini_browser() {
     h.app.apply(Out::Lines(vec![Line::raw("uma linha longa da conversa que precisa caber ao lado da janela do navegador")]));
     let wide = screen_rows(&mut h, 130, 36);
     h.app.apply(Out::Browser(browser_frame(Some((100.0, 80.0)), false)));
+    // Let it finish opening.
+    std::thread::sleep(std::time::Duration::from_millis(700));
     let rows = screen_rows(&mut h, 130, 36);
     let all = rows.join("\n");
     assert!(all.contains("C:/proj/index.html") && all.contains("clicando"), "the window is on screen:\n{all}");
@@ -1038,4 +1040,67 @@ fn browse_reads_as_a_step_count_in_the_status_line() {
     use coturbo_cli::tui::host::action_label;
     use serde_json::json;
     assert_eq!(action_label("browse", &json!({"actions": [{"do": "open"}, {"do": "snapshot"}, {"do": "click"}]})), "browse · 3 step(s)");
+}
+
+#[test]
+fn the_mini_browser_opens_from_the_corner_page_on_top_to_bottom_and_closes_back() {
+    use coturbo_cli::tui::browser::BrowserView;
+    use std::time::{Duration, Instant};
+    let ms = Duration::from_millis;
+    let t0 = Instant::now();
+    let mut v = BrowserView::default();
+    assert_eq!(v.progress(t0), 0.0, "nothing before the first picture");
+    v.apply(browser_frame(Some((100.0, 80.0)), false), t0);
+    // It opens: the progress rises smoothly and is complete by the end.
+    let p = |t: u64| v.progress(t0 + ms(t));
+    assert!(p(0) < 0.05 && p(100) < p(250) && p(250) < p(400) && p(400) < 1.0, "{} {} {}", p(100), p(250), p(400));
+    assert_eq!(p(700), 1.0);
+    assert_eq!(p(20_000), 1.0, "and stays open");
+    // It grows from the top right corner: the left edge of the frame travels to the left.
+    let left = |t: u64| find_symbol(&draw_browser(&v, t0 + ms(t)), "╭").first().map(|c| c.0);
+    let (a, b, c) = (left(120).unwrap(), left(280).unwrap(), left(700).unwrap());
+    assert!(a > b && b > c && c == 0, "{a} {b} {c}");
+    let top = |t: u64| find_symbol(&draw_browser(&v, t0 + ms(t)), "╭").first().map(|c| c.1);
+    assert_eq!(top(120), Some(0), "anchored at the top");
+    // The page is not there while the frame opens; it then appears from the top down.
+    let rows_with_page = |t: u64| {
+        let buf = draw_browser(&v, t0 + ms(t));
+        let mut rows: Vec<u16> = find_symbol(&buf, "▀").iter().map(|c| c.1).collect();
+        rows.sort_unstable();
+        rows.dedup();
+        rows
+    };
+    assert!(rows_with_page(60).is_empty(), "frame first");
+    let (early, later, full) = (rows_with_page(300), rows_with_page(420), rows_with_page(900));
+    assert!(!early.is_empty() && early.len() < later.len() && later.len() < full.len(), "{} < {} < {}", early.len(), later.len(), full.len());
+    assert_eq!(early.first(), full.first(), "it reveals downwards from the same top row");
+    // It closes after the lingering, shrinking back, and is gone after that.
+    let linger = ms(25_000);
+    assert_eq!(v.progress(t0 + linger), 1.0);
+    let half = v.progress(t0 + linger + ms(170));
+    assert!(half > 0.1 && half < 0.9, "{half}");
+    assert_eq!(v.progress(t0 + linger + ms(400)), 0.0);
+    assert!(v.visible(t0 + linger + ms(200)) && !v.visible(t0 + linger + ms(400)), "visible while it closes, not after");
+    assert!(draw_browser(&v, t0 + linger + ms(400)).content.iter().all(|c| c.symbol() == " "), "nothing left drawn");
+    // A new picture while it closes opens it again from where it is.
+    let mid = t0 + linger + ms(170);
+    v.apply(browser_frame(Some((100.0, 80.0)), false), mid);
+    assert!(v.progress(mid) > 0.1 && v.progress(mid) < 0.9, "it does not jump: {}", v.progress(mid));
+    assert!(v.progress(mid + ms(100)) > v.progress(mid));
+    assert_eq!(v.progress(mid + ms(900)), 1.0);
+}
+
+#[test]
+fn the_conversation_gives_way_as_the_window_opens() {
+    let mut h = harness();
+    h.app.apply(Out::Lines(vec![Line::raw("uma linha longa da conversa que precisa caber ao lado da janela do navegador")]));
+    h.app.apply(Out::Browser(browser_frame(Some((100.0, 80.0)), false)));
+    // Just opened: the window is a small frame in the corner and the text still has most of the room.
+    let start = screen_rows(&mut h, 130, 36).join("\n");
+    assert!(start.contains("uma linha longa da conversa que precisa caber ao lado da janela do navegador"), "{start}");
+    assert!(!start.contains("index.html"), "no address yet: the page has not appeared");
+    std::thread::sleep(std::time::Duration::from_millis(700));
+    let open = screen_rows(&mut h, 130, 36).join("\n");
+    assert!(open.contains("index.html") && open.contains("clicando"), "{open}");
+    assert!(!open.contains("uma linha longa da conversa que precisa caber ao lado da janela do navegador"), "the text wrapped to make room");
 }

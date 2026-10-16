@@ -107,5 +107,33 @@ async fn main() {
     std::thread::sleep(Duration::from_millis(90));
     term.draw(|f| app.draw(f)).unwrap();
     std::fs::write(out.join("clique.html"), screen_html::html(term.backend().buffer())).unwrap();
+    // The opening, in four instants after the first picture.
+    let (tx2, _r2) = tokio::sync::mpsc::unbounded_channel();
+    let (c2, _c2r) = tokio::sync::mpsc::unbounded_channel();
+    let status2 = Status { provider: "claude-code".into(), model: "sonnet".into(), approval: "edição livre".into(), folder: r"C:\Users\danie\Music\CoTurbon\sandbox\loja".into(), ..Status::default() };
+    let mut film = App::new(status2, tx2, c2, Arc::new(AtomicBool::new(false)));
+    film.apply(Out::Lines(vec![
+        line(vec![Span::raw("› teste o fluxo de compra da loja")]),
+        Line::default(),
+        tool("browse", "· 5 step(s)"),
+        Line::default(),
+        line(vec![Span::styled("    1. abriu index.html — \"Casa do Café\"", Style::new().fg(Color::Rgb(110, 125, 150)))]),
+    ]));
+    film.apply(Out::Busy(Some("browse · 5 step(s)".into())));
+    std::thread::sleep(Duration::from_millis(1800));
+    film.apply(Out::Browser(frames[0].clone()));
+    let mut strip = String::from("<!doctype html><meta charset=utf-8><body style='margin:0;background:#0d1117;display:grid;grid-template-columns:1fr 1fr'>");
+    let mut term2 = Terminal::new(TestBackend::new(110, 22)).unwrap();
+    let mut last = 0u64;
+    for at in [120u64, 260, 400, 640] {
+        std::thread::sleep(Duration::from_millis(at - last));
+        last = at;
+        term2.draw(|f| film.draw(f)).unwrap();
+        strip.push_str(&format!(
+            "<div style='zoom:.62'><div style='color:#8a96ab;font:20px Consolas;padding:4px 10px'>+{at} ms</div>{}</div>",
+            screen_html::fragment(term2.backend().buffer())
+        ));
+    }
+    std::fs::write(out.join("abrindo.html"), strip).unwrap();
     eprintln!("gravado em {}", out.display());
 }

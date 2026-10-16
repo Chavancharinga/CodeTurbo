@@ -22,10 +22,11 @@ fn hex(c: Color, default: &str) -> String {
 
 
 /// The screen as an HTML page.
-pub fn html(buf: &Buffer) -> String {
+/// Only the `<pre>` of the screen, to put several on one page.
+pub fn fragment(buf: &Buffer) -> String {
     let (bg0, fg0) = ("#0d1117", "#c9d1d9");
     let mut html = format!(
-        "<!doctype html><meta charset=utf-8><body style='margin:0;background:{bg0}'><pre style=\"margin:0;padding:10px;font:14px/1 'Cascadia Mono',Consolas,monospace;color:{fg0};background:{bg0}\">"
+        "<pre style=\"margin:0 0 6px 0;padding:6px;font:14px/1 'Cascadia Mono',Consolas,monospace;color:{fg0};background:{bg0}\">"
     );
     for y in 0..buf.area.height {
         let mut x = 0;
@@ -51,4 +52,9 @@ pub fn html(buf: &Buffer) -> String {
     }
     html.push_str("</pre>");
     html
+}
+
+/// The screen as a whole HTML page.
+pub fn html(buf: &Buffer) -> String {
+    format!("<!doctype html><meta charset=utf-8><body style='margin:0;background:#0d1117'>{}", fragment(buf))
 }

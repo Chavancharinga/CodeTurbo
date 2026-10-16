@@ -987,7 +987,11 @@ impl App {
             if body.width > pw + 30 {
                 let ph = self.browser.rows_for(pw).min(body.height);
                 browser_rect = Some(Rect { x: body.right() - pw, y: body.y, width: pw, height: ph });
-                body.width -= pw + 1;
+                // The conversation gives way as the window opens, and takes the room back as it closes.
+                let given = (pw as f32 * self.browser.progress(now)).round() as u16;
+                if given > 0 {
+                    body.width -= given + 1;
+                }
             }
         }
         self.page = (body.height as usize).saturating_sub(2).max(1);

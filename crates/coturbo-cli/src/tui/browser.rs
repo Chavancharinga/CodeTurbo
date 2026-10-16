@@ -16,6 +16,11 @@ const DIM: Color = Color::Rgb(110, 125, 150);
 const BORDER: Color = Color::Rgb(36, 66, 130);
 /// How long the window stays after the last picture.
 const LINGER: Duration = Duration::from_secs(25);
+/// The window grows from the corner in this long, and shrinks back in [`CLOSE`].
+const OPEN: Duration = Duration::from_millis(520);
+const CLOSE: Duration = Duration::from_millis(340);
+/// The page shows from this point of the opening, top to bottom.
+const PAGE_FROM: f32 = 0.3;
 /// How long the pointer takes to reach a new target.
 const TRAVEL: Duration = Duration::from_millis(380);
 const PRESS: Duration = Duration::from_millis(260);
@@ -94,6 +99,8 @@ pub struct BrowserView {
     moved_at: Option<Instant>,
     clicked_at: Option<Instant>,
     touched: Option<Instant>,
+    /// When the window began to open.
+    opened_at: Option<Instant>,
     steps: usize,
 }
 
@@ -121,6 +128,9 @@ impl BrowserView {
         if f.clicked {
             self.clicked_at = Some(now);
         }
+        // A window that is not on screen opens; one that is closing opens again from where it is.
+        let p = self.progress(now);
+        self.opened_at = Some(if p >= 1.0 { self.opened_at.unwrap_or(now) } else { now.checked_sub(OPEN.mul_f32(p)).unwrap_or(now) });
         self.touched = Some(now);
         self.steps += 1;
     }
@@ -129,9 +139,23 @@ impl BrowserView {
         *self = Self::default();
     }
 
-    /// Whether the window is on screen: a while after the last picture.
+    /// Whether the window is on screen: a while after the last picture, and
+    /// the moment it takes to close.
     pub fn visible(&self, now: Instant) -> bool {
-        self.pixels.is_some() && self.touched.is_some_and(|t| now.saturating_duration_since(t) < LINGER)
+        self.pixels.is_some() && self.touched.is_some_and(|t| now.saturating_duration_since(t) < LINGER + CLOSE)
+    }
+
+    /// How open the window is, 0 to 1: it opens from the corner, stays, and closes.
+    pub fn progress(&self, now: Instant) -> f32 {
+        let (Some(opened), Some(touched)) = (self.opened_at, self.touched) else { return 0.0 };
+        if self.pixels.is_none() {
+            return 0.0;
+        }
+        let idle = now.saturating_duration_since(touched);
+        if idle >= LINGER {
+            return 1.0 - ease((idle - LINGER).as_secs_f32() / CLOSE.as_secs_f32());
+        }
+        ease(now.saturating_duration_since(opened).as_secs_f32() / OPEN.as_secs_f32())
     }
 
     /// Where the pointer is drawn at `now`, in page pixels.
@@ -151,11 +175,16 @@ impl BrowserView {
         (inner * h / w / 2.0).ceil() as u16 + 4
     }
 
-    /// Draws the window into `rect`.
+    /// Draws the window into `rect`, as open as it is at `now`.
     pub fn draw(&self, buf: &mut Buffer, rect: Rect, now: Instant) {
-        if rect.width < 12 || rect.height < 6 {
+        let p = self.progress(now);
+        if p <= 0.0 || rect.width < 12 || rect.height < 6 {
             return;
         }
+        // It grows from the top right corner; the page appears top to bottom once the frame is there.
+        let (w, h) = (((rect.width as f32 * p).round() as u16).max(12).min(rect.width), ((rect.height as f32 * p).round() as u16).max(6).min(rect.height));
+        let rect = Rect { x: rect.right() - w, y: rect.y, width: w, height: h };
+        let reveal = if p >= 1.0 { 1.0 } else { ((p - PAGE_FROM) / (1.0 - PAGE_FROM)).clamp(0.0, 1.0) };
         let block = Block::new().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::new().fg(BORDER));
         let inner = block.inner(rect);
         block.render(rect, buf);
@@ -183,7 +212,8 @@ impl BrowserView {
         let out_h = (((vh * scale).round() as usize).clamp(2, page.height as usize * 2)) & !1;
         let grid = px.scaled(out_w, out_h);
         let (ox, oy) = (page.x + ((page.width as usize - out_w) / 2) as u16, page.y);
-        for row in 0..out_h / 2 {
+        let shown_rows = ((out_h / 2) as f32 * reveal).ceil() as usize;
+        for row in 0..shown_rows.min(out_h / 2) {
             for col in 0..out_w {
                 let (t, b) = (grid[row * 2 * out_w + col], grid[(row * 2 + 1) * out_w + col]);
                 let cell = &mut buf[(ox + col as u16, oy + row as u16)];
@@ -195,7 +225,7 @@ impl BrowserView {
         let (mx, my) = ((cx * scale).round() as i32, (cy * scale / 2.0).round() as i32);
         let at = |dx: i32, dy: i32| -> Option<(u16, u16)> {
             let (x, y) = (mx + dx, my + dy);
-            (x >= 0 && y >= 0 && (x as usize) < out_w && (y as usize) < out_h / 2).then(|| (ox + x as u16, oy + y as u16))
+            (x >= 0 && y >= 0 && (x as usize) < out_w && (y as usize) < shown_rows.min(out_h / 2)).then(|| (ox + x as u16, oy + y as u16))
         };
         let mut put = |p: Option<(u16, u16)>, sym: &str, fg: Color| {
             if let Some((x, y)) = p {
