@@ -174,5 +174,5 @@ pub async fn self_update() -> Result<String, String> {
     let bytes = extract_binary(&archive)?;
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     replace_binary(&exe, &bytes)?;
-    Ok(format!("CodeTurbo atualizado: v{VERSION} -> {tag}."))
+    Ok(format!("CodeTurbo updated: v{VERSION} -> {tag}."))
 }

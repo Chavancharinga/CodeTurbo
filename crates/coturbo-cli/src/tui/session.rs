@@ -719,7 +719,7 @@ impl Session {
         match result {
             Ok(msg) => {
                 self.info(&msg);
-                if msg.starts_with("CodeTurbo atualizado") {
+                if msg.starts_with("CodeTurbo updated") {
                     self.info("Close and reopen CodeTurbo to use the new version.");
                 }
             }
