@@ -39,8 +39,26 @@ fn site() -> tempfile::TempDir {
     dir
 }
 
+/// A browser that can be started here. Some hosted Linux runners have one
+/// installed that cannot open (no display services, confined profile
+/// folder); there the browser tests are skipped, as when none is installed.
+async fn working_browser() -> Option<std::path::PathBuf> {
+    let path = coturbo_design::render::find_browser()?;
+    match coturbo_browse::Browser::open(&path, (400, 300)).await {
+        Ok(b) => {
+            b.close().await;
+            Some(path)
+        }
+        Err(e) if std::env::var_os("CI").is_some() => {
+            eprintln!("skipping: the browser does not start here: {e}");
+            None
+        }
+        Err(e) => panic!("the browser does not start: {e}"),
+    }
+}
+
 async fn browse(root: &Path, actions: Vec<Action>) -> Option<(coturbo_browse::Report, Vec<Frame>)> {
-    let browser = coturbo_design::render::find_browser()?;
+    let browser = working_browser().await?;
     let mut frames = Vec::new();
     let report = run(&browser, root, &actions, (1000, 650), &mut |f| frames.push(f)).await.expect("the session runs");
     Some((report, frames))
@@ -161,7 +179,7 @@ async fn it_uses_references_scrolls_and_resizes_for_a_phone() {
 #[tokio::test]
 async fn the_browser_stays_open_between_calls_with_the_page_as_it_was() {
     let dir = site();
-    let Some(path) = coturbo_design::render::find_browser() else { return };
+    let Some(path) = working_browser().await else { return };
     let mut browser = coturbo_browse::Browser::open(&path, (1000, 650)).await.expect("opens");
     let mut frames = Vec::new();
     // First call: open the page and fill the form, without sending it.
