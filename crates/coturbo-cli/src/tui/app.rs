@@ -677,7 +677,14 @@ impl App {
         }
         self.transcript.extend(task_lines(task));
         if self.busy.is_some() {
-            self.transcript.push(Line::styled("  queued: starts when the current task ends", dim()));
+            if matches!(commands::parse(task), Parsed::Command(..)) {
+                // A command does not wait behind a task that may be stuck: the
+                // task stops and the command runs now.
+                let _ = self.cancel.send(());
+                self.transcript.push(Line::styled("  task stopped to run the command", dim()));
+            } else {
+                self.transcript.push(Line::styled("  queued: starts when the current task ends", dim()));
+            }
         }
         let _ = self.tx.send(In::Submit(task.to_string()));
     }

@@ -21,21 +21,26 @@ fn plain(line: &Line) -> String {
 }
 
 #[test]
-fn commands_parse_in_portuguese_and_english() {
-    assert_eq!(commands::parse("/modelo"), Parsed::Command(Command::Model, String::new()));
+fn commands_are_english_only() {
+    assert_eq!(commands::parse("/model"), Parsed::Command(Command::Model, String::new()));
     assert_eq!(commands::parse("/models"), Parsed::Command(Command::Model, String::new()));
-    assert_eq!(commands::parse("  /Modelo qwen2.5:7b "), Parsed::Command(Command::Model, "qwen2.5:7b".into()));
+    assert_eq!(commands::parse("  /Model qwen2.5:7b "), Parsed::Command(Command::Model, "qwen2.5:7b".into()));
     assert_eq!(commands::parse("/provider"), Parsed::Command(Command::Provider, String::new()));
-    assert_eq!(commands::parse("/aprovação yolo"), Parsed::Command(Command::Approval, "yolo".into()));
+    assert_eq!(commands::parse("/approval yolo"), Parsed::Command(Command::Approval, "yolo".into()));
+    assert_eq!(commands::parse("/effort high"), Parsed::Command(Command::Effort, "high".into()));
+    // The old Portuguese names are gone.
+    for old in ["/modelo", "/provedor", "/chave", "/aprovacao", "/sair", "/ajuda"] {
+        assert_eq!(commands::parse(old), Parsed::Unknown(old.into()), "{old}");
+    }
     assert_eq!(commands::parse("/xyz"), Parsed::Unknown("/xyz".into()));
-    assert_eq!(commands::parse("/src/main.rs tem um erro"), Parsed::Task, "a path is a task");
-    assert_eq!(commands::parse("crie um site"), Parsed::Task);
+    assert_eq!(commands::parse("/src/main.rs has a bug"), Parsed::Task, "a path is a task");
+    assert_eq!(commands::parse("build a site"), Parsed::Task);
     assert_eq!(commands::parse("/"), Parsed::Task);
     let names: Vec<_> = commands::suggestions("/mo").iter().map(|c| c.name).collect();
     assert_eq!(names, ["/model"]);
     assert_eq!(commands::suggestions("/").len(), commands::COMMANDS.len());
-    assert!(commands::suggestions("/modelo x").is_empty(), "no list once arguments start");
-    assert!(commands::suggestions("texto").is_empty());
+    assert!(commands::suggestions("/model x").is_empty(), "no list once arguments start");
+    assert!(commands::suggestions("text").is_empty());
 }
 
 #[test]
@@ -267,7 +272,7 @@ fn a_partly_typed_command_runs_the_suggestion() {
     assert_eq!(h.app.input().text(), "/provider ");
     h.ctrl('c');
     assert!(h.app.input().is_empty(), "Ctrl+C clears the box first");
-    h.typed("/sair");
+    h.typed("/exit");
     h.press(KeyCode::Enter);
     assert_eq!(h.rx.try_recv().unwrap(), In::Quit);
     assert!(h.app.closing());
@@ -1448,4 +1453,18 @@ fn agy_models_are_read_from_its_listing() {
     assert_eq!(list[0].0, "gemini-3.8-flash-high");
     assert!(list[1].1.contains("Claude Sonnet 4.6"));
     assert!(coturbo_cli::models::parse_agy_models("Fetching available models...\n").is_empty());
+}
+
+#[test]
+fn a_command_typed_during_a_task_stops_the_task_and_runs() {
+    let mut h = harness();
+    h.app.apply(Out::Busy(Some("think".into())));
+    h.typed("/model");
+    h.press(KeyCode::Enter);
+    assert!(h.cancel.try_recv().is_ok(), "the running task is stopped");
+    assert_eq!(h.rx.try_recv().unwrap(), In::Submit("/model".into()));
+    // Plain text still waits its turn.
+    h.typed("and then this");
+    h.press(KeyCode::Enter);
+    assert!(h.cancel.try_recv().is_err(), "text does not stop the task");
 }

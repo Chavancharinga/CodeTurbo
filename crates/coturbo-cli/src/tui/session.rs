@@ -361,6 +361,7 @@ impl Session {
                         Command::Model => self.choose_model(&arg).await,
                         Command::Key => self.set_key().await,
                         Command::Approval => self.choose_approval(&arg).await,
+                        Command::Effort => self.choose_effort(&arg).await,
                         Command::Plan => {
                             self.plan = !self.plan;
                             if let Some(a) = agent.as_mut() {
@@ -643,7 +644,7 @@ impl Session {
             let options = APPROVAL_MODES
                 .iter()
                 .map(|(id, label)| {
-                    let current = if *id == self.cfg.approval_mode { " (atual)" } else { "" };
+                    let current = if *id == self.cfg.approval_mode { " (current)" } else { "" };
                     Choice::new(*id, format!("{label}{current}"))
                 })
                 .collect();
@@ -661,6 +662,40 @@ impl Session {
         self.cfg = next;
         self.save(&[("approval_mode", Some(&mode))]);
         self.info(format!("Approval: {}", approval_label(&mode)));
+        true
+    }
+
+    /// How hard the model thinks, for the providers and models that take it.
+    async fn choose_effort(&mut self, typed: &str) -> bool {
+        const LEVELS: [(&str, &str); 6] = [
+            ("default", "Default: what the model does on its own"),
+            ("low", "Low: quick answers, fewer tokens"),
+            ("medium", "Medium"),
+            ("high", "High: thinks longer before acting"),
+            ("xhigh", "Extra high"),
+            ("max", "Max: the deepest thinking the model offers"),
+        ];
+        let level = if typed.is_empty() {
+            let now = self.cfg.effort.clone().unwrap_or_else(|| "default".into());
+            let options = LEVELS
+                .iter()
+                .map(|(id, label)| Choice::new(*id, format!("{label}{}", if *id == now { " (current)" } else { "" })))
+                .collect();
+            let Some(l) = self.select("Reasoning effort".into(), options, false).await else { return false };
+            l
+        } else {
+            typed.trim().to_lowercase()
+        };
+        if !LEVELS.iter().any(|(id, _)| *id == level) {
+            self.warn(format!("unknown effort `{level}`: use default, low, medium, high, xhigh or max"));
+            return false;
+        }
+        let value = (level != "default").then_some(level.as_str());
+        self.cfg.effort = value.map(str::to_string);
+        self.save(&[("effort", value)]);
+        let takes = matches!(self.cfg.provider.as_str(), "anthropic" | "claude-code" | "codex" | "antigravity" | "openrouter" | "openai");
+        let note = if takes { "" } else { " (this provider does not take an effort setting; it applies when you switch to one that does)" };
+        self.info(format!("Effort: {level}{note}"));
         true
     }
 

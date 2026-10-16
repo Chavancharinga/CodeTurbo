@@ -76,7 +76,7 @@ pub fn describe(dom: &str) -> String {
 
 /// Inspects a website at `url`.
 pub async fn inspect(root: &Path, url: &str, question: &str) -> Result<Report, String> {
-    let browser = render::find_browser().ok_or("nenhum navegador encontrado (Edge ou Chrome)")?;
+    let browser = render::find_browser().ok_or("no browser found (Edge or Chrome)")?;
     let dom = render::dump_dom(&browser, url).await?;
     if dom.trim().is_empty() {
         return Err(format!("{url} não carregou"));

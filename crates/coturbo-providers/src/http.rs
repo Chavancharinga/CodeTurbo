@@ -30,11 +30,11 @@ pub(crate) enum Frame<'a> {
 }
 
 /// An HTTP client that gives up on a dead connection instead of waiting
-/// forever: 15s to connect, 180s without any byte from the server.
+/// forever: 15s to connect, 90s without any byte from the server.
 pub(crate) fn client() -> reqwest::Client {
     reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(15))
-        .read_timeout(Duration::from_secs(180))
+        .read_timeout(Duration::from_secs(90))
         .build()
         .unwrap_or_default()
 }
@@ -59,8 +59,8 @@ pub(crate) async fn stream_sse(
                 .get("retry-after")
                 .and_then(|v| v.to_str().ok()?.parse::<u64>().ok())
                 .unwrap_or(1 << attempt);
-            let why = if status == 429 { "limite de uso do provedor atingido".to_string() } else { format!("o provedor respondeu {status}") };
-            on_frame(Frame::Retry(format!("{why}; nova tentativa em {wait}s ({}/{MAX_RETRIES})", attempt + 1)))?;
+            let why = if status == 429 { "the provider's usage limit was reached".to_string() } else { format!("the provider answered {status}") };
+            on_frame(Frame::Retry(format!("{why}; trying again in {wait}s ({}/{MAX_RETRIES})", attempt + 1)))?;
             tokio::time::sleep(Duration::from_secs(wait.min(60))).await;
             attempt += 1;
             continue;

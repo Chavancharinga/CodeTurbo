@@ -576,7 +576,7 @@ impl Tools {
         let text = std::fs::read_to_string(&abs).map_err(|e| format!("{rel}: {e}"))?;
         let rel = self.display(&abs);
         let mut findings = fiscal::check(&rel, &text, Contract::load(&self.root).as_ref());
-        let browser = render::find_browser().ok_or("nenhum navegador encontrado (Edge ou Chrome); defina CODETURBO_BROWSER")?;
+        let browser = render::find_browser().ok_or("no browser found (Edge or Chrome); set CODETURBO_BROWSER")?;
         let stem = abs.file_stem().map_or("page".into(), |s| s.to_string_lossy().into_owned());
         let shot = self.root.join(".codeturbo/design").join(format!("{stem}.png"));
         let page = render::measure(&browser, &abs, &shot).await?;

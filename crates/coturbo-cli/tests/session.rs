@@ -214,14 +214,14 @@ async fn a_session_runs_tasks_switches_models_and_quits() {
     assert_eq!(done.len(), 2, "{done:?}");
     assert!(done[1].contains("s · task tokens"), "shows how long it took: {}", done[1]);
     let before = chats.load(Ordering::SeqCst);
-    tx.send(In::Submit("/repetir".into())).unwrap();
+    tx.send(In::Submit("/retry".into())).unwrap();
     for _ in 0..200 {
         if chats.load(Ordering::SeqCst) > before {
             break;
         }
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
-    assert_eq!(chats.load(Ordering::SeqCst), before + 1, "/repetir runs the last task again");
+    assert_eq!(chats.load(Ordering::SeqCst), before + 1, "/retry runs the last task again");
     wait_for(&seen, "› de novo").await;
     tx.send(In::Submit("/usage".into())).unwrap();
     wait_for(&seen, "Session: tokens").await;

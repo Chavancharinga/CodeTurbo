@@ -337,10 +337,10 @@ async fn read_claude(child: &mut tokio::process::Child, on_text: &mut TextSink<'
         if let Some(mut e) = child.stderr.take() {
             let _ = tokio::time::timeout(Duration::from_millis(500), e.read_to_string(&mut err)).await;
         }
-        return Err(other(format!("resposta inesperada do claude: {}", err.trim())));
+        return Err(other(format!("unexpected answer from claude: {}", err.trim())));
     };
     if v["is_error"].as_bool() == Some(true) {
-        return Err(other(format!("claude: {}", v["result"].as_str().unwrap_or("erro"))));
+        return Err(other(format!("claude: {}", v["result"].as_str().unwrap_or("error"))));
     }
     let text = v["result"].as_str().filter(|t| !t.is_empty()).map_or_else(|| stream.text().to_string(), str::to_string);
     Ok((text, claude_usage(&v), shown))
@@ -348,7 +348,7 @@ async fn read_claude(child: &mut tokio::process::Child, on_text: &mut TextSink<'
 
 /// The reply and token counts from the JSON `agy -p --output-format json` prints.
 pub fn parse_antigravity(body: &str) -> Result<(String, Usage), String> {
-    let v: Value = serde_json::from_str(body.trim()).map_err(|_| "resposta inesperada".to_string())?;
+    let v: Value = serde_json::from_str(body.trim()).map_err(|_| "unexpected answer".to_string())?;
     if v["status"].as_str().is_some_and(|s| s != "SUCCESS") || v["error"].is_string() {
         return Err(v["error"].as_str().unwrap_or("the run failed").to_string());
     }
@@ -398,6 +398,9 @@ async fn agy_complete(req: &Request, system: &str, prompt: &str, work: &std::pat
         };
         let mut cmd = tokio::process::Command::new(resolve(Tool::Antigravity));
         cmd.arg("-p").arg(arg).args(["--output-format", "stream-json"]);
+        if let Some(effort) = &req.effort {
+            cmd.arg("--effort").arg(effort);
+        }
         if !req.model.is_empty() && req.model != "padrao" {
             cmd.arg("--model").arg(&req.model);
         }
@@ -471,10 +474,18 @@ impl Provider for CliProvider {
                     if !req.model.is_empty() && req.model != "padrao" {
                         cmd.arg("--model").arg(&req.model);
                     }
+                    if let Some(effort) = &req.effort {
+                        cmd.arg("--effort").arg(effort);
+                    }
                 }
                 Tool::Antigravity => unreachable!("handled by agy_complete"),
                 Tool::Codex => {
                     cmd.args(["exec", "--skip-git-repo-check", "--sandbox", "read-only", "--output-last-message"]).arg(&last);
+                    if let Some(effort) = &req.effort {
+                        // Codex takes low, medium and high.
+                        let level = if matches!(effort.as_str(), "xhigh" | "max") { "high" } else { effort.as_str() };
+                        cmd.arg("-c").arg(format!("model_reasoning_effort={level}"));
+                    }
                     if !req.model.is_empty() && req.model != "padrao" {
                         cmd.arg("--model").arg(&req.model);
                     }

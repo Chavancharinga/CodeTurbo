@@ -9,3 +9,6 @@ sandbox/
 !.env.example
 *.pem
 credentials.toml
+
+# internal notes, not published
+docs/analise-rivais.md

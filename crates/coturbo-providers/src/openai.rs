@@ -59,7 +59,7 @@ pub fn build_body(req: &Request) -> Value {
                 }
                 if !images.is_empty() {
                     // Tool messages carry text only: images follow as a user message.
-                    let mut content = vec![json!({"type": "text", "text": if text.is_empty() { "Imagem anexada." } else { text.as_str() }})];
+                    let mut content = vec![json!({"type": "text", "text": if text.is_empty() { "Image attached." } else { text.as_str() }})];
                     content.extend(images);
                     messages.push(json!({"role": "user", "content": content}));
                 } else if !text.is_empty() {
@@ -206,7 +206,20 @@ impl Provider for OpenAiCompat {
         on_text: &'a mut TextSink<'_>,
     ) -> BoxFuture<'a, Result<Response, ProviderError>> {
         Box::pin(async move {
-            let body = build_body(req);
+            let mut body = build_body(req);
+            // Reasoning effort where the server takes it: OpenRouter's `reasoning`
+            // object, OpenAI's `reasoning_effort`; local servers get nothing.
+            if let Some(effort) = &req.effort {
+                let level = match effort.as_str() {
+                    "xhigh" | "max" => "high",
+                    other => other,
+                };
+                if self.base_url.contains("openrouter.ai") {
+                    body["reasoning"] = json!({"effort": level});
+                } else if self.base_url.contains("api.openai.com") {
+                    body["reasoning_effort"] = json!(level);
+                }
+            }
             let url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
             let mut acc = StreamAcc::default();
             let limits = http::stream_sse(
