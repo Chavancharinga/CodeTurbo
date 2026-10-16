@@ -188,6 +188,10 @@ pub trait Provider: Send + Sync {
         req: &'a Request,
         on_text: &'a mut TextSink<'_>,
     ) -> BoxFuture<'a, Result<Response, ProviderError>>;
+
+    /// Gets ready for a first request with this model while the user is still
+    /// typing (a program that is slow to start, started ahead). Optional.
+    fn warm(&self, _model: &str, _effort: Option<&str>) {}
 }
 
 /// Parses accumulated tool-call JSON; invalid input is flagged, never dropped.

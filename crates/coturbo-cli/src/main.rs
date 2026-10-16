@@ -12,7 +12,7 @@ use std::process::ExitCode;
 #[derive(Parser)]
 #[command(name = "codeturbo", version, about = "A coding agent that delivers verified code for fewer tokens. With no subcommand it opens the interface.", disable_help_subcommand = true)]
 struct Cli {
-    /// Tarefa enviada assim que a interface abre.
+    /// Task sent as soon as the interface opens.
     prompt: Option<String>,
     #[command(flatten)]
     opts: Opts,
@@ -20,7 +20,7 @@ struct Cli {
     cmd: Option<Cmd>,
 }
 
-/// Substituem os valores do config.toml.
+/// Override the values in config.toml.
 #[derive(Args)]
 struct Opts {
     /// anthropic | openai | openrouter | ollama
@@ -38,46 +38,46 @@ struct Opts {
     effort: Option<String>,
     #[arg(long, global = true)]
     base_url: Option<String>,
-    /// Pasta do projeto onde as ferramentas atuam (padrão: a pasta atual).
+    /// Project folder the tools work in (default: the current folder).
     #[arg(long, global = true)]
     root: Option<PathBuf>,
     /// always-ask | write | yolo
     #[arg(long, global = true)]
     approval_mode: Option<String>,
-    /// Começa no modo plano: somente leitura até você aprovar um plano.
+    /// Start in plan mode: read-only until you approve a plan.
     #[arg(long, global = true)]
     plan: bool,
-    /// Modelo usado no planejamento (por exemplo, um mais forte que o --model).
+    /// Model used for planning (for example, a stronger one than --model).
     #[arg(long, global = true)]
     plan_model: Option<String>,
-    /// Aprova todas as ações (o mesmo que --approval-mode yolo).
+    /// Approve every action (same as --approval-mode yolo).
     #[arg(long, global = true)]
     auto_approve: bool,
-    /// Mostra a contagem de tokens após cada rodada.
+    /// Show the token count after each round.
     #[arg(short, long, global = true)]
     verbose: bool,
 }
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Executa uma tarefa e sai.
+    /// Run one task and exit.
     Run { task: String },
-    /// Mostra a animação de abertura do CodeTurbo.
+    /// Show CodeTurbo's opening animation.
     Splash,
-    /// Atualiza o CodeTurbo para a versão mais recente.
+    /// Update CodeTurbo to the latest version.
     Update,
-    /// Comparação A/B dos conjuntos de ferramentas sobre um projeto de teste.
+    /// A/B comparison of the tool sets on a test project.
     Bench {
         #[arg(long, default_value = "bench/tasks")]
         tasks: PathBuf,
         #[arg(long, default_value = "bench/fixture")]
         fixture: PathBuf,
-        /// Conjuntos de ferramentas separados por vírgula.
+        /// Comma-separated tool sets.
         #[arg(long, default_value = "naive,ast")]
         modes: String,
         #[arg(long, default_value = "bench/runs")]
         out: PathBuf,
-        /// Apenas as tarefas cujo id contém este texto.
+        /// Only the tasks whose id contains this text.
         #[arg(long)]
         only: Option<String>,
     },
@@ -196,6 +196,7 @@ async fn real_main(cli: Cli) -> Result<ExitCode, String> {
     }
     let creds = settings::Credentials::load(dir.as_deref());
     let provider = config::make_provider(&cfg, settings::api_key(&cfg.provider, &creds))?;
+    provider.warm(&cfg.model, cfg.effort.as_deref());
     let pricer = Pricer { table: prices, model: cfg.model.clone(), provider: cfg.provider.clone() };
     let mut host = TermHost {
         verbose: cli.opts.verbose,

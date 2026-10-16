@@ -245,6 +245,9 @@ fn system_prompt(mode: Mode) -> String {
         "You are CodeTurbo, a coding agent working in the user's project. \
          Use the tools to inspect and change files; paths are relative to the project root. \
          Make the smallest change that fully solves the task, then verify it. \
+         Be fast: every reply is a round trip, so put all the tool calls that do not depend on each other \
+         in the same reply (reads, searches, independent edits, the checklist update with the work it tracks), \
+         and do not read back a file you just wrote. \
          Work like a senior engineer: read the relevant code before editing, find the root cause of an error \
          instead of patching symptoms, run what you changed (build, tests, the program), read the output, \
          and keep iterating until it really works; decide and act instead of asking when the next step is clear. \
@@ -571,11 +574,11 @@ impl<'a> Agent<'a> {
             report.turns += 1;
             let window = self.config.context_window as u64;
             if window > 0 && self.last_prompt * 10 >= window * 6 && self.last_prompt * 10 < window * 8 && self.shake(4) > 0 {
-                host.on_event(Event::Notice("contexto acima de 60%: resultados antigos de ferramentas foram resumidos"));
+                host.on_event(Event::Notice("context above 60%: old tool results were summarized"));
             }
             if window > 0 && self.last_prompt * 10 >= window * 8 && self.history.len() > 2 {
                 self.compact_midway(&task, &report);
-                host.on_event(Event::Notice("contexto acima de 80%: a conversa foi resumida para continuar"));
+                host.on_event(Event::Notice("context above 80%: the conversation was summarized to continue"));
             }
             let model = match (&self.config.plan_model, self.plan_mode) {
                 (Some(m), true) => m.clone(),
@@ -749,7 +752,7 @@ impl<'a> Agent<'a> {
         let mut choice = host.review_plan(&review).await;
         if choice == PlanChoice::KeepContext && !review.keep_context_allowed() {
             choice = PlanChoice::Compact;
-            host.on_event(Event::Notice("contexto acima de 95%: compactando antes de implementar"));
+            host.on_event(Event::Notice("context above 95%: compacting before implementing"));
         }
         match choice {
             PlanChoice::Refine(feedback) => (ToolOutput::ok(plan::refine_message(&feedback)), None),

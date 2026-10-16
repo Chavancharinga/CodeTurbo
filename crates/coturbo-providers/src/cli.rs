@@ -32,11 +32,13 @@ impl Tool {
 
 pub struct CliProvider {
     tool: Tool,
+    /// The warm Antigravity process, between turns.
+    agy: std::sync::Mutex<Option<AgySession>>,
 }
 
 impl CliProvider {
     pub fn new(tool: Tool) -> Self {
-        Self { tool }
+        Self { tool, agy: std::sync::Mutex::new(None) }
     }
 }
 
@@ -118,33 +120,51 @@ pub fn protocol_prompt(req: &Request) -> String {
     let mut seen = 0usize;
     for m in &req.messages {
         for b in &m.content {
-            match (m.role, b) {
-                (_, ContentBlock::Image { .. }) => {
-                    seen += 1;
-                    if seen > first_kept {
-                        out.push_str(&format!(
-                            "\n[image {} of {} is attached to this message, after the text]\n",
-                            seen - first_kept,
-                            total - first_kept
-                        ));
-                    } else {
-                        out.push_str("\n[an earlier image was omitted]\n");
-                    }
+            if let ContentBlock::Image { .. } = b {
+                seen += 1;
+                if seen > first_kept {
+                    out.push_str(&format!(
+                        "\n[image {} of {} is attached to this message, after the text]\n",
+                        seen - first_kept,
+                        total - first_kept
+                    ));
+                } else {
+                    out.push_str("\n[an earlier image was omitted]\n");
                 }
-                (Role::User, ContentBlock::Text { text }) => out.push_str(&format!("\n[user]\n{text}\n")),
-                (Role::Assistant, ContentBlock::Text { text }) => out.push_str(&format!("\n[assistant]\n{text}\n")),
-                (_, ContentBlock::ToolUse { name, input, .. }) => {
-                    out.push_str(&format!("{OPEN}{}{CLOSE}\n", json!({"name": name, "input": input})));
-                }
-                (_, ContentBlock::ToolResult { content, is_error, .. }) => {
-                    let tag = if *is_error { "tool error" } else { "tool result" };
-                    out.push_str(&format!("\n[{tag}]\n{content}\n"));
-                }
-                _ => {}
+            } else {
+                render_block(&mut out, m.role, b);
             }
         }
     }
     out.push_str("\n[assistant]\n");
+    out
+}
+
+/// One text block of the conversation in the text protocol.
+fn render_block(out: &mut String, role: Role, b: &ContentBlock) {
+    match (role, b) {
+        (_, ContentBlock::Image { .. }) => out.push_str("\n[an image was omitted]\n"),
+        (Role::User, ContentBlock::Text { text }) => out.push_str(&format!("\n[user]\n{text}\n")),
+        (Role::Assistant, ContentBlock::Text { text }) => out.push_str(&format!("\n[assistant]\n{text}\n")),
+        (_, ContentBlock::ToolUse { name, input, .. }) => {
+            out.push_str(&format!("{OPEN}{}{CLOSE}\n", json!({"name": name, "input": input})));
+        }
+        (_, ContentBlock::ToolResult { content, is_error, .. }) => {
+            let tag = if *is_error { "tool error" } else { "tool result" };
+            out.push_str(&format!("\n[{tag}]\n{content}\n"));
+        }
+        (_, ContentBlock::Opaque(_)) => {}
+    }
+}
+
+/// Messages in the text protocol, images left out (Antigravity gets text only).
+pub fn render_messages(messages: &[crate::Message]) -> String {
+    let mut out = String::new();
+    for m in messages {
+        for b in &m.content {
+            render_block(&mut out, m.role, b);
+        }
+    }
     out
 }
 
@@ -374,87 +394,230 @@ pub fn read_antigravity_stream(body: &str) -> Result<(String, Usage, bool), Stri
     Ok((text, usage, native))
 }
 
-/// One reply through Antigravity. Its own tools are not wanted here (the work
-/// goes through CodeTurbo's); when the model uses them anyway, it is told so
-/// and asked again, up to twice.
-async fn agy_complete(req: &Request, system: &str, prompt: &str, work: &std::path::Path, last: &std::path::Path, on_text: &mut TextSink<'_>) -> Result<Response, ProviderError> {
-    let mut nudge = String::new();
-    let mut total = Usage::default();
-    for attempt in 0..3 {
-        let full = format!(
-            "IMPORTANT: you are running inside a harness. Your built-in tools (file writing, shell, browsing) are DISABLED and must not be used;              anything you do with them is lost. To act, write <tool_call> blocks exactly as described below and nothing else.
+/// A warm `agy` process kept between turns. In streaming input it reads one
+/// message per line and keeps the conversation, so a turn sends only what is
+/// new and its prompt cache stays hot: seconds per turn instead of a cold
+/// start that re-reads the whole history every time.
+pub struct AgySession {
+    _child: tokio::process::Child,
+    stdin: tokio::process::ChildStdin,
+    lines: tokio::io::Lines<tokio::io::BufReader<tokio::process::ChildStdout>>,
+    /// Model and effort it started with, and the system prompt it was given.
+    key: String,
+    system: String,
+    /// The conversation it has seen, rendered, and how many messages that is.
+    seen: String,
+    count: usize,
+    /// Its running token totals (agy reports them cumulatively).
+    used: Usage,
+}
 
-{system}
+const HARNESS_NOTE: &str = "IMPORTANT: you are running inside a harness. Your built-in tools (file writing, shell, browsing) are DISABLED and must not be used; anything you do with them is lost. To act, write <tool_call> blocks exactly as described below and nothing else.";
 
-{prompt}{nudge}"
-        );
-        // Print mode takes the prompt as an argument; a long one goes through a
-        // file, since command lines have a size limit.
-        let arg = if full.len() > 24_000 {
-            std::fs::write(last, &full).map_err(|e| ProviderError::Other(e.to_string()))?;
-            format!("Read the file {} (instructions and conversation) and answer it following exactly the format it asks for; do not use other tools.", last.display())
-        } else {
-            full
-        };
-        let mut cmd = tokio::process::Command::new(resolve(Tool::Antigravity));
-        cmd.arg("-p").arg(arg).args(["--output-format", "stream-json"]);
-        if let Some(effort) = &req.effort {
-            cmd.arg("--effort").arg(effort);
-        }
-        if !req.model.is_empty() && req.model != "padrao" {
-            cmd.arg("--model").arg(&req.model);
-        }
-        cmd.current_dir(work).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
-        let child = cmd.spawn().map_err(|e| ProviderError::Other(format!("could not start `agy` ({e}); install the Antigravity CLI and sign in")))?;
-        let out = tokio::time::timeout(Duration::from_secs(600), child.wait_with_output())
-            .await
-            .map_err(|_| ProviderError::Other("Antigravity did not answer in 10 minutes".into()))?
-            .map_err(|e| ProviderError::Other(e.to_string()))?;
-        let _ = std::fs::remove_file(last);
-        let body = String::from_utf8_lossy(&out.stdout).into_owned();
-        let (text, usage, native) = read_antigravity_stream(&body)
-            .map_err(|e| ProviderError::Other(format!("agy: {e} {}", String::from_utf8_lossy(&out.stderr).trim())))?;
-        total.input += usage.input;
-        total.cache_read += usage.cache_read;
-        total.output += usage.output;
-        let has_calls = text.contains(OPEN) || text.contains("<invoke ");
-        if native && !has_calls && attempt < 2 {
-            nudge = "
+/// No word from agy for this long ends the turn.
+const AGY_IDLE: Duration = Duration::from_secs(300);
 
-(Your previous answer used built-in tools, which do nothing here. Answer again using only <tool_call> blocks.)".into();
-            continue;
-        }
-        // After tool results, Gemini often ends with no text at all: that is the
-        // end of the task, not a reason to ask again for minutes.
-        let text = if text.trim().is_empty() && req.messages.len() > 2 { "Done.".to_string() } else { text };
-        let content = parse_reply(&text, req.messages.len());
-        for b in &content {
-            if let ContentBlock::Text { text } = b {
-                on_text(Delta::Text(text.clone()));
-            }
-        }
-        let calls = content.iter().any(|b| matches!(b, ContentBlock::ToolUse { .. }));
-        return Ok(Response { content, stop_reason: if calls { "tool_use".into() } else { "end_turn".into() }, usage: total });
+fn agy_key(model: &str, effort: Option<&str>) -> String {
+    format!("{model}\u{1}{effort:?}")
+}
+
+/// The folder the official tools run in: outside the project, so they load
+/// no project instructions of their own and touch no files.
+fn cli_work() -> std::path::PathBuf {
+    let work = std::env::temp_dir().join("codeturbo-cli");
+    let _ = std::fs::create_dir_all(&work);
+    work
+}
+
+fn start_agy(model: &str, effort: Option<&str>) -> Result<AgySession, ProviderError> {
+    let mut cmd = tokio::process::Command::new(resolve(Tool::Antigravity));
+    cmd.args(["--input-format", "stream-json", "--output-format", "stream-json"]);
+    if let Some(effort) = effort {
+        cmd.arg("--effort").arg(effort);
     }
-    Err(ProviderError::Other("Antigravity kept using its own tools".into()))
+    if !model.is_empty() && model != "padrao" {
+        cmd.arg("--model").arg(model);
+    }
+    cmd.current_dir(cli_work()).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).kill_on_drop(true);
+    let mut child = cmd.spawn().map_err(|e| ProviderError::Other(format!("could not start `agy` ({e}); install the Antigravity CLI and sign in")))?;
+    let stdin = child.stdin.take().ok_or_else(|| ProviderError::Other("agy did not open its input".into()))?;
+    let stdout = child.stdout.take().ok_or_else(|| ProviderError::Other("agy did not open its output".into()))?;
+    use tokio::io::AsyncBufReadExt;
+    Ok(AgySession { _child: child, stdin, lines: tokio::io::BufReader::new(stdout).lines(),
+        key: agy_key(model, effort),
+        system: String::new(),
+        seen: String::new(), count: 0, used: Usage::default() })
+}
+
+/// What one Antigravity turn gave back.
+struct AgyTurn {
+    text: String,
+    usage: Usage,
+    /// The model reached for Antigravity's own tools instead of ours.
+    native: bool,
+    shown: bool,
+}
+
+/// Sends `message` and reads the turn it starts, showing the reply as it is written.
+async fn agy_turn(s: &mut AgySession, message: &str, on_text: &mut TextSink<'_>) -> Result<AgyTurn, String> {
+    let line = format!("{}\n", json!({"event": "user", "message": {"content": message}}));
+    s.stdin.write_all(line.as_bytes()).await.map_err(|e| format!("agy closed its input ({e})"))?;
+    s.stdin.flush().await.map_err(|e| e.to_string())?;
+    let mut stream = ReplyStream::default();
+    let (mut native, mut shown) = (false, false);
+    let mut last: Option<(u64, u64)> = None;
+    loop {
+        let line = match tokio::time::timeout(AGY_IDLE, s.lines.next_line()).await {
+            Err(_) => return Err("Antigravity stopped answering".into()),
+            Ok(Err(e)) => return Err(e.to_string()),
+            Ok(Ok(None)) => return Err("agy exited".into()),
+            Ok(Ok(Some(l))) => l,
+        };
+        if std::env::var_os("CODETURBO_DEBUG_AGY").is_some() {
+            eprintln!("agy> {}", line.chars().take(300).collect::<String>());
+        }
+        let Ok(v) = serde_json::from_str::<Value>(line.trim()) else { continue };
+        match v["event"].as_str() {
+            Some("step_update") => {
+                let step = &v["step_update"];
+                if step["step_type"] == "tool" {
+                    native = true;
+                } else if step["step_type"] == "agent_response" {
+                    if let Some(t) = step["text_delta"].as_str() {
+                        for delta in stream.push(t) {
+                            shown = true;
+                            on_text(delta);
+                        }
+                    }
+                    // The prompt size of the latest model call: what the context holds.
+                    let u = &step["usage"];
+                    if let Some(sent) = u["input_tokens"].as_u64() {
+                        let cached = u["cache_read_tokens"].as_u64().unwrap_or(0);
+                        last = Some((sent.saturating_sub(cached), cached));
+                    }
+                }
+            }
+            Some("result") => {
+                let (text, total) = parse_antigravity(&v["result"].to_string())?;
+                for delta in stream.finish() {
+                    shown = true;
+                    on_text(delta);
+                }
+                let (input, cache_read) = last.unwrap_or((total.input.saturating_sub(s.used.input), 0));
+                let usage = Usage { input, cache_write: 0, cache_read, output: total.output.saturating_sub(s.used.output) };
+                s.used = total;
+                let text = if text.is_empty() { stream.text().to_string() } else { text };
+                return Ok(AgyTurn { text, usage, native, shown });
+            }
+            _ => {}
+        }
+    }
+}
+
+impl CliProvider {
+    /// One reply through Antigravity, on the warm process when it already
+    /// holds this conversation. Its own tools are not wanted (the work goes
+    /// through CodeTurbo's): when the model uses them anyway it is told so and
+    /// asked again. A broken stream starts a fresh process and tries again.
+    async fn agy_complete(&self, req: &Request, system: &str, on_text: &mut TextSink<'_>) -> Result<Response, ProviderError> {
+        let key = agy_key(&req.model, req.effort.as_deref());
+        // Taken out while the turn runs: a turn that is cancelled drops (and
+        // kills) the process instead of leaving it half way through a reply.
+        let mut warm = self.agy.lock().ok().and_then(|mut g| g.take()).filter(|s| s.key == key);
+        let mut total = Usage::default();
+        let mut nudge: Option<&str> = None;
+        let mut last_error = String::new();
+        for _ in 0..4 {
+            let (mut s, message) = match (warm.take(), nudge) {
+                (Some(s), Some(n)) => (s, n.to_string()),
+                (Some(s), None)
+                    if s.count > 0 && s.system == system && req.messages.len() > s.count && render_messages(&req.messages[..s.count]) == s.seen =>
+                {
+                    let fresh = render_messages(&req.messages[s.count..]);
+                    (s, format!("{fresh}\n[assistant]\n"))
+                }
+                (fresh, _) => (
+                    // A process started ahead and not used yet takes the whole conversation too.
+                    match fresh.filter(|s| s.count == 0) {
+                        Some(s) => s,
+                        None => start_agy(&req.model, req.effort.as_deref())?,
+                    },
+                    format!(
+                        "{HARNESS_NOTE}\n\n{system}\n\n{}\n(Remember: built-in tools are off; act only through <tool_call> blocks.)\n[assistant]\n",
+                        render_messages(&req.messages)
+                    ),
+                ),
+            };
+            let turn = match agy_turn(&mut s, &message, on_text).await {
+                Ok(t) => t,
+                Err(e) => {
+                    // "The stream was interrupted" and the like: a new process.
+                    last_error = e;
+                    nudge = None;
+                    continue;
+                }
+            };
+            total.input += turn.usage.input;
+            total.cache_read += turn.usage.cache_read;
+            total.output += turn.usage.output;
+            let has_calls = turn.text.contains(OPEN) || turn.text.contains("<invoke ");
+            if turn.native && !has_calls && nudge.is_none() {
+                nudge = Some("(Your previous answer used built-in tools, which do nothing here. Answer again using only <tool_call> blocks.)");
+                warm = Some(s);
+                continue;
+            }
+            // After tool results, Gemini often ends with no text at all: that is
+            // the end of the task, not a reason to ask again.
+            let text = if turn.text.trim().is_empty() && req.messages.len() > 2 { "Done.".to_string() } else { turn.text };
+            let content = parse_reply(&text, req.messages.len());
+            if !turn.shown {
+                for b in &content {
+                    if let ContentBlock::Text { text } = b {
+                        on_text(Delta::Text(text.clone()));
+                    }
+                }
+            }
+            let calls = content.iter().any(|b| matches!(b, ContentBlock::ToolUse { .. }));
+            let reply = crate::Message { role: Role::Assistant, content: content.clone() };
+            s.seen = render_messages(&req.messages) + &render_messages(std::slice::from_ref(&reply));
+            s.count = req.messages.len() + 1;
+            s.system = system.to_string();
+            if let Ok(mut g) = self.agy.lock() {
+                *g = Some(s);
+            }
+            return Ok(Response { content, stop_reason: if calls { "tool_use".into() } else { "end_turn".into() }, usage: total });
+        }
+        Err(ProviderError::Other(format!("agy: {last_error}")))
+    }
 }
 
 impl Provider for CliProvider {
+    fn warm(&self, model: &str, effort: Option<&str>) {
+        if self.tool != Tool::Antigravity {
+            return;
+        }
+        let Ok(mut g) = self.agy.lock() else { return };
+        if g.as_ref().is_some_and(|s| s.key == agy_key(model, effort)) {
+            return;
+        }
+        // Started now, it has loaded by the time the first message is sent.
+        *g = start_agy(model, effort).ok();
+    }
+
     fn complete<'a>(&'a self, req: &'a Request, on_text: &'a mut TextSink<'_>) -> BoxFuture<'a, Result<Response, ProviderError>> {
         Box::pin(async move {
             let system = protocol_system(req);
             let prompt = protocol_prompt(req);
             // Outside the project: the official tool must not load its own
             // project instructions or touch files.
-            let work = std::env::temp_dir().join("codeturbo-cli");
-            let _ = std::fs::create_dir_all(&work);
+            let work = cli_work();
             let last = work.join(format!("ultima-{}.txt", std::process::id()));
             // Claude Code sees images when they ride inside the message
             // (streaming input); with none, the plain text prompt is used.
             let images = if self.tool == Tool::ClaudeCode { prompt_images(req) } else { Vec::new() };
             let streaming = !images.is_empty();
             if self.tool == Tool::Antigravity {
-                return agy_complete(req, &system, &prompt, &work, &last, on_text).await;
+                return self.agy_complete(req, &system, on_text).await;
             }
             let mut cmd = tokio::process::Command::new(resolve(self.tool));
             match self.tool {

@@ -312,7 +312,10 @@ impl Session {
         let mut first = true;
         'session: loop {
             let provider = match self.provider() {
-                Ok(p) => Some(p),
+                Ok(p) => {
+                    p.warm(&self.cfg.model, self.cfg.effort.as_deref());
+                    Some(p)
+                }
                 Err(e) => {
                     self.warn(e);
                     None
