@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 coturbo-agent = { path = "../coturbo-agent" }
 coturbo-browse = { path = "../coturbo-browse" }
+coturbo-net = { path = "../coturbo-net" }
 coturbo-providers = { path = "../coturbo-providers" }
 coturbo-tools = { path = "../coturbo-tools" }
 coturbo-verify = { path = "../coturbo-verify" }

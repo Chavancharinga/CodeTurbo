@@ -5,6 +5,8 @@
 //! ever reaches private addresses, never the internet.
 
 pub mod dns;
+pub mod identify;
+pub mod tv;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -22,6 +24,10 @@ pub struct Device {
     pub services: Vec<Service>,
     pub upnp: Vec<Upnp>,
     pub open_ports: BTreeSet<u16>,
+    /// What it is and who made it, from all of the above.
+    pub identity: identify::Identity,
+    /// Its name in the router.
+    pub host: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -145,7 +151,39 @@ pub async fn scan(opts: ScanOptions) -> Inventory {
         })
         .filter(|d| Some(d.ip.unwrap()) != local.map(IpAddr::V4) || !d.services.is_empty())
         .collect();
-    Inventory { local, devices }
+    let mut inv = Inventory { local, devices };
+    name_all(&mut inv).await;
+    inv
+}
+
+/// Fills in what each device is: router names, makers, web page titles.
+async fn name_all(inv: &mut Inventory) {
+    use futures_util::StreamExt;
+    let vendors = identify::vendors().await;
+    let router = inv
+        .devices
+        .iter()
+        .find(|d| d.upnp.iter().any(|u| u.device_type.contains("InternetGateway") || u.device_type.contains("WFADevice")))
+        .and_then(|d| d.ip)
+        .or_else(|| inv.local.map(|l| IpAddr::V4(Ipv4Addr::new(l.octets()[0], l.octets()[1], l.octets()[2], 1))));
+    let ips: Vec<Option<IpAddr>> = inv.devices.iter().map(|d| d.ip).collect();
+    let clues: Vec<(Option<String>, Option<String>)> = futures_util::stream::iter(ips)
+        .map(|ip| async move {
+            let Some(ip) = ip else { return (None, None) };
+            let host = match (router, ip) {
+                (Some(IpAddr::V4(r)), IpAddr::V4(v4)) => identify::host_name(r, v4).await,
+                _ => None,
+            };
+            (host, identify::web_title(ip).await)
+        })
+        .buffered(32)
+        .collect()
+        .await;
+    for (d, (host, title)) in inv.devices.iter_mut().zip(clues) {
+        let vendor = d.mac.as_deref().and_then(|m| identify::vendor_of(&vendors, m));
+        d.identity = identify::identify(d, vendor, host.as_deref(), title.as_deref());
+        d.host = host;
+    }
 }
 
 fn merge(into: &mut Device, from: Device) {
@@ -414,14 +452,29 @@ pub fn render(inv: &Inventory) -> String {
     for d in &inv.devices {
         let ip = d.ip.map(|i| i.to_string()).unwrap_or_default();
         let names: Vec<&str> = d.names.iter().map(String::as_str).filter(|n| !n.is_empty()).collect();
-        out.push_str(&format!("\n{ip}"));
-        if let Some(mac) = &d.mac {
-            out.push_str(&format!("  mac {mac}"));
-        }
-        if !names.is_empty() {
-            out.push_str(&format!("  {}", names.join(" / ")));
+        let id = &d.identity;
+        let what = [id.kind.as_str(), id.brand.as_str(), id.model.as_str()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(" · ");
+        out.push_str(&format!("\n{ip}  {}", if what.is_empty() { "unidentified device" } else { &what }));
+        if !id.name.is_empty() {
+            out.push_str(&format!("  \"{}\"", id.name));
         }
         out.push('\n');
+        let mut also = Vec::new();
+        if let Some(mac) = &d.mac {
+            also.push(format!("mac {mac}"));
+        }
+        if let Some(h) = &d.host {
+            also.push(format!("router name {h}"));
+        }
+        if !names.is_empty() {
+            also.push(format!("names {}", names.join(" / ")));
+        }
+        if !id.control.is_empty() {
+            also.push(format!("control with: {}", id.control));
+        }
+        if !also.is_empty() {
+            out.push_str(&format!("  {}\n", also.join(" · ")));
+        }
         for s in &d.services {
             let txt = if s.txt.is_empty() { String::new() } else { format!("  {}", s.txt.join(" ")) };
             out.push_str(&format!("  mdns {} port {}{txt}\n", s.kind, s.port));

@@ -1209,7 +1209,8 @@ impl App {
 /// pixels as the terminal intro.
 fn draw_logo(buf: &mut Buffer, area: Rect, snail: usize, ms: u128, working: bool, mood: Mood) {
     // Too narrow for the pixel word (a phone): the name in text, the snail beside it.
-    if (area.width as usize) < splash::logo_width() + 2 {
+    // A phone (Termux) or a narrow window: "turbo" with the snail running ahead.
+    if splash::on_termux() || (area.width as usize) < splash::logo_width() + 2 {
         return draw_logo_compact(buf, area, snail, ms, working, mood);
     }
     // The whole picture, which then slides in from outside the terminal and

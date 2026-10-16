@@ -18,6 +18,26 @@ fn pairs(v: &Value) -> Vec<(String, String)> {
         .unwrap_or_default()
 }
 
+pub(crate) async fn tv(input: &Value) -> Res {
+    use coturbo_net::tv::Action;
+    let ip: std::net::IpAddr = arg(input, "ip")?.parse().map_err(|_| "`ip` must be the TV's address, e.g. 192.168.1.40".to_string())?;
+    let count = input["value"].as_u64().unwrap_or(1).clamp(1, 50) as u8;
+    let action = match arg(input, "action")? {
+        "info" => Action::Info,
+        "apps" => Action::Apps,
+        "launch" => Action::Launch { app: arg(input, "app")?.to_string(), content: input["content"].as_str().map(str::to_string) },
+        "key" => Action::Key(arg(input, "key")?.to_string()),
+        "power_off" => Action::PowerOff,
+        "power_on" => Action::PowerOn { mac: input["mac"].as_str().map(str::to_string) },
+        "volume_up" => Action::VolumeUp(count),
+        "volume_down" => Action::VolumeDown(count),
+        "set_volume" => Action::SetVolume(input["value"].as_u64().ok_or("set_volume needs `value` (0-100)")?.min(100) as u8),
+        "mute" => Action::Mute,
+        a => return Err(format!("unknown action `{a}`")),
+    };
+    Ok(ToolOutput::ok(coturbo_net::tv::control(ip, action).await?))
+}
+
 pub(crate) async fn device_control(input: &Value) -> Res {
     let out = match arg(input, "kind")? {
         "http" => {

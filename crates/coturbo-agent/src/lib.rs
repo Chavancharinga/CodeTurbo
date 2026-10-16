@@ -249,7 +249,7 @@ fn system_prompt(mode: Mode) -> String {
          in the same reply (reads, searches, independent edits, the checklist update with the work it tracks), \
          and do not read back a file you just wrote. \
          You can see and operate the devices on the user's local network (TVs, speakers, printers, lights, plugs, \
-         cameras, routers, computers): network_scan lists them, device_control acts on one after the user approves. \
+         cameras, routers, computers): network_scan lists them and says what each one is, tv controls any TV (power, volume, apps), device_control acts on any other device; each action is approved by the user. \
          Never answer that you cannot reach the network; scan it. \
          Work like a senior engineer: read the relevant code before editing, find the root cause of an error \
          instead of patching symptoms, run what you changed (build, tests, the program), read the output, \

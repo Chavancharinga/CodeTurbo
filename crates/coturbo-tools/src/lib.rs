@@ -284,6 +284,22 @@ impl Tools {
                 obj(json!({"sweep": {"type": "boolean", "description": "also probe common ports on the whole local /24 (about 10 s)"}, "seconds": {"type": "integer", "description": "how long to listen for announcements, 1-10 (default 3)"}}), &[]),
             ),
             spec(
+                "tv",
+                "Control a TV on the local network, any brand (Samsung, LG, Android TV / Google TV, Roku, Fire TV; others open apps through DIAL). The brand is detected from the address. Actions: info (model, system version; on Android the security patch date tells whether a system update is pending), apps (installed apps), launch (open an app such as YouTube or Netflix; `content` is a YouTube video id or search for YouTube), key (home, back, up, down, left, right, ok, play_pause, channel_up...), power_off, power_on (Wake-on-LAN; needs the MAC from network_scan), volume_up / volume_down (`value` steps), set_volume (`value` 0-100), mute. The first time, the TV may show a prompt to allow CodeTurbo: tell the user to accept it on the TV. Android TVs need Developer options > network/USB debugging for anything but opening apps.",
+                obj(
+                    json!({
+                        "ip": s("the TV's address from network_scan"),
+                        "action": {"type": "string", "enum": ["info", "apps", "launch", "key", "power_off", "power_on", "volume_up", "volume_down", "set_volume", "mute"]},
+                        "app": s("launch: app name (YouTube, Netflix, Prime Video, Disney+, Spotify...) or its id"),
+                        "content": s("launch: what to play, e.g. a YouTube video id or search text"),
+                        "key": s("key: the remote button"),
+                        "value": {"type": "integer", "description": "volume steps, or the volume for set_volume"},
+                        "mac": s("power_on: the TV's MAC address")
+                    }),
+                    &["ip", "action"],
+                ),
+            ),
+            spec(
                 "device_control",
                 "Act on a device of the user's LOCAL network (private addresses only; the user approves each call). kind=http: a request to the device's own API (e.g. Shelly http://ip/relay/0?turn=on, Tasmota http://ip/cm?cmnd=Power%20TOGGLE, Hue, ESPHome, a router page); kind=upnp: a UPnP action on a control URL from network_scan (e.g. AVTransport Play/Pause/Stop with args {\"InstanceID\": \"0\", \"Speed\": \"1\"}, RenderingControl SetVolume with {\"InstanceID\": \"0\", \"Channel\": \"Master\", \"DesiredVolume\": \"20\"}); kind=wake: Wake-on-LAN to a MAC. Read first (GET, status) before changing anything, and say what you will do.",
                 obj(
@@ -740,6 +756,7 @@ impl Tools {
             "browse" => self.browse(input).await,
             "network_scan" => devices::network_scan(input).await,
             "device_control" => devices::device_control(input).await,
+            "tv" => devices::tv(input).await,
             _ => Err(format!("unknown tool: {name}")),
         };
         let mut out = r.unwrap_or_else(ToolOutput::err);

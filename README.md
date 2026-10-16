@@ -60,12 +60,16 @@ SQLite database works, with file-and-line evidence, before building something
 similar. All in Rust, with no external tools.
 
 **Devices on your network**
-The agent finds what is on your local network (TVs, speakers, printers,
-cameras, lights, plugs, routers, computers) through Bonjour/mDNS, UPnP, the
-ARP table and an optional subnet sweep, and operates them on request: the
-device's own HTTP API, UPnP actions (play, pause, volume) and Wake-on-LAN.
-No hub or home-automation server is needed. Control reaches private addresses
-only, and every action is approved by you first.
+The agent finds what is on your local network and recognises each device by
+kind, brand and model, from every clue the network gives: Bonjour/mDNS and
+UPnP announcements, the router's name for it, the maker of its network card
+(IEEE registry) and its web page. TVs of any brand are controlled directly:
+power, volume, remote keys, installed apps and opening YouTube or Netflix
+(Samsung, LG, Android TV / Google TV, Roku, Fire TV; others open apps through
+DIAL). Any other device is reached through its own HTTP API, UPnP actions or
+Wake-on-LAN. Type `/devices` to pick a device and act on it with a click, or
+just ask. No hub or home-automation server is needed, control reaches private
+addresses only, and the agent's actions are approved by you first.
 
 **Any provider, found automatically**
 CodeTurbo detects what is on your machine and lists only that: the official

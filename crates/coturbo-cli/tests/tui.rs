@@ -904,17 +904,14 @@ fn on_a_phone_width_the_snail_still_runs_beside_the_name() {
     let mut h = harness();
     use ratatui::{Terminal, backend::TestBackend};
     let mut term = Terminal::new(TestBackend::new(50, 40)).unwrap();
-    let _ = h.app.mood();
     term.draw(|f| h.app.draw(f)).unwrap();
     let buf = term.backend().buffer().clone();
     let rows: Vec<String> = (0..6).map(|y| (0..50).map(|x| buf[(x, y)].symbol().to_string()).collect()).collect();
     let all = rows.join("\n");
-    if std::env::var_os("SHOW_LOGO").is_some() { println!("{all}"); }
-    // "code" over "turbo" in small pixels (cols 1-20), the snail to the right.
+    // Only "turbo" in small pixels (cols 1-20), the snail running ahead of it.
     let cells = |from: u16, to: u16| (0..6).flat_map(|y| (from..to).map(move |x| (x, y))).filter(|&(x, y)| matches!(buf[(x, y)].symbol(), "▀" | "▄")).count();
-    assert!(cells(1, 21) > 30, "the name in pixels:\n{all}");
+    assert!(cells(1, 21) > 10, "the name in pixels:\n{all}");
     assert!(cells(23, 50) > 20, "the snail beside the name:\n{all}");
-    assert!(cells(23, 50) < cells(1, 21) * 2, "the snail does not dwarf the name:\n{all}");
 }
 
 #[test]

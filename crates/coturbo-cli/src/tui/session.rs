@@ -381,6 +381,10 @@ impl Session {
                         Command::Key => self.set_key().await,
                         Command::Approval => self.choose_approval(&arg).await,
                         Command::Effort => self.choose_effort(&arg).await,
+                        Command::Devices => {
+                            self.devices().await;
+                            false
+                        }
                         Command::Plan => {
                             self.plan = !self.plan;
                             if let Some(a) = agent.as_mut() {
@@ -659,6 +663,87 @@ impl Session {
             format!("Model · {label} · {count} available · type to search")
         };
         self.select(title, options, true).await
+    }
+
+    /// `/devices`: finds what is on the network and controls it with clicks.
+    /// A click is the user's own action, so nothing asks again.
+    async fn devices(&mut self) {
+        use coturbo_net::tv::Action;
+        self.send(Out::Busy(Some("network_scan · whole subnet".into())));
+        let inv = coturbo_net::scan(coturbo_net::ScanOptions { sweep: true, ..Default::default() }).await;
+        self.send(Out::Busy(None));
+        if inv.devices.is_empty() {
+            self.info("No device answered. Turned-off TVs do not show up: turn them on and try /devices again.");
+            return;
+        }
+        let label = |d: &coturbo_net::Device| {
+            let id = &d.identity;
+            let what = [id.kind.as_str(), id.brand.as_str(), id.model.as_str()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(" · ");
+            let name = if id.name.is_empty() { String::new() } else { format!("  \"{}\"", id.name) };
+            format!("{}{name}  {}", if what.is_empty() { "unidentified device" } else { &what }, d.ip.map(|i| i.to_string()).unwrap_or_default())
+        };
+        loop {
+            let options: Vec<Choice> = inv.devices.iter().filter_map(|d| Some(Choice::new(d.ip?.to_string(), label(d)))).collect();
+            let title = format!("{} device(s) on your network · pick one", options.len());
+            let Some(ip) = self.select(title, options, false).await else { return };
+            let Some(device) = inv.devices.iter().find(|d| d.ip.map(|i| i.to_string()) == Some(ip.clone())) else { return };
+            let Ok(addr) = ip.parse::<std::net::IpAddr>() else { return };
+            let is_tv = device.identity.control.contains("tv") || device.identity.kind.contains("TV");
+            let mut actions: Vec<(&str, &str)> = vec![("details", "Details")];
+            if is_tv {
+                actions.extend([
+                    ("youtube", "Open YouTube"),
+                    ("netflix", "Open Netflix"),
+                    ("volume_up", "Volume +"),
+                    ("volume_down", "Volume -"),
+                    ("mute", "Mute"),
+                    ("home", "Home"),
+                    ("apps", "Installed apps"),
+                    ("info", "Model and system version"),
+                    ("power_off", "Turn off"),
+                ]);
+                if device.mac.is_some() {
+                    actions.push(("power_on", "Turn on (Wake-on-LAN)"));
+                }
+            } else if device.open_ports.contains(&80) || device.open_ports.contains(&443) {
+                actions.push(("web", "Its web page address"));
+            }
+            loop {
+                let options = actions.iter().map(|(id, l)| Choice::new(*id, *l)).collect();
+                let Some(pick) = self.select(format!("{} · choose an action (Esc goes back)", label(device)), options, false).await else { break };
+                let action = match pick.as_str() {
+                    "details" => {
+                        let one = coturbo_net::Inventory { local: inv.local, devices: vec![device.clone()] };
+                        let text = coturbo_net::render(&one);
+                        self.send(Out::Lines(text.lines().skip(2).map(|l| Line::raw(l.to_string())).collect()));
+                        continue;
+                    }
+                    "web" => {
+                        let scheme = if device.open_ports.contains(&80) { "http" } else { "https" };
+                        self.info(format!("Open {scheme}://{ip}/ in your browser."));
+                        continue;
+                    }
+                    "youtube" => Action::Launch { app: "YouTube".into(), content: None },
+                    "netflix" => Action::Launch { app: "Netflix".into(), content: None },
+                    "volume_up" => Action::VolumeUp(2),
+                    "volume_down" => Action::VolumeDown(2),
+                    "mute" => Action::Mute,
+                    "home" => Action::Key("home".into()),
+                    "apps" => Action::Apps,
+                    "info" => Action::Info,
+                    "power_off" => Action::PowerOff,
+                    "power_on" => Action::PowerOn { mac: device.mac.clone() },
+                    _ => continue,
+                };
+                self.send(Out::Busy(Some(format!("tv {ip} {pick}"))));
+                let result = coturbo_net::tv::control(addr, action).await;
+                self.send(Out::Busy(None));
+                match result {
+                    Ok(text) => self.info(text),
+                    Err(e) => self.warn(e),
+                }
+            }
+        }
     }
 
     async fn set_key(&mut self) -> bool {

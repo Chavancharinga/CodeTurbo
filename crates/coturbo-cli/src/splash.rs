@@ -538,17 +538,18 @@ fn mini_glyph(c: char) -> [&'static str; 5] {
     }
 }
 
-/// Width in pixels of the small name.
-const MINI_W: usize = NAME.len() * 4 - 1;
 
-/// The phone-sized logo: the name in a small pixel font on the snail's foot
-/// line, then the snail with as much trail as fits in `width` columns.
-/// `None` when even that does not fit.
+/// The phone-sized logo (and always on Termux): only "turbo", with the
+/// snail running ahead of it. The big letters when they fit, small ones on a
+/// very narrow screen. `None` when even that does not fit.
 pub fn compact_pixels(snail: usize, width: usize, mood: Mood) -> Option<Vec<Vec<Option<Rgb>>>> {
-    // One line when it fits; on a phone, "code" over "turbo", as tall as the snail.
-    let stacked = width < 2 + MINI_W + GAP + SNAIL.width;
-    let name_w = if stacked { (NAME.len() - SPLIT) * 4 - 1 } else { MINI_W };
-    let gap = if stacked { 2 } else { GAP };
+    let word: Vec<char> = NAME.chars().skip(SPLIT).collect();
+    let big_w = word.len() * 6 - 1;
+    let small_w = word.len() * 4 - 1;
+    // The trail starts with empty pixels, so one column is enough between them.
+    let big = width >= 2 + big_w + 1 + SNAIL.width;
+    let gap = if big { 1 } else { 2 };
+    let name_w = if big { big_w } else { small_w };
     let room = width.checked_sub(2 + name_w + gap)?;
     if room < SNAIL.width {
         return None;
@@ -556,18 +557,16 @@ pub fn compact_pixels(snail: usize, width: usize, mood: Mood) -> Option<Vec<Vec<
     let runner = snail_only(snail, room, mood);
     let h = runner.len();
     let mut px = vec![vec![None; name_w + gap]; h];
-    for (n, ch) in NAME.chars().enumerate() {
-        let color = if n < SPLIT { SOFT } else { mood.body() };
-        // Stacked: "code" on the top five rows, "turbo" on the next five.
-        let (top, col) = match (stacked, n < SPLIT) {
-            (false, _) => (h - 2 - 5, n * 4),
-            (true, true) => (h.saturating_sub(10), n * 4),
-            (true, false) => (h.saturating_sub(5), (n - SPLIT) * 4),
-        };
-        for (gy, row) in mini_glyph(ch).iter().enumerate() {
+    let color = mood.body();
+    for (n, &ch) in word.iter().enumerate() {
+        // The word sits on the snail's foot line, like the full logo.
+        let rows: Vec<&str> = if big { glyph(ch).to_vec() } else { mini_glyph(ch).to_vec() };
+        let pitch = if big { 6 } else { 4 };
+        let top = (h - 2 + 1).saturating_sub(rows.len());
+        for (gy, row) in rows.iter().enumerate() {
             for (gx, c) in row.bytes().enumerate() {
                 if c == b'#' {
-                    px[top + gy][col + gx] = Some(color);
+                    px[top + gy][n * pitch + gx] = Some(color);
                 }
             }
         }
@@ -576,6 +575,11 @@ pub fn compact_pixels(snail: usize, width: usize, mood: Mood) -> Option<Vec<Vec<
         row.extend(tail);
     }
     Some(px)
+}
+
+/// Termux on Android: always the phone logo, whatever the width.
+pub fn on_termux() -> bool {
+    std::env::var("PREFIX").is_ok_and(|p| p.contains("com.termux")) || cfg!(target_os = "android")
 }
 
 /// Only the snail and its trail, `cols` pixels wide at most, for screens too
@@ -957,7 +961,7 @@ mod compact_tests {
     use super::*;
 
     #[test]
-    fn the_phone_logo_stacks_the_name_and_fits() {
+    fn the_phone_logo_shows_turbo_and_the_snail_and_fits() {
         for width in [44, 50, 53, 60, 70] {
             let px = compact_pixels(0, width, Mood::Calm).expect("fits");
             assert!(px[0].len() <= width - 2, "width {width}: {} px", px[0].len());
@@ -968,6 +972,6 @@ mod compact_tests {
                 }
             }
         }
-        assert!(compact_pixels(0, 40, Mood::Calm).is_none(), "too narrow even stacked");
+        assert!(compact_pixels(0, 43, Mood::Calm).is_none(), "too narrow even with small letters");
     }
 }
