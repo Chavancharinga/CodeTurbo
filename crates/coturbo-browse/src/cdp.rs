@@ -58,7 +58,7 @@ pub async fn launch(browser: &Path, size: (u32, u32), visible: bool) -> Result<L
         .arg("about:blank")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stderr(std::fs::File::create(profile.with_extension("log")).map_or_else(|_| std::process::Stdio::null(), Into::into))
         .kill_on_drop(true);
     let child = cmd.spawn().map_err(|e| format!("não foi possível abrir o navegador: {e}"))?;
     // The browser writes the port it picked to this file.
@@ -71,7 +71,10 @@ pub async fn launch(browser: &Path, size: (u32, u32), visible: bool) -> Result<L
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    Err("o navegador não informou a porta de depuração em 15 s".into())
+    let log = std::fs::read_to_string(profile.with_extension("log")).unwrap_or_default();
+    let _ = std::fs::remove_file(profile.with_extension("log"));
+    let tail: Vec<&str> = log.lines().rev().take(4).collect();
+    Err(format!("o navegador não informou a porta de depuração em 15 s ({})", tail.into_iter().rev().collect::<Vec<_>>().join(" | ")))
 }
 
 impl Launched {
