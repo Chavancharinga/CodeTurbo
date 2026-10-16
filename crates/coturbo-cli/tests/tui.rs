@@ -1419,3 +1419,24 @@ fn clicking_folded_code_still_works_with_pages_and_the_code_box_open() {
     h.app.on_event(click(row), false);
     assert_eq!(h.app.transcript().lines().len(), 30, "a click opens the code");
 }
+
+#[test]
+fn the_sign_in_screen_says_where_each_provider_stands() {
+    let mut creds = Credentials::default();
+    assert_eq!(settings::standing("deepseek", &creds), "");
+    creds.set("deepseek", "k");
+    assert!(settings::standing("deepseek", &creds).contains("connected (api key)"));
+    assert!(settings::standing("antigravity", &creds).contains("shares the IDE's login"));
+}
+
+#[test]
+fn a_report_in_a_box_is_wrapped_and_closed_on_a_straight_edge() {
+    use coturbo_cli::tui::text::{boxed, width};
+    use ratatui::style::Color;
+    let body = vec![Line::raw("a long line of the report that must wrap inside the box without breaking its right edge at all")];
+    let rows = boxed(&body, 40, Color::White, vec![]);
+    assert!(rows.len() >= 4, "wrapped to several rows");
+    let widths: Vec<usize> = rows[1..rows.len() - 1].iter().map(width).collect();
+    assert!(widths.iter().all(|w| *w == widths[0]), "every row the same width: {widths:?}");
+    assert!(rows[1].spans.iter().any(|s| s.content.contains('┆')));
+}

@@ -62,6 +62,8 @@ enum Entry {
     },
     /// Rows that are cut to the room there is, not wrapped.
     Clip(Vec<Line<'static>>),
+    /// Rows drawn for the width they are shown at.
+    Block(super::Dynamic),
     /// Code shown shortened until Ctrl+B.
     Fold { preview: Vec<Line<'static>>, full: Vec<Line<'static>>, open: bool },
 }
@@ -79,6 +81,7 @@ impl Entry {
             }
             Entry::Fold { preview, full, open } => if *open { full.clone() } else { preview.clone() },
             Entry::Clip(lines) => lines.clone(),
+            Entry::Block(d) => (d.0)(80),
         }
     }
 }
@@ -107,6 +110,11 @@ impl Transcript {
     }
 
     /// Code that shows `preview` until expanded.
+    pub fn block(&mut self, d: super::Dynamic) {
+        self.stream = None;
+        self.entries.push(Entry::Block(d));
+    }
+
     pub fn clipped(&mut self, lines: Vec<Line<'static>>) {
         self.stream = None;
         self.entries.push(Entry::Clip(lines));
@@ -185,12 +193,17 @@ impl Transcript {
         let need = height + scroll;
         let mut rows = Vec::new();
         'entries: for (i, entry) in self.entries.iter().enumerate().rev() {
-            for line in entry.rows().iter().rev() {
+            // A block is drawn for the width it is shown at.
+            let drawn = match entry {
+                Entry::Block(d) => (d.0)(width),
+                other => other.rows(),
+            };
+            for line in drawn.iter().rev() {
                 if rows.len() >= need {
                     break 'entries;
                 }
                 // Code and diffs are cut, not wrapped: one row each, however narrow the room.
-                let mut wrapped = if matches!(entry, Entry::Fold { .. } | Entry::Clip(_)) { vec![text::clip(line, width)] } else { text::wrap(line, width) };
+                let mut wrapped = if matches!(entry, Entry::Fold { .. } | Entry::Clip(_) | Entry::Block(_)) { vec![text::clip(line, width)] } else { text::wrap(line, width) };
                 wrapped.reverse();
                 rows.extend(wrapped.into_iter().map(|l| (l, i)));
             }
@@ -378,6 +391,7 @@ impl App {
             Out::Lines(lines) => self.transcript.extend(lines),
             Out::Fold { preview, full } => self.transcript.fold(preview, full),
             Out::Clipped(lines) => self.transcript.clipped(lines),
+            Out::Block(d) => self.transcript.block(d),
             Out::Stream(kind, delta) => self.transcript.stream(kind, &delta),
             Out::Busy(label) => {
                 let since = self.busy.as_ref().map_or_else(Instant::now, |(_, t)| *t);

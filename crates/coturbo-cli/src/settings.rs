@@ -58,6 +58,22 @@ pub fn detected(id: &str, creds: &Credentials) -> bool {
     }
 }
 
+/// How the provider stands on this computer, for the sign-in screen: whether
+/// you are signed in (the official app's own login), have a key, or run it.
+pub fn standing(id: &str, creds: &Credentials) -> String {
+    let home = |sub: &str| std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(|h| std::path::PathBuf::from(h).join(sub));
+    let has = |sub: &str| home(sub).is_some_and(|f| f.is_file());
+    match id {
+        "claude-code" => if has(".claude/.credentials.json") { " ● logged in (login)" } else { " · installed, sign in with `claude`" }.to_string(),
+        "codex" => if has(".codex/auth.json") { " ● logged in (login)" } else { " · installed, sign in with `codex`" }.to_string(),
+        // The official CLI shares the sign-in of the Antigravity IDE and app.
+        "antigravity" => " ● installed (shares the IDE's login)".to_string(),
+        "ollama" | "lmstudio" => " ● running (local)".to_string(),
+        _ if provider(id).is_some_and(|p| p.key_var.is_some()) && api_key(id, creds).is_some() => " ● connected (api key)".to_string(),
+        _ => String::new(),
+    }
+}
+
 pub fn provider(id: &str) -> Option<&'static ProviderInfo> {
     PROVIDERS.iter().find(|p| p.id == id)
 }

@@ -111,6 +111,16 @@ pub enum Question {
     Secret { title: String, reply: oneshot::Sender<Option<String>> },
 }
 
+/// Rows drawn for a given width, so a block always fits the room it is in.
+#[derive(Clone)]
+pub struct Dynamic(pub std::sync::Arc<dyn Fn(usize) -> Vec<Line<'static>> + Send + Sync>);
+
+impl std::fmt::Debug for Dynamic {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Dynamic")
+    }
+}
+
 /// From the agent side to the screen.
 pub enum Out {
     Lines(Vec<Line<'static>>),
@@ -125,6 +135,8 @@ pub enum Out {
     Live(Option<(String, Vec<Line<'static>>)>),
     /// Code, a diff or the debugger: rows cut to the room there is, never wrapped.
     Clipped(Vec<Line<'static>>),
+    /// A block drawn for the width it is shown at (boxes, the debugger).
+    Block(Dynamic),
     /// A stage of the work changed (the bars above the text box).
     Stage(StageUpdate),
     /// The model's checklist for the job, whole.

@@ -126,6 +126,32 @@ pub fn ansi_lines(s: &str) -> Vec<Line<'static>> {
     s.lines().map(ansi_line).collect()
 }
 
+/// `body` in a dashed box `width` columns wide, two columns in from the edge:
+/// the text is wrapped to fit inside it and every row is padded to the same
+/// width, so the right edge is a straight line. `title` sits in the top edge.
+pub fn boxed(body: &[Line<'static>], width: usize, edge: Color, title: Vec<Span<'static>>) -> Vec<Line<'static>> {
+    let width = width.max(12);
+    let inner = width.saturating_sub(2 + 4);
+    let edge_style = Style::new().fg(edge);
+    let used: usize = title.iter().map(|s| s.content.chars().count()).sum();
+    let fill = width.saturating_sub(2 + 2 + used + 1);
+    let mut top = vec![Span::raw("  "), Span::styled("┌", edge_style)];
+    top.extend(title);
+    top.push(Span::styled(format!(" {}┐", "┄".repeat(fill)), edge_style));
+    let mut out = vec![Line::from(top)];
+    for line in body {
+        for row in wrap(line, inner.max(1)) {
+            let pad = inner.saturating_sub(self::width(&row));
+            let mut spans = vec![Span::raw("  "), Span::styled("┆ ", edge_style)];
+            spans.extend(row.spans);
+            spans.push(Span::styled(format!("{} ┆", " ".repeat(pad)), edge_style));
+            out.push(Line::from(spans));
+        }
+    }
+    out.push(Line::styled(format!("  └{}┘", "┄".repeat(width.saturating_sub(2 + 2))), edge_style));
+    out
+}
+
 /// Display width of a line in cells.
 fn width_of(line: &Line) -> usize {
     width(line)

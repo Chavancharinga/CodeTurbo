@@ -291,18 +291,23 @@ impl Host for TuiHost {
                     self.flash(if summary.to_lowercase().contains("design") { Mood::Denied } else { Mood::Alert });
                     // The debugger shows the exact lines.
                     let found = debugger::parse(summary);
-                    self.send(Out::Clipped(debugger::render(&found, &self.root, self.width)));
+                    let root = self.root.clone();
+                    self.send(Out::Block(super::Dynamic(std::sync::Arc::new(move |w| debugger::render(&found, &root, w)))));
                 }
                 if self.designing {
                     self.designing = false;
                     let refused = design_refused(summary);
                     self.stage("DESIGN", if refused { StageState::Failed } else { StageState::Done }, if refused { "refused" } else { "approved" });
                 }
+                // The report sits in a box of its own, wrapped to fit, so it reads as one piece.
                 let mut summary = summary.lines();
-                let mut lines =
-                    vec![Line::default(), Line::styled(summary.next().unwrap_or("").to_string(), Style::new().fg(color))];
-                lines.extend(summary.map(|l| Line::styled(l.to_string(), Style::new().add_modifier(Modifier::DIM))));
-                self.lines(lines);
+                let mut body = vec![Line::styled(summary.next().unwrap_or("").to_string(), Style::new().fg(color))];
+                body.extend(summary.map(|l| Line::styled(l.to_string(), Style::new().add_modifier(Modifier::DIM))));
+                let title = vec![ratatui::text::Span::styled(" verification ", Style::new().fg(color).add_modifier(Modifier::BOLD))];
+                self.lines(vec![Line::default()]);
+                self.send(Out::Block(super::Dynamic(std::sync::Arc::new(move |w| {
+                    crate::tui::text::boxed(&body, w, Color::Rgb(190, 198, 212), title.clone())
+                }))));
             }
             Event::Composing { tool, path, chars, code } => {
                 if let Some(p) = path {

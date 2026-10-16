@@ -522,25 +522,15 @@ impl Session {
             .iter()
             .map(|p| {
                 let note = if p.id == self.cfg.provider && ready {
-                    format!(" · in use ({})", self.cfg.model)
-                } else if p.key_var.is_some() && settings::api_key(p.id, &self.creds).is_none() {
-                    " · asks for an API key".to_string()
-                } else if matches!(p.id, "claude-code" | "codex")
-                    && !coturbo_providers::cli::installed(if p.id == "codex" {
-                        coturbo_providers::cli::Tool::Codex
-                    } else {
-                        coturbo_providers::cli::Tool::ClaudeCode
-                    })
-                {
-                    " · official app not installed".to_string()
+                    format!("{} · in use ({})", settings::standing(p.id, &self.creds), self.cfg.model)
                 } else {
-                    String::new()
+                    settings::standing(p.id, &self.creds)
                 };
                 Choice::new(p.id, format!("{}{note}", p.label))
             })
             .collect();
         options.push(Choice::new("__outro", "Connect another provider with an API key…"));
-        let Some(mut id) = self.select("Choose the provider".into(), options, false).await else { return false };
+        let Some(mut id) = self.select("Sign in to your providers · pick one to use".into(), options, false).await else { return false };
         if id == "__outro" {
             let rest: Vec<Choice> = PROVIDERS
                 .iter()
