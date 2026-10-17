@@ -89,6 +89,22 @@ Ollama or LM Studio, and any provider you have a key for. Anthropic, OpenAI,
 Gemini, OpenRouter, Groq, DeepSeek, Mistral, xAI, Together and any
 OpenAI-compatible server are supported.
 
+**An agent that scales with the job**
+- **MCP**: connect external tool servers (GitHub, Figma, databases, Slack...)
+  from `config.toml` or the project's `.mcp.json` (the same file Claude Code
+  reads). Many tools are only named until needed, to keep prompts small.
+- **Subagents**: hand research, planning or review to fresh agents that run
+  in parallel; a `general` subagent works in its own git worktree and hands
+  back a branch.
+- **Memory between sessions**: who you are, how you like to work and the
+  project's decisions, remembered per project.
+- **Hooks, skills and custom commands**: your own commands before and after
+  tools, skill packs (`SKILL.md`) and `/commands` from Markdown files,
+  including the ones already in `~/.claude`.
+- **Web search and page reading**, **scheduled tasks** ("every day at 23:00"),
+  **CI follow-up** through `gh`, **questions with options**, **PDFs,
+  notebooks and images**, and **code navigation** through the language server.
+
 **Control over every action**
 Approval modes, per-tool and per-command rules, every change shown before it
 is applied, and a read-only plan mode that you approve before anything is

@@ -2,6 +2,7 @@
 //! agents offer (whole-file reads, search/replace edits, raw build output);
 //! `Ast` adds symbol-level reads/edits and compact compiler diagnostics.
 
+mod ci;
 mod devices;
 mod fsops;
 pub mod memory;
@@ -53,7 +54,7 @@ pub const EDIT_TOOLS: &[&str] = &["write_file", "edit_file", "replace_symbol", "
 /// Fixed tier per tool. Unknown tools (MCP, third-party) are `Exec`.
 pub fn tier(name: &str) -> Tier {
     match name {
-        "read_file" | "read_symbol" | "list_files" | "grep" | "workspace_diagnostics" | "propose_plan" | "tasks" | "network_scan" | "tool_search" | "web_search" | "web_fetch" | "agent" | "recall" | "skill" => Tier::Read,
+        "read_file" | "read_symbol" | "list_files" | "grep" | "workspace_diagnostics" | "propose_plan" | "tasks" | "network_scan" | "tool_search" | "web_search" | "web_fetch" | "agent" | "recall" | "skill" | "lsp" | "ask_user" | "ci" => Tier::Read,
         "remember" | "forget" | "schedule" => Tier::Write,
         "name_device" => Tier::Write,
         n if EDIT_TOOLS.contains(&n) || n == "design_brief" => Tier::Write,
@@ -227,8 +228,8 @@ impl Tools {
     /// Tool definitions, sorted by name so the request prefix is byte-stable.
     pub fn specs(&self) -> Vec<ToolSpec> {
         let read_desc = match self.mode {
-            Mode::Naive => "Read a file.",
-            Mode::Ast => "Read a file. Large .rs, .js and .ts files return a skeleton (bodies elided as `{ … }`); use read_symbol (Rust) for a body or full=true for everything.",
+            Mode::Naive => "Read a file. Images (png, jpg, gif, webp) are shown to you; PDFs and Jupyter notebooks come as text.",
+            Mode::Ast => "Read a file (images are shown to you; PDFs and notebooks come as text). Large .rs, .js and .ts files return a skeleton (bodies elided as `{ … }`); use read_symbol (Rust) for a body or full=true for everything.",
         };
         let mut v = vec![
             spec("read_file", read_desc, obj(json!({"path": s("relative path"), "full": {"type": "boolean"}}), &["path"])),
@@ -317,6 +318,29 @@ impl Tools {
                         "content": s("the fact; for feedback and project add **Why:** and **How to apply:**")
                     }),
                     &["name", "type", "description", "content"],
+                ),
+            ),
+            spec(
+                "ci",
+                "GitHub Actions of the current branch through the gh CLI: status (the latest runs), logs (the failed steps of a run, the newest failure by default), wait (until the newest run ends, then its result and failed steps). After pushing, wait for CI and fix what fails.",
+                obj(json!({"action": {"type": "string", "enum": ["status", "logs", "wait"]}, "branch": s("default: the current branch"), "run": {"type": "integer", "description": "logs: a run id"}}), &[]),
+            ),
+            spec(
+                "ask_user",
+                "Ask the user a question only they can answer (a preference, a choice between real alternatives, a missing fact), with 2 to 4 short options to pick; they can also type their own answer. Do not ask what you can find out or decide yourself.",
+                obj(json!({"question": s("the question"), "options": {"type": "array", "items": {"type": "string"}, "description": "2 to 4 short options"}}), &["question"]),
+            ),
+            spec(
+                "lsp",
+                "Navigate code through the project's language server: where a symbol is defined (definition), every place it is used (references), or its type and docs (hover). Give the file, the line where the symbol appears and the symbol's text. Faster and more exact than grep for code.",
+                obj(
+                    json!({
+                        "action": {"type": "string", "enum": ["definition", "references", "hover"]},
+                        "path": s("relative file path"),
+                        "line": {"type": "integer", "description": "1-based line where the symbol appears"},
+                        "symbol": s("the symbol's text on that line")
+                    }),
+                    &["action", "path", "line", "symbol"],
                 ),
             ),
             spec(
@@ -451,6 +475,14 @@ impl Tools {
             }
         }
         v
+    }
+
+    /// `lsp`: definition, references or hover through the language server.
+    async fn lsp_navigate(&self, input: &Value) -> Res {
+        let lsp = self.lsp.as_ref().ok_or("no language server is configured; use grep and read_file")?;
+        let rel = arg(input, "path")?.replace('\\', "/");
+        let line = input["line"].as_u64().ok_or("missing `line`")? as u32;
+        lsp.navigate(arg(input, "action")?, &rel, line, arg(input, "symbol")?).await.map(ToolOutput::ok)
     }
 
     /// `tool_search`: marks the matching external tools as loaded.
@@ -924,6 +956,8 @@ impl Tools {
             "web_search" => web::search(input).await,
             "remember" => memory::remember(&self.root, input),
             "skill" => skills::load(&self.root, input),
+            "lsp" => self.lsp_navigate(input).await,
+            "ci" => ci::tool(&self.root, input).await,
             "schedule" => schedule::tool(&self.root, input),
             "recall" => memory::recall(&self.root, input),
             "forget" => memory::forget(&self.root, input),

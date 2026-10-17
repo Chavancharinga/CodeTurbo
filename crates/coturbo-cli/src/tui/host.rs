@@ -406,6 +406,18 @@ impl Host for TuiHost {
         })
     }
 
+    fn ask_user<'a>(&'a mut self, question: &'a str, options: &'a [String]) -> BoxFuture<'a, Option<String>> {
+        Box::pin(async move {
+            self.label.clear();
+            self.send(Out::Busy(Some("wait: your answer".into())));
+            let choices = options.iter().map(|o| super::Choice::new(o.clone(), o.clone())).collect();
+            let title = format!("{question} · pick one or type your answer");
+            let answer = self.ask(|reply| Question::Select { title, options: choices, custom: true, reply }, None).await;
+            self.busy(busy_label("thinking"));
+            answer
+        })
+    }
+
     fn confirm_cheat<'a>(&'a mut self, finding: &'a Finding) -> BoxFuture<'a, bool> {
         Box::pin(async move {
             self.lines(vec![

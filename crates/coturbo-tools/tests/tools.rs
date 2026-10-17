@@ -548,3 +548,20 @@ async fn memory_lasts_between_sessions() {
     assert!(coturbo_tools::memory::index(tools.root()).is_empty());
     let _ = std::fs::remove_dir_all(coturbo_tools::memory::dir(tools.root()));
 }
+
+/// Notebooks come as text and pictures as pictures.
+#[tokio::test]
+async fn notebooks_and_images_are_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let nb = r##"{"cells":[{"cell_type":"markdown","source":["# Sales"]},{"cell_type":"code","source":["print(2+2)"],"outputs":[{"text":["4\n"]}]}]}"##;
+    std::fs::write(dir.path().join("a.ipynb"), nb).unwrap();
+    // A 1x1 PNG.
+    let png = [137u8, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 120, 156, 99, 248, 15, 4, 0, 9, 251, 3, 253, 227, 85, 242, 156, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130];
+    std::fs::write(dir.path().join("dot.png"), png).unwrap();
+    let tools = Tools::new(dir.path(), Mode::Naive);
+    let text = tools.call("read_file", &serde_json::json!({"path": "a.ipynb"})).await.content;
+    assert!(text.contains("[markdown]") && text.contains("print(2+2)") && text.contains("# output\n4"), "{text}");
+    let img = tools.call("read_file", &serde_json::json!({"path": "dot.png"})).await;
+    assert_eq!(img.images.len(), 1);
+    assert_eq!(img.images[0].0, "image/png");
+}

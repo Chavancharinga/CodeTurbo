@@ -939,3 +939,29 @@ async fn hooks_block_tools_and_add_to_results() {
     assert!(!results[1].2 && results[1].1.contains("[hook] checked-by-hook"), "{results:?}");
     assert!(dir.path().join("a.txt").exists());
 }
+
+struct Answers;
+impl Host for Answers {
+    fn ask_user<'a>(&'a mut self, _q: &'a str, options: &'a [String]) -> coturbo_providers::BoxFuture<'a, Option<String>> {
+        Box::pin(async move { options.get(1).cloned() })
+    }
+}
+
+/// The model asks the user with options; the answer comes back to it. A
+/// picture named in the message travels with it when the model sees images.
+#[tokio::test]
+async fn the_model_asks_with_options_and_sees_named_pictures() {
+    let dir = project();
+    let png = [137u8, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 120, 156, 99, 248, 15, 4, 0, 9, 251, 3, 253, 227, 85, 242, 156, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130];
+    std::fs::write(dir.path().join("shot.png"), png).unwrap();
+    let tools = Tools::new(dir.path(), Mode::Naive);
+    let mock = Mock::new(vec![
+        resp(vec![tool("q1", "ask_user", json!({"question": "Which colour?", "options": ["red", "blue"]}))], "tool_use", usage(10, 1)),
+        resp(vec![text("blue it is")], "end_turn", usage(10, 1)),
+    ]);
+    let mut agent = Agent::new(&mock, &tools, AgentConfig { vision: true, ..config() });
+    agent.run_task("look at shot.png and pick a colour", &mut Answers).await.unwrap();
+    let reqs = mock.requests();
+    assert!(reqs[0].messages[0].content.iter().any(|b| matches!(b, ContentBlock::Image { .. })), "the picture went with the message");
+    assert!(tool_results(&reqs[1])[0].1.contains("The user answered: blue"));
+}

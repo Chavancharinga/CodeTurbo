@@ -13,6 +13,7 @@ coturbo-verify = { path = "../coturbo-verify" }
 serde_json.workspace = true
 futures-util.workspace = true
 tokio.workspace = true
+base64 = "0.22"
 
 [dev-dependencies]
 tokio.workspace = true

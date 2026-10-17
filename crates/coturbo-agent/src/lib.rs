@@ -171,6 +171,12 @@ pub trait Host: Send {
     fn confirm_cheat<'a>(&'a mut self, _finding: &'a Finding) -> BoxFuture<'a, bool> {
         Box::pin(async { false })
     }
+
+    /// A question the model asks the user, with options to pick (the user
+    /// may also type their own answer). `None`: nobody to ask.
+    fn ask_user<'a>(&'a mut self, _question: &'a str, _options: &'a [String]) -> BoxFuture<'a, Option<String>> {
+        Box::pin(async { None })
+    }
 }
 
 /// Shows nothing, denies every prompt and saves every plan unexecuted.
@@ -257,6 +263,37 @@ pub fn remembered(root: &std::path::Path) -> String {
         return rule.to_string();
     }
     format!("{rule}\n\nRemembered from earlier sessions (read one in full with recall; they reflect what was true when saved):\n{index}")
+}
+
+/// Images whose paths appear in `text` (absolute, or relative to `root`),
+/// at most four, each under 5 MB.
+pub fn images_in(text: &str, root: &std::path::Path) -> Vec<ContentBlock> {
+    use base64::Engine;
+    let mut out = Vec::new();
+    for word in text.split(|c: char| c.is_whitespace() || matches!(c, '`' | '"' | '\'' | '(' | ')' | '<' | '>')) {
+        let w = word.trim_end_matches([',', '.', ';', ':']);
+        let lower = w.to_lowercase();
+        let media = if lower.ends_with(".png") {
+            "image/png"
+        } else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
+            "image/jpeg"
+        } else if lower.ends_with(".gif") {
+            "image/gif"
+        } else if lower.ends_with(".webp") {
+            "image/webp"
+        } else {
+            continue;
+        };
+        let p = std::path::Path::new(w);
+        let path = if p.is_absolute() { p.to_path_buf() } else { root.join(p) };
+        if let Ok(bytes) = std::fs::read(&path)
+            && bytes.len() < 5 * 1024 * 1024
+            && out.len() < 4
+        {
+            out.push(ContentBlock::Image { media_type: media.into(), data: base64::engine::general_purpose::STANDARD.encode(bytes) });
+        }
+    }
+    out
 }
 
 /// Where the agent runs, so it uses what this machine has.
@@ -623,7 +660,11 @@ impl<'a> Agent<'a> {
             None => prompt,
         };
         let task = user_text.clone();
-        self.history.push(Message { role: Role::User, content: vec![ContentBlock::Text { text: user_text }] });
+        // Pictures the user points to by path travel with the message.
+        let pictures = if self.config.vision { images_in(&user_text, self.tools.root()) } else { Vec::new() };
+        let mut content = vec![ContentBlock::Text { text: user_text }];
+        content.extend(pictures);
+        self.history.push(Message { role: Role::User, content });
 
         let mut report = TaskReport::empty();
         let mut handoff = None;
@@ -780,6 +821,13 @@ impl<'a> Agent<'a> {
                         let (out, h) = self.propose_plan(&input, host).await;
                         handoff = h;
                         out
+                    } else if name == "ask_user" {
+                        let question = input["question"].as_str().unwrap_or("").to_string();
+                        let options: Vec<String> = input["options"].as_array().into_iter().flatten().filter_map(|o| o.as_str().map(str::to_string)).collect();
+                        match host.ask_user(&question, &options).await {
+                            Some(answer) => ToolOutput::ok(format!("The user answered: {answer}")),
+                            None => ToolOutput::err("there is no one to ask right now; decide with your best judgement and say what you chose"),
+                        }
                     } else {
                         let (out, d) = self.gated_call(&name, &input, host).await;
                         diff = d;

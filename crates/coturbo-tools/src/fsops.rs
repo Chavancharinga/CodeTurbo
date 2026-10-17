@@ -58,6 +58,31 @@ impl Tools {
 
     pub(crate) fn read_file(&self, input: &Value) -> Res {
         let path = self.resolve(arg(input, "path")?)?;
+        // Pictures go to the model as pictures; PDFs and notebooks as text.
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+        if let Some(media) = match ext.as_str() {
+            "png" => Some("image/png"),
+            "jpg" | "jpeg" => Some("image/jpeg"),
+            "gif" => Some("image/gif"),
+            "webp" => Some("image/webp"),
+            _ => None,
+        } {
+            use base64::Engine;
+            let bytes = fs::read(&path).map_err(|e| format!("cannot read {}: {e}", self.display(&path)))?;
+            let mut out = ToolOutput::ok(format!("{} ({} KB image, shown to you)", self.display(&path), bytes.len() / 1024));
+            out.images.push((media.into(), base64::engine::general_purpose::STANDARD.encode(bytes)));
+            return Ok(out);
+        }
+        if ext == "pdf" {
+            let bytes = fs::read(&path).map_err(|e| format!("cannot read {}: {e}", self.display(&path)))?;
+            let text = pdf_extract::extract_text_from_mem(&bytes).map_err(|e| format!("cannot read the PDF's text ({e}); it may be scanned images"))?;
+            let text: String = text.chars().take(60_000).collect();
+            return Ok(ToolOutput::ok(format!("{} (PDF text)\n{}", self.display(&path), text.trim())));
+        }
+        if ext == "ipynb" {
+            let raw = read_text(&path)?;
+            return Ok(ToolOutput::ok(notebook(&raw).unwrap_or(raw)));
+        }
         let src = read_text(&path)?;
         self.record_read(&self.display(&path), &src);
         let full = input["full"].as_bool().unwrap_or(false);
@@ -230,4 +255,32 @@ impl Tools {
         let after = arg(input, "after")?;
         self.apply_edit("insert_symbol", input, format!("inserted after `{after}` in"))
     }
+}
+
+/// A Jupyter notebook as text: each cell with its kind, source and outputs.
+pub fn notebook(raw: &str) -> Option<String> {
+    let v: Value = serde_json::from_str(raw).ok()?;
+    let text = |x: &Value| -> String {
+        match x {
+            Value::Array(a) => a.iter().filter_map(|l| l.as_str()).collect(),
+            Value::String(s) => s.clone(),
+            _ => String::new(),
+        }
+    };
+    let mut out = String::new();
+    for (i, cell) in v["cells"].as_array()?.iter().enumerate() {
+        let kind = cell["cell_type"].as_str().unwrap_or("?");
+        out.push_str(&format!("# cell {} [{kind}]\n{}\n", i + 1, text(&cell["source"]).trim_end()));
+        for o in cell["outputs"].as_array().into_iter().flatten() {
+            let body = if o["text"].is_null() { text(&o["data"]["text/plain"]) } else { text(&o["text"]) };
+            if !body.trim().is_empty() {
+                out.push_str(&format!("# output\n{}\n", body.trim_end().chars().take(2000).collect::<String>()));
+            }
+            if o["data"]["image/png"].is_string() {
+                out.push_str("# output: an image\n");
+            }
+        }
+        out.push('\n');
+    }
+    Some(out)
 }
