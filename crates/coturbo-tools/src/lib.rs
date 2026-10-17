@@ -50,7 +50,7 @@ pub const EDIT_TOOLS: &[&str] = &["write_file", "edit_file", "replace_symbol", "
 /// Fixed tier per tool. Unknown tools (MCP, third-party) are `Exec`.
 pub fn tier(name: &str) -> Tier {
     match name {
-        "read_file" | "read_symbol" | "list_files" | "grep" | "workspace_diagnostics" | "propose_plan" | "tasks" | "network_scan" | "tool_search" | "web_search" | "web_fetch" => Tier::Read,
+        "read_file" | "read_symbol" | "list_files" | "grep" | "workspace_diagnostics" | "propose_plan" | "tasks" | "network_scan" | "tool_search" | "web_search" | "web_fetch" | "agent" => Tier::Read,
         "name_device" => Tier::Write,
         n if EDIT_TOOLS.contains(&n) || n == "design_brief" => Tier::Write,
         "design_review" => Tier::Read,
@@ -300,6 +300,18 @@ impl Tools {
                         }, "required": ["title", "status"]}
                     })}),
                     &["items"],
+                ),
+            ),
+            spec(
+                "agent",
+                "Hand a self-contained piece of work to a subagent with its own fresh context; you get back only its report, which keeps your context small. Call it several times in the same reply to run them at the same time. kind: explore (find how something works in the code, the default), plan (a step-by-step plan), review (look for real defects) only read; general does the work in its own git worktree (a copy of the project) and hands back a branch to merge. The prompt must stand alone: the subagent knows nothing of this conversation.",
+                obj(
+                    json!({
+                        "description": s("a few words, shown to the user"),
+                        "prompt": s("the whole task, with every detail the subagent needs"),
+                        "kind": {"type": "string", "enum": ["explore", "plan", "review", "general"]}
+                    }),
+                    &["description", "prompt"],
                 ),
             ),
             spec(

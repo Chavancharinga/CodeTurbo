@@ -11,6 +11,7 @@ coturbo-providers = { path = "../coturbo-providers" }
 coturbo-tools = { path = "../coturbo-tools" }
 coturbo-verify = { path = "../coturbo-verify" }
 serde_json.workspace = true
+futures-util.workspace = true
 
 [dev-dependencies]
 tokio.workspace = true

@@ -859,3 +859,61 @@ async fn standing_rules_are_injected_and_appended() {
     assert!(mock.requests()[0].system.contains("sempre rode os testes"), "rules reach the request");
     assert!(coturbo_agent::add_rule(dir.path(), "   ").is_err());
 }
+
+/// Two subagents asked in one reply run together; the main agent gets both
+/// reports and nothing of their own context.
+#[tokio::test]
+async fn subagents_run_together_and_report_back() {
+    let dir = project();
+    let tools = Tools::new(dir.path(), Mode::Naive);
+    let mock = Mock::new(vec![
+        resp(
+            vec![
+                tool("a1", "agent", json!({"description": "find add", "prompt": "Where is add defined?", "kind": "explore"})),
+                tool("a2", "agent", json!({"description": "review add", "prompt": "Review add for overflow.", "kind": "review"})),
+            ],
+            "tool_use",
+            usage(100, 10),
+        ),
+        resp(vec![text("add is in src/lib.rs:1")], "end_turn", usage(50, 5)),
+        resp(vec![text("add can overflow on i32::MAX")], "end_turn", usage(50, 5)),
+        resp(vec![text("both done")], "end_turn", usage(120, 5)),
+    ]);
+    let mut agent = Agent::new(&mock, &tools, config());
+    let report = agent.run_task("investigate add", &mut NoopHost).await.unwrap();
+    assert_eq!(report.final_text, "both done");
+    let reqs = mock.requests();
+    // The subagents started fresh: one message each, with their own role.
+    assert_eq!(reqs[1].messages.len(), 1);
+    assert!(reqs[1].system.contains("research subagent") && reqs[2].system.contains("code review subagent"));
+    let results = tool_results(&reqs[3]);
+    assert!(results[0].1.contains("src/lib.rs:1") && results[1].1.contains("overflow"), "{results:?}");
+}
+
+/// A `general` subagent works in its own git worktree: the user's files stay
+/// as they were and its work comes back on a branch.
+#[tokio::test]
+async fn a_general_subagent_works_on_its_own_branch() {
+    let dir = project();
+    let git = |args: &[&str]| std::process::Command::new("git").arg("-C").arg(dir.path()).args(args).output().unwrap();
+    if !git(&["init", "-q"]).status.success() {
+        return; // no git here
+    }
+    git(&["add", "-A"]);
+    git(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init"]);
+    let tools = Tools::new(dir.path(), Mode::Naive);
+    let mock = Mock::new(vec![
+        resp(vec![tool("a1", "agent", json!({"description": "add sub", "prompt": "Add a NOTES.md file.", "kind": "general"}))], "tool_use", usage(10, 1)),
+        resp(vec![tool("w1", "write_file", json!({"path": "NOTES.md", "content": "notes\n"}))], "tool_use", usage(10, 1)),
+        resp(vec![text("added NOTES.md")], "end_turn", usage(10, 1)),
+        resp(vec![text("merged later")], "end_turn", usage(10, 1)),
+    ]);
+    let mut agent = Agent::new(&mock, &tools, config());
+    agent.run_task("delegate", &mut NoopHost).await.unwrap();
+    let result = &tool_results(&mock.requests()[3])[0].1;
+    assert!(result.contains("added NOTES.md") && result.contains("codeturbo/agent-"), "{result}");
+    assert!(!dir.path().join("NOTES.md").exists(), "the user's copy is untouched");
+    let branch = result.split('`').nth(1).unwrap();
+    let files = String::from_utf8_lossy(&git(&["show", "--name-only", "--format=", branch]).stdout).to_string();
+    assert!(files.contains("NOTES.md"), "the work is on the branch: {files}");
+}

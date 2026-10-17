@@ -7,6 +7,7 @@
 
 pub mod approval;
 pub mod plan;
+pub mod sub;
 
 use approval::{ApprovalConfig, SessionGrants, Verdict};
 use coturbo_providers::{
@@ -343,6 +344,8 @@ pub struct Agent<'a> {
     /// How long each check step took the last time it passed, to show how
     /// far a running one is.
     step_secs: HashMap<String, f32>,
+    /// 0 for the main agent, 1 for a subagent (which starts none).
+    depth: u8,
 }
 
 /// Project files (not CoTurbo's own plan files) changed in the task.
@@ -369,6 +372,7 @@ impl<'a> Agent<'a> {
             started: None,
             checkpoints: Vec::new(),
             step_secs: HashMap::new(),
+            depth: 0,
         }
     }
 
@@ -716,6 +720,22 @@ impl<'a> Agent<'a> {
                 }
             }
 
+            // Subagents of this round run first, all at the same time.
+            let mut sub_results: HashMap<String, ToolOutput> = HashMap::new();
+            let subs: Vec<sub::SubTask> = calls.iter().filter(|(_, n, _)| n == "agent").map(|(id, _, input)| sub::SubTask::from_input(id, input)).collect();
+            if !subs.is_empty() && !truncated && handoff.is_none() {
+                if self.depth > 0 {
+                    for s in subs {
+                        sub_results.insert(s.id, ToolOutput::err("a subagent cannot start other subagents; do the work yourself"));
+                    }
+                } else {
+                    for (_, name, input) in calls.iter().filter(|(_, n, _)| n == "agent") {
+                        host.on_event(Event::ToolStart { name, input });
+                    }
+                    host.on_event(Event::Waiting("agents"));
+                    sub_results.extend(sub::run_all(self.provider, self.tools, &self.config, subs).await);
+                }
+            }
             // Every tool_use gets exactly one result, in one user message.
             let mut results = Vec::with_capacity(calls.len());
             let mut images = Vec::new();
@@ -727,6 +747,8 @@ impl<'a> Agent<'a> {
                     ToolOutput::err(format!("invalid JSON input, not executed: {raw}"))
                 } else if handoff.is_some() {
                     ToolOutput::err("not executed: the plan was already answered in this turn")
+                } else if let Some(out) = sub_results.remove(&id) {
+                    out
                 } else {
                     host.on_event(Event::ToolStart { name: &name, input: &input });
                     if name == "propose_plan" {

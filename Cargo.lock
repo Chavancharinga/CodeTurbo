@@ -393,6 +393,7 @@ dependencies = [
  "coturbo-providers",
  "coturbo-tools",
  "coturbo-verify",
+ "futures-util",
  "serde_json",
  "tempfile",
  "tokio",

@@ -42,6 +42,7 @@ pub fn busy_label(waiting: &str) -> String {
         "thinking" => "think".into(),
         "verifying" => "verify: clippy, tests".into(),
         "design" => "design_review: desktop and phone".into(),
+        "agents" => "subagents working in parallel".into(),
         other => other.into(),
     }
 }
