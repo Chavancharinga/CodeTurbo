@@ -1,0 +1,12 @@
+[package]
+name = "coturbo-mcp"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+reqwest.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+futures-util.workspace = true

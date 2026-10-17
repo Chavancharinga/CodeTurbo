@@ -11,10 +11,12 @@ coturbo-ast = { path = "../coturbo-ast" }
 coturbo-browse = { path = "../coturbo-browse" }
 coturbo-design = { path = "../coturbo-design" }
 coturbo-net = { path = "../coturbo-net" }
+coturbo-mcp = { path = "../coturbo-mcp" }
 coturbo-rea = { path = "../coturbo-rea" }
 coturbo-providers = { path = "../coturbo-providers" }
 coturbo-verify = { path = "../coturbo-verify" }
 tokio.workspace = true
+reqwest.workspace = true
 serde_json.workspace = true
 ignore = "0.4"
 regex = "1"
@@ -22,4 +24,5 @@ similar = "2"
 base64 = "0.22"
 
 [dev-dependencies]
+coturbo-mcp = { path = "../coturbo-mcp" }
 tempfile = "3"

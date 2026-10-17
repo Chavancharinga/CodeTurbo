@@ -13,6 +13,7 @@ path = "src/main.rs"
 coturbo-agent = { path = "../coturbo-agent" }
 coturbo-browse = { path = "../coturbo-browse" }
 coturbo-net = { path = "../coturbo-net" }
+coturbo-mcp = { path = "../coturbo-mcp" }
 coturbo-providers = { path = "../coturbo-providers" }
 coturbo-tools = { path = "../coturbo-tools" }
 coturbo-verify = { path = "../coturbo-verify" }

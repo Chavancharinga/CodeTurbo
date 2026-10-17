@@ -428,6 +428,7 @@ dependencies = [
  "coturbo-agent",
  "coturbo-browse",
  "coturbo-design",
+ "coturbo-mcp",
  "coturbo-net",
  "coturbo-providers",
  "coturbo-tools",
@@ -458,6 +459,16 @@ dependencies = [
  "regex",
  "serde_json",
  "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "coturbo-mcp"
+version = "0.29.2"
+dependencies = [
+ "futures-util",
+ "reqwest",
+ "serde_json",
  "tokio",
 ]
 
@@ -518,6 +529,7 @@ dependencies = [
  "coturbo-ast",
  "coturbo-browse",
  "coturbo-design",
+ "coturbo-mcp",
  "coturbo-net",
  "coturbo-providers",
  "coturbo-rea",
@@ -525,6 +537,7 @@ dependencies = [
  "futures-util",
  "ignore",
  "regex",
+ "reqwest",
  "serde_json",
  "similar",
  "tempfile",

@@ -312,6 +312,27 @@ impl Session {
             .with_browse_sink(Arc::new(move |frame| {
                 let _ = screen.send(Out::Browser(frame));
             }));
+        // External tool servers connect in the background; the next task sees them.
+        let servers = self.cfg.mcp_servers(&self.root);
+        if !servers.is_empty() {
+            let slot = tools.mcp_slot();
+            let out = self.out.clone();
+            let root = self.root.clone();
+            tokio::spawn(async move {
+                let m = coturbo_mcp::Manager::start(&servers, &root).await;
+                let ok: Vec<String> = m.summary().iter().map(|(s, n)| format!("{s} ({n} tools)")).collect();
+                let mut lines = Vec::new();
+                if !ok.is_empty() {
+                    lines.push(Line::styled(format!("  MCP connected: {}", ok.join(", ")), Style::new().fg(Color::DarkGray)));
+                }
+                for (s, e) in &m.failed {
+                    lines.push(Line::styled(format!("  ! MCP server {s} did not connect: {e}"), Style::new().fg(Color::Yellow)));
+                }
+                let _ = slot.set(m);
+                let _ = out.send(Out::Lines(lines));
+            });
+        }
+        let mcp = tools.mcp_slot();
         let mut first = true;
         'session: loop {
             let provider = match self.provider() {
@@ -381,6 +402,10 @@ impl Session {
                         Command::Key => self.set_key().await,
                         Command::Approval => self.choose_approval(&arg).await,
                         Command::Effort => self.choose_effort(&arg).await,
+                        Command::Mcp => {
+                            self.show_mcp(&mcp);
+                            false
+                        }
                         Command::Devices => {
                             self.devices().await;
                             false
@@ -835,6 +860,34 @@ impl Session {
                 }
             }
         }
+    }
+
+    /// `/mcp`: the external tool servers and what they offer.
+    fn show_mcp(&self, slot: &coturbo_tools::McpSlot) {
+        let configured = self.cfg.mcp_servers(&self.root);
+        if configured.is_empty() {
+            self.info(
+                "No MCP server configured. Add one to config.toml as [mcp.servers.<name>] with command/args (a program) or url (an address), \
+                 or put a .mcp.json in the project (the same file Claude Code uses).",
+            );
+            return;
+        }
+        let Some(m) = slot.get() else {
+            self.info(format!("{} MCP server(s) still connecting…", configured.len()));
+            return;
+        };
+        let mut lines = vec![Line::styled("  MCP servers", Style::new().add_modifier(Modifier::BOLD))];
+        for (server, n) in m.summary() {
+            lines.push(Line::raw(format!("  ✓ {server}: {n} tool(s)")));
+            for t in m.tools().iter().filter(|t| t.server == server).take(12) {
+                let d: String = t.description.chars().take(70).collect();
+                lines.push(Line::styled(format!("      {} · {d}", t.name), Style::new().fg(Color::DarkGray)));
+            }
+        }
+        for (s, e) in &m.failed {
+            lines.push(Line::styled(format!("  ✗ {s}: {e}"), Style::new().fg(Color::Yellow)));
+        }
+        self.send(Out::Lines(lines));
     }
 
     /// Asks for a name and remembers it for the device with this MAC.

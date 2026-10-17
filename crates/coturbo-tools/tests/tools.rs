@@ -505,3 +505,27 @@ async fn a_server_runs_in_the_background_and_stops_with_the_session() {
     assert!(quick.content.contains("exited") && quick.content.contains("done"), "{}", quick.content);
     assert!(pid > 0);
 }
+
+/// Many external tools are only named until the model loads the ones it
+/// needs with tool_search: the prompt stays small.
+#[test]
+fn external_tools_load_on_demand() {
+    let dir = tempfile::tempdir().unwrap();
+    let tools = Tools::new(dir.path(), Mode::Naive);
+    let ext: Vec<coturbo_mcp::Tool> = (0..10)
+        .map(|i| coturbo_mcp::Tool { server: "gh".into(), name: format!("tool_{i}"), description: format!("does thing {i}"), input_schema: serde_json::json!({"type": "object"}) })
+        .collect();
+    let _ = tools.mcp_slot().set(coturbo_mcp::Manager::with_tools(ext));
+    let names = |t: &Tools| t.specs().into_iter().map(|s| s.name).collect::<Vec<_>>();
+    let before = names(&tools);
+    assert!(before.contains(&"tool_search".to_string()));
+    assert!(!before.iter().any(|n| n.starts_with("mcp__")), "only named, inside tool_search");
+    let search = tools.specs().into_iter().find(|s| s.name == "tool_search").unwrap();
+    assert!(search.description.contains("mcp__gh__tool_7"));
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let out = rt.block_on(tools.call("tool_search", &serde_json::json!({"query": "select:mcp__gh__tool_7"})));
+    assert!(!out.is_error, "{}", out.content);
+    let after = names(&tools);
+    assert!(after.contains(&"mcp__gh__tool_7".to_string()), "loaded now");
+    assert!(!after.contains(&"mcp__gh__tool_3".to_string()), "the others still wait");
+}

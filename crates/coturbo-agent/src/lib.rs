@@ -596,7 +596,6 @@ impl<'a> Agent<'a> {
         let task = user_text.clone();
         self.history.push(Message { role: Role::User, content: vec![ContentBlock::Text { text: user_text }] });
 
-        let specs = self.tools.specs();
         let mut report = TaskReport::empty();
         let mut handoff = None;
         let mut fix_rounds = 0;
@@ -622,7 +621,8 @@ impl<'a> Agent<'a> {
             let req = Request {
                 model,
                 system: self.system.clone(),
-                tools: specs.clone(),
+                // Read each round: tools found with tool_search join the next one.
+                tools: self.tools.specs(),
                 messages: self.history.clone(),
                 max_tokens: self.config.max_tokens,
                 effort: self.config.effort.clone(),

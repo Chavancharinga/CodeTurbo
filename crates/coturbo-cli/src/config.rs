@@ -50,6 +50,43 @@ pub struct Config {
     /// Format files after edits (rustfmt for Rust, the language server otherwise).
     pub format_on_write: bool,
     pub lsp: LspToml,
+    /// External tool servers (MCP); a project's `.mcp.json` adds to these.
+    pub mcp: McpToml,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct McpToml {
+    pub servers: BTreeMap<String, McpServerToml>,
+}
+
+/// One MCP server: a program to start (`command`, `args`, `env`) or an
+/// address (`url`, `headers`). `${VAR}` takes a value from the environment.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct McpServerToml {
+    pub command: Option<String>,
+    pub args: Vec<String>,
+    pub env: BTreeMap<String, String>,
+    pub url: Option<String>,
+    pub headers: BTreeMap<String, String>,
+}
+
+impl Config {
+    /// The MCP servers to connect: the config's, then the project's `.mcp.json`.
+    pub fn mcp_servers(&self, root: &Path) -> BTreeMap<String, coturbo_mcp::Server> {
+        let mut out = BTreeMap::new();
+        for (name, s) in &self.mcp.servers {
+            let server = match (&s.url, &s.command) {
+                (Some(url), _) => coturbo_mcp::Server::Http { url: url.clone(), headers: s.headers.clone() },
+                (None, Some(command)) => coturbo_mcp::Server::Stdio { command: command.clone(), args: s.args.clone(), env: s.env.clone() },
+                (None, None) => continue,
+            };
+            out.insert(name.clone(), server);
+        }
+        out.extend(coturbo_mcp::project_servers(root));
+        out
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
@@ -116,6 +153,7 @@ impl Default for Config {
             diagnostics_on_write: true,
             format_on_write: true,
             lsp: LspToml::default(),
+            mcp: McpToml::default(),
         }
     }
 }

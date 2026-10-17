@@ -4,6 +4,7 @@
 
 mod devices;
 mod fsops;
+mod web;
 mod shell;
 
 use coturbo_providers::ToolSpec;
@@ -49,7 +50,7 @@ pub const EDIT_TOOLS: &[&str] = &["write_file", "edit_file", "replace_symbol", "
 /// Fixed tier per tool. Unknown tools (MCP, third-party) are `Exec`.
 pub fn tier(name: &str) -> Tier {
     match name {
-        "read_file" | "read_symbol" | "list_files" | "grep" | "workspace_diagnostics" | "propose_plan" | "tasks" | "network_scan" => Tier::Read,
+        "read_file" | "read_symbol" | "list_files" | "grep" | "workspace_diagnostics" | "propose_plan" | "tasks" | "network_scan" | "tool_search" | "web_search" | "web_fetch" => Tier::Read,
         "name_device" => Tier::Write,
         n if EDIT_TOOLS.contains(&n) || n == "design_brief" => Tier::Write,
         "design_review" => Tier::Read,
@@ -91,7 +92,18 @@ pub struct Tools {
     browse_window: Arc<dyn Fn() -> bool + Send + Sync>,
     /// Commands left running in the background (servers), stopped on shutdown.
     background: std::sync::Mutex<Vec<tokio::process::Child>>,
+    /// External tool servers (MCP), connected after start.
+    mcp: McpSlot,
+    /// External tools the model loaded with tool_search; the rest are only
+    /// named, so a pile of them costs few tokens.
+    loaded: std::sync::Mutex<std::collections::BTreeSet<String>>,
 }
+
+/// With more external tools than this, they are named only, and loaded on demand.
+const EAGER_EXTERNAL: usize = 8;
+
+/// Where the MCP servers land once connected (they start in the background).
+pub type McpSlot = Arc<std::sync::OnceLock<coturbo_mcp::Manager>>;
 
 struct LiveBrowser {
     browser: coturbo_browse::Browser,
@@ -154,7 +166,7 @@ fn arg<'a>(input: &'a Value, key: &str) -> Result<&'a str, String> {
 impl Tools {
     pub fn new(root: &Path, mode: Mode) -> Self {
         let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
-        Self { root, mode, lsp: None, native_checks: false, seen: std::sync::Mutex::new(std::collections::HashMap::new()), browse_sink: None, browse_live: Arc::new((0..MAX_BROWSE_WINDOWS).map(|_| Arc::default()).collect()), browse_window: Arc::new(|| false), background: std::sync::Mutex::new(Vec::new()) }
+        Self { root, mode, lsp: None, native_checks: false, seen: std::sync::Mutex::new(std::collections::HashMap::new()), browse_sink: None, browse_live: Arc::new((0..MAX_BROWSE_WINDOWS).map(|_| Arc::default()).collect()), browse_window: Arc::new(|| false), background: std::sync::Mutex::new(Vec::new()), mcp: Arc::default(), loaded: std::sync::Mutex::default() }
     }
 
     /// Makes `browse` open a real window beside the terminal, with the agent's
@@ -193,6 +205,11 @@ impl Tools {
     /// (rustfmt for Rust, the built-in formatter for HTML).
     pub(crate) fn format_on_write(&self) -> bool {
         self.lsp.as_ref().is_some_and(|l| l.format_on_write())
+    }
+
+    /// Where the MCP servers go once connected; tasks after that see their tools.
+    pub fn mcp_slot(&self) -> McpSlot {
+        self.mcp.clone()
     }
 
     pub fn root(&self) -> &Path {
@@ -286,6 +303,16 @@ impl Tools {
                 ),
             ),
             spec(
+                "web_search",
+                "Search the web; returns titles, addresses and snippets. Use it for current facts, documentation, error messages and libraries, then read the best result with web_fetch.",
+                obj(json!({"query": s("what to search for")}), &["query"]),
+            ),
+            spec(
+                "web_fetch",
+                "Read a web page as plain text (headings, paragraphs, lists, links), without opening a browser. For documentation, articles, API references and results from web_search. Use browse instead to interact with a page or see how it looks.",
+                obj(json!({"url": s("full http(s) address")}), &["url"]),
+            ),
+            spec(
                 "network_scan",
                 "List the devices on the user's local network (read-only): TVs, speakers, printers, cameras, lights, plugs, routers, computers. Finds them by Bonjour/mDNS, UPnP and the ARP table; sweep=true also checks common ports on every address of the local subnet (slower, finds silent devices). Returns each device's address, MAC, names, services, UPnP actions with their control URLs, and open ports. Use it before device_control.",
                 obj(json!({"sweep": {"type": "boolean", "description": "also probe common ports on the whole local /24 (about 10 s)"}, "seconds": {"type": "integer", "description": "how long to listen for announcements, 1-10 (default 3)"}}), &[]),
@@ -348,7 +375,64 @@ impl Tools {
             ]);
         }
         v.sort_by(|a, b| a.name.cmp(&b.name));
+        // External servers' tools come after, in a stable order. Many of them
+        // are only named, behind tool_search, until the model asks for one.
+        if let Some(m) = self.mcp.get() {
+            let all = m.tools();
+            let loaded = self.loaded.lock().map(|l| l.clone()).unwrap_or_default();
+            let eager = all.len() <= EAGER_EXTERNAL;
+            let mut ext: Vec<ToolSpec> = all
+                .iter()
+                .filter(|t| eager || loaded.contains(&t.qualified()))
+                .map(|t| spec(&t.qualified(), &format!("[{} server] {}", t.server, t.description), t.input_schema.clone()))
+                .collect();
+            ext.sort_by(|a, b| a.name.cmp(&b.name));
+            v.extend(ext);
+            let mut waiting: Vec<String> = all.iter().map(|t| t.qualified()).filter(|q| !eager && !loaded.contains(q)).collect();
+            waiting.sort();
+            if !waiting.is_empty() {
+                v.push(spec(
+                    "tool_search",
+                    &format!(
+                        "Load external tools before calling them: only their names are listed here, to save tokens. Pass exact names (select) or words to search their names and descriptions; their full definitions are available from the next step on. Not loaded yet: {}",
+                        waiting.join(", ")
+                    ),
+                    obj(json!({"query": s("words to search, or select:name1,name2 for exact names")}), &["query"]),
+                ));
+            }
+        }
         v
+    }
+
+    /// `tool_search`: marks the matching external tools as loaded.
+    fn tool_search(&self, input: &Value) -> Res {
+        let query = arg(input, "query")?.trim().to_lowercase();
+        let m = self.mcp.get().ok_or("no external tool servers are connected")?;
+        let found: Vec<&coturbo_mcp::Tool> = if let Some(names) = query.strip_prefix("select:") {
+            let want: Vec<&str> = names.split(',').map(str::trim).collect();
+            m.tools().iter().filter(|t| want.contains(&t.qualified().to_lowercase().as_str())).collect()
+        } else {
+            let words: Vec<&str> = query.split_whitespace().collect();
+            let mut scored: Vec<(usize, &coturbo_mcp::Tool)> = m
+                .tools()
+                .iter()
+                .map(|t| {
+                    let hay = format!("{} {}", t.qualified(), t.description).to_lowercase();
+                    (words.iter().filter(|w| hay.contains(*w)).count(), t)
+                })
+                .filter(|(n, _)| *n > 0)
+                .collect();
+            scored.sort_by(|a, b| b.0.cmp(&a.0));
+            scored.into_iter().take(8).map(|(_, t)| t).collect()
+        };
+        if found.is_empty() {
+            return Err(format!("no external tool matches `{query}`"));
+        }
+        if let Ok(mut l) = self.loaded.lock() {
+            l.extend(found.iter().map(|t| t.qualified()));
+        }
+        let list: Vec<String> = found.iter().map(|t| format!("{}: {}", t.qualified(), t.description.chars().take(160).collect::<String>())).collect();
+        Ok(ToolOutput::ok(format!("Loaded; call them from the next step:\n{}", list.join("\n"))))
     }
 
     /// Runs `actions` in window `slot`'s browser, kept open for `browse`,
@@ -739,6 +823,15 @@ impl Tools {
         if ast_only && self.mode != Mode::Ast {
             return ToolOutput::err(format!("unknown tool: {name}"));
         }
+        if name.starts_with("mcp__")
+            && let Some(m) = self.mcp.get()
+            && let Some(r) = m.call(name, input.clone()).await
+        {
+            return match r {
+                Ok(o) => ToolOutput { content: if o.text.trim().is_empty() { "(no output)".into() } else { o.text }, is_error: o.is_error, images: o.images },
+                Err(e) => ToolOutput::err(e),
+            };
+        }
         let r: Res = match name {
             "read_file" => self.read_file(input),
             "write_file" => self.write_file(input),
@@ -778,6 +871,9 @@ impl Tools {
             "network_scan" => devices::network_scan(input).await,
             "device_control" => devices::device_control(input).await,
             "device" => devices::device(input).await,
+            "tool_search" => self.tool_search(input),
+            "web_search" => web::search(input).await,
+            "web_fetch" => web::fetch(input).await,
             "name_device" => devices::name_device(input),
             _ => Err(format!("unknown tool: {name}")),
         };
