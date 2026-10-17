@@ -42,7 +42,7 @@ pub fn load() -> Vec<Known> {
             seen: d["seen"].as_u64().unwrap_or(0),
         })
         .collect();
-    out.sort_by(|a, b| b.seen.cmp(&a.seen));
+    out.sort_by_key(|k| std::cmp::Reverse(k.seen));
     out
 }
 
