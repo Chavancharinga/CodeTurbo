@@ -106,9 +106,14 @@ pub fn expand(root: &Path, name: &str, args: &str) -> Option<String> {
 
 /// The list for the system prompt.
 pub fn catalogue(root: &Path) -> String {
-    let list: Vec<String> = skills(root).iter().map(|s| format!("- {}: {}", s.name, s.description)).collect();
+    // A short line each, and not hundreds of them: this goes into every request.
+    let all = skills(root);
+    let mut list: Vec<String> = all.iter().take(40).map(|s| format!("- {}: {}", s.name, s.description.chars().take(140).collect::<String>())).collect();
     if list.is_empty() {
         return String::new();
+    }
+    if all.len() > 40 {
+        list.push(format!("- and {} more: ask the skill tool for one by name", all.len() - 40));
     }
     format!(
         "\n\nSkills installed (instructions for particular kinds of work). When a task matches one, load it with the skill tool before starting and follow it:\n{}",

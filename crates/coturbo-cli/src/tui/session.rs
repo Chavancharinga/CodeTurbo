@@ -368,9 +368,22 @@ impl Session {
                         self.send(Out::Lines(super::app::task_lines(&task)));
                         task
                     }
-                    None => match rx.recv().await {
-                        Some(In::Submit(text)) => text,
-                        _ => break false,
+                    // Idle: the user's next message, or a scheduled task that came due.
+                    None => tokio::select! {
+                        m = rx.recv() => match m {
+                            Some(In::Submit(text)) => text,
+                            _ => break false,
+                        },
+                        _ = tokio::time::sleep(std::time::Duration::from_secs(20)) => {
+                            let due = coturbo_tools::schedule::take_due(&self.root);
+                            if due.is_empty() || agent.is_none() {
+                                continue;
+                            }
+                            let tasks: Vec<String> = due.iter().map(|e| format!("- {} (scheduled: {})", e.task, e.when)).collect();
+                            let task = format!("Scheduled task(s) now due; do them:\n{}", tasks.join("\n"));
+                            self.send(Out::Lines(super::app::task_lines(&task)));
+                            task
+                        }
                     },
                 };
                 if self.closing.load(Ordering::SeqCst) {

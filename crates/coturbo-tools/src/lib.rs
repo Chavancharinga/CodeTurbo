@@ -5,6 +5,7 @@
 mod devices;
 mod fsops;
 pub mod memory;
+pub mod schedule;
 pub mod skills;
 mod web;
 mod shell;
@@ -53,7 +54,7 @@ pub const EDIT_TOOLS: &[&str] = &["write_file", "edit_file", "replace_symbol", "
 pub fn tier(name: &str) -> Tier {
     match name {
         "read_file" | "read_symbol" | "list_files" | "grep" | "workspace_diagnostics" | "propose_plan" | "tasks" | "network_scan" | "tool_search" | "web_search" | "web_fetch" | "agent" | "recall" | "skill" => Tier::Read,
-        "remember" | "forget" => Tier::Write,
+        "remember" | "forget" | "schedule" => Tier::Write,
         "name_device" => Tier::Write,
         n if EDIT_TOOLS.contains(&n) || n == "design_brief" => Tier::Write,
         "design_review" => Tier::Read,
@@ -322,6 +323,19 @@ impl Tools {
                 "skill",
                 "Load an installed skill: its instructions for a particular kind of work, and the list of its files (read one with `file`). Load it before starting a task that matches its description.",
                 obj(json!({"name": s("the skill's name"), "file": s("optional: one of the skill's files")}), &["name"]),
+            ),
+            spec(
+                "schedule",
+                "Run a task later or on a repeat, by itself, while CodeTurbo is open in this project: \"every day at 23:00 turn off the living room TV\", \"in 20m run the tests\". action add (when + task), list, or cancel (id). The task is written as the user would ask it.",
+                obj(
+                    json!({
+                        "action": {"type": "string", "enum": ["add", "list", "cancel"]},
+                        "when": s("in 20m, in 2h, every 30m, every 2h, at 23:00, every day at 23:00"),
+                        "task": s("what to do then, as a request"),
+                        "id": {"type": "integer", "description": "cancel: the id from list"}
+                    }),
+                    &[],
+                ),
             ),
             spec("recall", "Read one remembered fact in full (by name), or the list of all of them.", obj(json!({"name": s("memory name; omit for the list")}), &[])),
             spec("forget", "Delete a memory that turned out wrong or no longer applies.", obj(json!({"name": s("memory name")}), &["name"])),
@@ -910,6 +924,7 @@ impl Tools {
             "web_search" => web::search(input).await,
             "remember" => memory::remember(&self.root, input),
             "skill" => skills::load(&self.root, input),
+            "schedule" => schedule::tool(&self.root, input),
             "recall" => memory::recall(&self.root, input),
             "forget" => memory::forget(&self.root, input),
             "web_fetch" => web::fetch(input).await,
