@@ -7,6 +7,21 @@ use crate::fiscal::{Finding, Severity};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+/// Android, in Termux.
+pub fn on_android() -> bool {
+    cfg!(target_os = "android") || std::env::var("PREFIX").is_ok_and(|p| p.contains("com.termux"))
+}
+
+/// What to say when there is no browser, for this system.
+pub fn no_browser_help() -> &'static str {
+    if on_android() {
+        "no browser found. Install Chromium yourself with bash: `pkg install -y x11-repo && pkg install -y chromium` \
+         (about 100 MB; the user approves the command), then call this tool again"
+    } else {
+        "no browser found (Edge, Chrome or Chromium); install one or set CODETURBO_BROWSER"
+    }
+}
+
 /// The browser used for rendering: `CODETURBO_BROWSER`, then Edge, then Chrome.
 pub fn find_browser() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os("CODETURBO_BROWSER").map(PathBuf::from).filter(|p| p.exists()) {
@@ -339,8 +354,9 @@ async fn run(browser: &Path, size: (u32, u32), args: &[String]) -> Result<String
     let profile = std::env::temp_dir().join(format!("codeturbo-render-{}-{n}", std::process::id()));
     let mut cmd = tokio::process::Command::new(browser);
     cmd.args(["--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--allow-file-access-from-files"]);
-    // Hosted CI runners on Linux forbid the browser's own sandbox.
-    if cfg!(target_os = "linux") && std::env::var_os("CI").is_some() {
+    // Hosted CI runners on Linux forbid the browser's own sandbox; on Android
+    // (Termux) Chromium only starts without it.
+    if (cfg!(target_os = "linux") && std::env::var_os("CI").is_some()) || on_android() {
         cmd.arg("--no-sandbox");
     }
     cmd.arg(format!("--window-size={},{}", size.0, size.1))

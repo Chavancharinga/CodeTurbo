@@ -244,13 +244,22 @@ Project instructions from {name} (follow them):
 pub fn environment() -> String {
     let termux = cfg!(target_os = "android") || std::env::var("PREFIX").is_ok_and(|p| p.contains("com.termux"));
     if termux {
-        return "Environment: Android, in Termux, on the user's phone. There is no desktop browser and no window: \
-                browse, design_review and observe_app cannot run here, so do not call them. To show the user a page, \
-                write plain HTML/CSS/JS that works opened as a file, then run `termux-open <file.html>` to open it in the \
-                phone's browser (for a server, `termux-open-url http://localhost:<port>`). Python, Node and the rest may \
-                not be installed: check with `command -v` and say how to install with `pkg install <name>` instead of \
-                assuming; prefer files that need no server."
-            .into();
+        // Chromium from Termux's x11-repo runs without a window: the in-terminal browser works.
+        let path = std::env::var_os("PATH").unwrap_or_default();
+        let chromium = std::env::split_paths(&path).any(|d| d.join("chromium-browser").is_file() || d.join("chromium").is_file());
+        let browser = if chromium {
+            "Chromium is installed, so browse (the page in the terminal) and design_review work; observe_app does not (no windows on Android)."
+        } else {
+            "No browser is installed yet. When the task needs browse or design_review, install Chromium yourself with bash: \
+             `pkg install -y x11-repo && pkg install -y chromium` (about 100 MB: say so; the user approves the command), then go on. \
+             observe_app does not work on Android."
+        };
+        return format!(
+            "Environment: Android, in Termux, on the user's phone. {browser} To show the user a page in the phone's own browser, \
+             write plain HTML/CSS/JS that works opened as a file and run `termux-open <file.html>` (for a server, \
+             `termux-open-url http://localhost:<port>`). Python, Node and the rest may not be installed: check with \
+             `command -v` and install what the task needs with `pkg install -y <name>` (the user approves it); prefer files that need no server."
+        );
     }
     match std::env::consts::OS {
         "windows" => "Environment: Windows. Commands run in sh (Git Bash) when it is installed, otherwise in cmd; \

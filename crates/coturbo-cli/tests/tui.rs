@@ -899,6 +899,73 @@ fn green_goes_back_to_white_after_ten_idle_minutes() {
     assert_eq!(h.app.mood_at(now + GREEN_FOR + Duration::from_secs(5)), Mood::Start);
 }
 
+/// On a phone, finished reasoning folds into one line so the answer stays on
+/// screen; on a wide screen it is kept in full.
+#[test]
+fn on_a_phone_finished_reasoning_folds_into_one_line() {
+    use coturbo_cli::tui::StreamKind;
+    use ratatui::{Terminal, backend::TestBackend};
+    for (width, folds) in [(50u16, true), (120, false)] {
+        let mut h = harness();
+        let mut term = Terminal::new(TestBackend::new(width, 40)).unwrap();
+        term.draw(|f| h.app.draw(f)).unwrap();
+        h.app.apply(Out::Stream(StreamKind::Thinking, "The user wants a page.\nLet me list the files.\nThen open it.".into()));
+        h.app.apply(Out::Stream(StreamKind::Text, "Opening the page.".into()));
+        let text: Vec<String> = h.app.transcript().lines().iter().map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect()).collect();
+        let all = text.join("\n");
+        assert_eq!(all.contains("thought for 3 line(s)"), folds, "{width}: {all}");
+        assert_eq!(all.contains("Let me list the files."), !folds, "{width}: {all}");
+        assert!(all.contains("Opening the page."), "the answer stays: {all}");
+    }
+}
+
+/// On a phone the footer's two sides never overlap: the approval mode and
+/// token details give way first, then the model name is shortened.
+#[test]
+fn on_a_phone_the_footer_never_overlaps() {
+    use ratatui::{Terminal, backend::TestBackend};
+    let mut h = harness();
+    h.app.apply(Out::Status(Status {
+        provider: "openrouter".into(),
+        model: "cohere/north-mini-code:free".into(),
+        approval: "auto-edit".into(),
+        usage: "tokens ↑28.9k ⟳0 ↓1.1k".into(),
+        context: Some(2),
+        ..Status::default()
+    }));
+    for w in [50u16, 40, 30] {
+        let mut term = Terminal::new(TestBackend::new(w, 30)).unwrap();
+        term.draw(|f| h.app.draw(f)).unwrap();
+        let buf = term.backend().buffer().clone();
+        let last: String = (0..w).map(|x| buf[(x, 29)].symbol().to_string()).collect();
+        assert!(last.contains("openrouter"), "{w}: {last:?}");
+        assert!(!last.contains("cohtokens") && !last.contains("codetokens"), "{w}: the sides ran together: {last:?}");
+        assert!(last.contains("context 2%"), "{w}: the context stays: {last:?}");
+    }
+}
+
+/// On a phone (narrow, with a long transcript), the approval choices are on
+/// screen: a question nobody sees leaves the agent waiting forever.
+#[test]
+fn on_a_phone_the_approval_question_is_visible() {
+    use ratatui::{Terminal, backend::TestBackend};
+    let mut h = harness();
+    for i in 0..80 {
+        h.app.apply(Out::Lines(vec![Line::raw(format!("thinking line {i} that is long enough to wrap on a phone screen width"))]));
+    }
+    h.app.apply(Out::Busy(Some("bash python run_server.py".into())));
+    let (tx, _rx) = oneshot::channel();
+    h.app.apply(Out::Ask(Question::Approve { title: "Allow bash python run_server.py?".into(), reply: tx }));
+    for (w, ht) in [(50, 60), (50, 30), (44, 24)] {
+        let mut term = Terminal::new(TestBackend::new(w, ht)).unwrap();
+        term.draw(|f| h.app.draw(f)).unwrap();
+        let buf = term.backend().buffer().clone();
+        let all: String = (0..ht).map(|y| (0..w).map(|x| buf[(x, y)].symbol().to_string()).collect::<String>() + "\n").collect();
+        assert!(all.contains("Allow bash"), "{w}x{ht}: the question:\n{all}");
+        assert!(all.contains("Yes") || all.contains("allow") || all.contains("Allow once"), "{w}x{ht}: the choices:\n{all}");
+    }
+}
+
 #[test]
 fn on_a_phone_width_the_snail_still_runs_beside_the_name() {
     let mut h = harness();

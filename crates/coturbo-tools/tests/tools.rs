@@ -484,3 +484,24 @@ async fn browse_shows_several_pages_at_once_each_in_its_own_window() {
     }
     t.shutdown().await;
 }
+
+/// A command that never ends (a server) runs in the background: the call
+/// comes back in seconds with its first output, and the session's end stops it.
+#[tokio::test]
+async fn a_server_runs_in_the_background_and_stops_with_the_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let tools = Tools::new(dir.path(), Mode::Naive);
+    let started = std::time::Instant::now();
+    // Long in any shell (cmd or sh).
+    let long = if cfg!(windows) { "ping -n 60 127.0.0.1" } else { "sleep 60" };
+    let out = tools.call("bash", &serde_json::json!({"command": long, "background": true})).await;
+    assert!(!out.is_error, "{}", out.content);
+    assert!(started.elapsed() < std::time::Duration::from_secs(15), "came back without waiting for it");
+    assert!(out.content.contains("running in the background"), "{}", out.content);
+    let pid: u32 = out.content.split("pid ").nth(1).and_then(|s| s.split(')').next()).and_then(|p| p.parse().ok()).expect("a pid");
+    tools.shutdown().await;
+    // A quick command in background mode is just reported as finished.
+    let quick = tools.call("bash", &serde_json::json!({"command": "echo done", "background": true})).await;
+    assert!(quick.content.contains("exited") && quick.content.contains("done"), "{}", quick.content);
+    assert!(pid > 0);
+}

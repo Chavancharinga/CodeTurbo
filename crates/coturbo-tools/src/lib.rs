@@ -89,6 +89,8 @@ pub struct Tools {
     browse_live: Arc<Vec<Arc<tokio::sync::Mutex<Option<LiveBrowser>>>>>,
     /// `browse` opens a real window the user watches, not one without a window.
     browse_window: Arc<dyn Fn() -> bool + Send + Sync>,
+    /// Commands left running in the background (servers), stopped on shutdown.
+    background: std::sync::Mutex<Vec<tokio::process::Child>>,
 }
 
 struct LiveBrowser {
@@ -152,7 +154,7 @@ fn arg<'a>(input: &'a Value, key: &str) -> Result<&'a str, String> {
 impl Tools {
     pub fn new(root: &Path, mode: Mode) -> Self {
         let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
-        Self { root, mode, lsp: None, native_checks: false, seen: std::sync::Mutex::new(std::collections::HashMap::new()), browse_sink: None, browse_live: Arc::new((0..MAX_BROWSE_WINDOWS).map(|_| Arc::default()).collect()), browse_window: Arc::new(|| false) }
+        Self { root, mode, lsp: None, native_checks: false, seen: std::sync::Mutex::new(std::collections::HashMap::new()), browse_sink: None, browse_live: Arc::new((0..MAX_BROWSE_WINDOWS).map(|_| Arc::default()).collect()), browse_window: Arc::new(|| false), background: std::sync::Mutex::new(Vec::new()) }
     }
 
     /// Makes `browse` open a real window beside the terminal, with the agent's
@@ -213,7 +215,11 @@ impl Tools {
             spec("edit_file", "Replace the unique occurrence of `old` with `new` in a file.", obj(json!({"path": s("relative path"), "old": s("exact text, must match once"), "new": s("replacement")}), &["path", "old", "new"])),
             spec("list_files", "List files (respects .gitignore).", obj(json!({"path": s("relative dir, default .")}), &[])),
             spec("grep", "Regex search; returns path:line: text.", obj(json!({"pattern": s("regex"), "path": s("relative dir or file, default .")}), &["pattern"])),
-            spec("bash", "Run a shell command in the project root.", obj(json!({"command": s("command")}), &["command"])),
+            spec(
+                "bash",
+                "Run a shell command in the project root and get its output. A command that keeps running (a web server, a watcher, `npm run dev`, `python -m http.server`) must use background=true: it keeps running, you get its first output after a few seconds, and it stops when the session ends. Never start a server without it: the call would wait until it times out.",
+                obj(json!({"command": s("command"), "background": {"type": "boolean", "description": "leave it running (servers, watchers)"}}), &["command"]),
+            ),
             spec(
                 "design_brief",
                 "Call before writing any user interface (HTML, CSS, JSX, Vue, Svelte). Describe the design in a few words; returns the locked design tokens (written to DESIGN.md) that every style must use.",
@@ -404,6 +410,10 @@ impl Tools {
 
     /// Closes the browsers `browse` keeps open (when the session ends).
     pub async fn shutdown(&self) {
+        let running: Vec<tokio::process::Child> = self.background.lock().map(|mut b| std::mem::take(&mut *b)).unwrap_or_default();
+        for mut child in running {
+            let _ = child.kill().await;
+        }
         for cell in self.browse_live.iter() {
             let live = cell.lock().await.take();
             if let Some(l) = live {
@@ -454,7 +464,7 @@ impl Tools {
                 }
             }
         }
-        let browser = coturbo_design::render::find_browser().ok_or("no browser found (Edge or Chrome); set CODETURBO_BROWSER")?;
+        let browser = coturbo_design::render::find_browser().ok_or_else(coturbo_design::render::no_browser_help)?;
         // Every window works at the same time, each reporting its own steps.
         let runs = jobs.iter().map(|(slot, actions)| {
             let slot = *slot;
@@ -629,7 +639,7 @@ impl Tools {
         let text = std::fs::read_to_string(&abs).map_err(|e| format!("{rel}: {e}"))?;
         let rel = self.display(&abs);
         let mut findings = fiscal::check(&rel, &text, Contract::load(&self.root).as_ref());
-        let browser = render::find_browser().ok_or("no browser found (Edge or Chrome); set CODETURBO_BROWSER")?;
+        let browser = render::find_browser().ok_or_else(coturbo_design::render::no_browser_help)?;
         let stem = abs.file_stem().map_or("page".into(), |s| s.to_string_lossy().into_owned());
         let shot = self.root.join(".codeturbo/design").join(format!("{stem}.png"));
         let page = render::measure(&browser, &abs, &shot).await?;

@@ -381,7 +381,11 @@ impl Host for TuiHost {
             }
             self.label.clear();
             self.send(Out::Busy(Some("wait: your answer".into())));
-            self.ask(|reply| Question::Approve { title, reply }, Decision::Deny(Some("the user did not answer".into()))).await
+            let decision = self.ask(|reply| Question::Approve { title, reply }, Decision::Deny(Some("the user did not answer".into()))).await;
+            // Answered: the line shows what now runs, not the question that is gone.
+            let next = if matches!(decision, Decision::Deny(_)) { busy_label("thinking") } else { action_label(&req.tool, &req.input) };
+            self.busy(next);
+            decision
         })
     }
 

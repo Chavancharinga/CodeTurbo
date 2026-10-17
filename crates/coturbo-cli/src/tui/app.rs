@@ -91,6 +91,10 @@ impl Entry {
 pub struct Transcript {
     entries: Vec<Entry>,
     stream: Option<StreamKind>,
+    /// Where the reasoning being streamed starts.
+    thinking_from: Option<usize>,
+    /// A small screen (a phone): finished reasoning folds into one line.
+    compact_thinking: bool,
 }
 
 impl Transcript {
@@ -99,29 +103,49 @@ impl Transcript {
         self.entries.iter().flat_map(Entry::rows).collect()
     }
 
+    /// Folds finished reasoning into one line on a small screen; the full
+    /// text opens with a click or Ctrl+B.
+    pub fn set_compact_thinking(&mut self, on: bool) {
+        self.compact_thinking = on;
+    }
+
+    fn end_stream(&mut self) {
+        let was = self.stream.take();
+        let Some(from) = self.thinking_from.take() else { return };
+        if was != Some(StreamKind::Thinking) || !self.compact_thinking || from >= self.entries.len() {
+            return;
+        }
+        let full: Vec<Line<'static>> = self.entries[from..].iter().flat_map(Entry::rows).collect();
+        let n = full.iter().filter(|l| text::width(l) > 0).count();
+        let style = Style::new().fg(Color::Rgb(140, 152, 175)).add_modifier(Modifier::ITALIC);
+        let preview = vec![Line::styled(format!("∴ thought for {n} line(s) · tap or Ctrl+B to open"), style)];
+        self.entries.truncate(from);
+        self.entries.push(Entry::Fold { preview, full, open: false });
+    }
+
     pub fn push(&mut self, line: Line<'static>) {
-        self.stream = None;
+        self.end_stream();
         self.entries.push(Entry::Line(line));
     }
 
     pub fn extend(&mut self, lines: Vec<Line<'static>>) {
-        self.stream = None;
+        self.end_stream();
         self.entries.extend(lines.into_iter().map(Entry::Line));
     }
 
     /// Code that shows `preview` until expanded.
     pub fn block(&mut self, d: super::Dynamic) {
-        self.stream = None;
+        self.end_stream();
         self.entries.push(Entry::Block(d));
     }
 
     pub fn clipped(&mut self, lines: Vec<Line<'static>>) {
-        self.stream = None;
+        self.end_stream();
         self.entries.push(Entry::Clip(lines));
     }
 
     pub fn fold(&mut self, preview: Vec<Line<'static>>, full: Vec<Line<'static>>) {
-        self.stream = None;
+        self.end_stream();
         self.entries.push(Entry::Fold { preview, full, open: false });
     }
 
@@ -151,6 +175,7 @@ impl Transcript {
     pub fn clear(&mut self) {
         self.entries.clear();
         self.stream = None;
+        self.thinking_from = None;
     }
 
     /// Appends streamed model output: reasoning dimmed in italics after
@@ -161,6 +186,7 @@ impl Transcript {
             StreamKind::Text => (Style::new(), "", ""),
         };
         if self.stream != Some(kind) {
+            self.end_stream();
             let blank = match self.entries.last() {
                 Some(Entry::Line(l)) => text::width(l) > 0,
                 Some(_) => true,
@@ -168,6 +194,9 @@ impl Transcript {
             };
             if blank {
                 self.entries.push(Entry::Line(Line::default()));
+            }
+            if kind == StreamKind::Thinking {
+                self.thinking_from = Some(self.entries.len());
             }
             self.entries.push(Entry::Markdown { text: String::new(), code: false, prefix: first, style });
             self.stream = Some(kind);
@@ -997,6 +1026,7 @@ impl App {
         let frame = self.phase as usize;
         // Narrower than the whole logo (a phone), the snail still runs beside the name in text.
         let logo = area.width >= 34 && area.height as usize >= splash::ROWS + 12;
+        self.transcript.set_compact_thinking(area.width < 70 || splash::on_termux());
         let header_h = if logo { splash::ROWS as u16 + 1 } else { 2 };
 
         let asking = self.asking.as_ref();
@@ -1164,10 +1194,25 @@ impl App {
             right.push_str(&format!(" · context {c}%"));
         }
         right.push(' ');
+        // A narrow screen (a phone): the two sides never run into each other.
+        // The approval mode goes first, then the token details (the context
+        // stays), and last the model name is shortened.
+        let width = status.width as usize;
+        let fits = |l: &str, r: &str| l.chars().count() + r.chars().count() + 2 <= width;
+        if !fits(&left, &right) {
+            left = format!(" {} · {}", s.provider, s.model);
+        }
+        if !fits(&left, &right) {
+            right = s.context.map(|c| format!("context {c}% ")).unwrap_or_default();
+        }
+        if !fits(&left, &right) {
+            let keep = width.saturating_sub(right.chars().count() + 3);
+            left = left.chars().take(keep).collect::<String>() + "…";
+        }
         // The folder sits next to the model; what does not fit is cut down to
         // the last three folders, then fewer.
         // The " · " before the folder and a gap before the usage come off the room.
-        let room = (status.width as usize).saturating_sub(left.chars().count() + right.chars().count() + 3 + 3);
+        let room = width.saturating_sub(left.chars().count() + right.chars().count() + 3 + 3);
         if !s.folder.is_empty() && room >= 6 {
             left.push_str(" · ");
             left.push_str(&super::path::short_path(&s.folder, room));
