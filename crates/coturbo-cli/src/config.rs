@@ -52,6 +52,17 @@ pub struct Config {
     pub lsp: LspToml,
     /// External tool servers (MCP); a project's `.mcp.json` adds to these.
     pub mcp: McpToml,
+    /// Commands run around the agent's work: `[[hooks]]` with `event`
+    /// (pre_tool, post_tool, task_start, task_end), `matcher` and `command`.
+    pub hooks: Vec<HookToml>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct HookToml {
+    pub event: String,
+    pub matcher: String,
+    pub command: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
@@ -154,6 +165,7 @@ impl Default for Config {
             format_on_write: true,
             lsp: LspToml::default(),
             mcp: McpToml::default(),
+            hooks: Vec::new(),
         }
     }
 }
@@ -333,6 +345,7 @@ pub fn agent_config(c: &Config) -> Result<AgentConfig, String> {
         gate: c.gate_config(),
         max_fix_rounds: c.max_fix_rounds,
         vision: c.vision.unwrap_or_else(|| sees_images(&c.provider, &c.model)),
+        hooks: c.hooks.iter().map(|h| coturbo_agent::hooks::Hook { event: h.event.clone(), matcher: h.matcher.clone(), command: h.command.clone() }).collect(),
     })
 }
 

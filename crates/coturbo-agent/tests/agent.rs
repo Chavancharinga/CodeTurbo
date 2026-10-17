@@ -68,7 +68,7 @@ fn project() -> tempfile::TempDir {
 }
 
 fn config() -> AgentConfig {
-    AgentConfig { model: "mock".into(), max_turns: 10, max_tokens: 1000, effort: None, approval: ApprovalConfig::yolo(), plan_model: None, context_window: 1000, gate: None, max_fix_rounds: 3, vision: false }
+    AgentConfig { model: "mock".into(), max_turns: 10, max_tokens: 1000, effort: None, approval: ApprovalConfig::yolo(), plan_model: None, context_window: 1000, gate: None, max_fix_rounds: 3, vision: false, hooks: Vec::new() }
 }
 
 fn tool_results(req: &Request) -> Vec<(String, String, bool)> {
@@ -916,4 +916,26 @@ async fn a_general_subagent_works_on_its_own_branch() {
     let branch = result.split('`').nth(1).unwrap();
     let files = String::from_utf8_lossy(&git(&["show", "--name-only", "--format=", branch]).stdout).to_string();
     assert!(files.contains("NOTES.md"), "the work is on the branch: {files}");
+}
+
+/// The user's hooks: one refuses bash, another runs after every file written
+/// and its output reaches the model.
+#[tokio::test]
+async fn hooks_block_tools_and_add_to_results() {
+    let dir = project();
+    let tools = Tools::new(dir.path(), Mode::Naive);
+    let hooks = vec![
+        coturbo_agent::hooks::Hook { event: "pre_tool".into(), matcher: "bash".into(), command: "exit 2".into() },
+        coturbo_agent::hooks::Hook { event: "post_tool".into(), matcher: "write_file|edit_file".into(), command: "echo checked-by-hook".into() },
+    ];
+    let mock = Mock::new(vec![
+        resp(vec![tool("b1", "bash", json!({"command": "echo hi"})), tool("w1", "write_file", json!({"path": "a.txt", "content": "x"}))], "tool_use", usage(10, 1)),
+        resp(vec![text("ok")], "end_turn", usage(10, 1)),
+    ]);
+    let mut agent = Agent::new(&mock, &tools, AgentConfig { hooks, ..config() });
+    agent.run_task("go", &mut NoopHost).await.unwrap();
+    let results = tool_results(&mock.requests()[1]);
+    assert!(results[0].2 && results[0].1.contains("blocked by a hook"), "{results:?}");
+    assert!(!results[1].2 && results[1].1.contains("[hook] checked-by-hook"), "{results:?}");
+    assert!(dir.path().join("a.txt").exists());
 }

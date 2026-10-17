@@ -4,6 +4,8 @@
 
 mod devices;
 mod fsops;
+pub mod memory;
+pub mod skills;
 mod web;
 mod shell;
 
@@ -50,7 +52,8 @@ pub const EDIT_TOOLS: &[&str] = &["write_file", "edit_file", "replace_symbol", "
 /// Fixed tier per tool. Unknown tools (MCP, third-party) are `Exec`.
 pub fn tier(name: &str) -> Tier {
     match name {
-        "read_file" | "read_symbol" | "list_files" | "grep" | "workspace_diagnostics" | "propose_plan" | "tasks" | "network_scan" | "tool_search" | "web_search" | "web_fetch" | "agent" => Tier::Read,
+        "read_file" | "read_symbol" | "list_files" | "grep" | "workspace_diagnostics" | "propose_plan" | "tasks" | "network_scan" | "tool_search" | "web_search" | "web_fetch" | "agent" | "recall" | "skill" => Tier::Read,
+        "remember" | "forget" => Tier::Write,
         "name_device" => Tier::Write,
         n if EDIT_TOOLS.contains(&n) || n == "design_brief" => Tier::Write,
         "design_review" => Tier::Read,
@@ -302,6 +305,26 @@ impl Tools {
                     &["items"],
                 ),
             ),
+            spec(
+                "remember",
+                "Save something worth knowing in later sessions of this project: who the user is (user), how they want you to work, including corrections and what they approved (feedback), goals, deadlines and decisions not visible in the code (project), or where things live outside the code (reference). One fact per memory; reuse a name to update it. Do not save what the code or git already record, or what only matters to this conversation.",
+                obj(
+                    json!({
+                        "name": s("short kebab-case name"),
+                        "type": {"type": "string", "enum": ["user", "feedback", "project", "reference"]},
+                        "description": s("one line, used to decide when it is relevant"),
+                        "content": s("the fact; for feedback and project add **Why:** and **How to apply:**")
+                    }),
+                    &["name", "type", "description", "content"],
+                ),
+            ),
+            spec(
+                "skill",
+                "Load an installed skill: its instructions for a particular kind of work, and the list of its files (read one with `file`). Load it before starting a task that matches its description.",
+                obj(json!({"name": s("the skill's name"), "file": s("optional: one of the skill's files")}), &["name"]),
+            ),
+            spec("recall", "Read one remembered fact in full (by name), or the list of all of them.", obj(json!({"name": s("memory name; omit for the list")}), &[])),
+            spec("forget", "Delete a memory that turned out wrong or no longer applies.", obj(json!({"name": s("memory name")}), &["name"])),
             spec(
                 "agent",
                 "Hand a self-contained piece of work to a subagent with its own fresh context; you get back only its report, which keeps your context small. Call it several times in the same reply to run them at the same time. kind: explore (find how something works in the code, the default), plan (a step-by-step plan), review (look for real defects) only read; general does the work in its own git worktree (a copy of the project) and hands back a branch to merge. The prompt must stand alone: the subagent knows nothing of this conversation.",
@@ -885,6 +908,10 @@ impl Tools {
             "device" => devices::device(input).await,
             "tool_search" => self.tool_search(input),
             "web_search" => web::search(input).await,
+            "remember" => memory::remember(&self.root, input),
+            "skill" => skills::load(&self.root, input),
+            "recall" => memory::recall(&self.root, input),
+            "forget" => memory::forget(&self.root, input),
             "web_fetch" => web::fetch(input).await,
             "name_device" => devices::name_device(input),
             _ => Err(format!("unknown tool: {name}")),

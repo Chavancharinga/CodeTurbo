@@ -6,6 +6,7 @@
 //! tasks, by [`Agent::compact`], which swaps the whole history for a summary.
 
 pub mod approval;
+pub mod hooks;
 pub mod plan;
 pub mod sub;
 
@@ -36,6 +37,8 @@ pub struct AgentConfig {
     pub max_fix_rounds: u32,
     /// The model reads images (screenshots from `design_review`).
     pub vision: bool,
+    /// The user's commands run before and after tools and tasks.
+    pub hooks: Vec<hooks::Hook>,
 }
 
 impl AgentConfig {
@@ -51,6 +54,7 @@ impl AgentConfig {
             gate: Some(GateConfig::default()),
             max_fix_rounds: 3,
             vision: false,
+            hooks: Vec::new(),
         }
     }
 }
@@ -241,6 +245,20 @@ Project instructions from {name} (follow them):
     out
 }
 
+/// What was remembered in earlier sessions of this project (the index; the
+/// full text through `recall`).
+pub fn remembered(root: &std::path::Path) -> String {
+    let index = coturbo_tools::memory::index(root);
+    let rule = "\n\nMemory: you keep a memory across sessions with remember, recall and forget. Save what will matter later: \
+                who the user is, how they want you to work (their corrections and what they approved), project goals and \
+                decisions not visible in the code, and where things live outside it. Update a memory instead of duplicating it, \
+                and forget one that turned out wrong.";
+    if index.is_empty() {
+        return rule.to_string();
+    }
+    format!("{rule}\n\nRemembered from earlier sessions (read one in full with recall; they reflect what was true when saved):\n{index}")
+}
+
 /// Where the agent runs, so it uses what this machine has.
 pub fn environment() -> String {
     let termux = cfg!(target_os = "android") || std::env::var("PREFIX").is_ok_and(|p| p.contains("com.termux"));
@@ -359,7 +377,7 @@ impl<'a> Agent<'a> {
             provider,
             tools,
             config,
-            system: system_prompt(tools.mode()) + &project_memory(tools.root()) + &stream_rules(tools.root()),
+            system: system_prompt(tools.mode()) + &project_memory(tools.root()) + &stream_rules(tools.root()) + &remembered(tools.root()) + &coturbo_tools::skills::catalogue(tools.root()),
             history: Vec::new(),
             pending_summary: None,
             last: None,
@@ -524,7 +542,14 @@ impl<'a> Agent<'a> {
     pub async fn run_task(&mut self, prompt: &str, host: &mut dyn Host) -> Result<TaskReport, ProviderError> {
         self.started = Some((self.history.len(), self.pending_summary.clone(), self.plan_mode));
         self.checkpoints.push(Vec::new());
+        let root = self.tools.root().to_path_buf();
+        hooks::event(&self.config.hooks, &root, "task_start", &serde_json::json!({"prompt": prompt})).await;
         let r = self.run_inner(prompt, host).await;
+        let detail = match &r {
+            Ok(rep) => serde_json::json!({"ok": true, "answer": rep.final_text}),
+            Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
+        };
+        hooks::event(&self.config.hooks, &root, "task_end", &detail).await;
         if self.checkpoints.last().is_some_and(Vec::is_empty) {
             self.checkpoints.pop();
         }
@@ -937,6 +962,16 @@ impl<'a> Agent<'a> {
             self.snapshot.record(self.tools.root(), &rel.to_string_lossy());
         }
         self.checkpoint(name, input);
-        (self.tools.call(name, input).await, preview)
+        let root = self.tools.root().to_path_buf();
+        if let hooks::Verdict::Block(why) = hooks::before(&self.config.hooks, &root, name, input).await {
+            return (ToolOutput::err(format!("blocked by a hook: {why}")), None);
+        }
+        let mut out = self.tools.call(name, input).await;
+        let notes = hooks::after(&self.config.hooks, &root, name, input, &out.content, out.is_error).await;
+        if !notes.is_empty() {
+            out.content.push('\n');
+            out.content.push_str(&notes);
+        }
+        (out, preview)
     }
 }

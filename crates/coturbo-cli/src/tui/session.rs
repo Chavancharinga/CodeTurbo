@@ -393,7 +393,17 @@ impl Session {
                         false
                     }
                     Parsed::Unknown(w) => {
-                        self.warn(format!("unknown command: {w}. Type /help for the commands."));
+                        // The user's own commands and skills (CodeTurbo's and Claude Code's folders).
+                        let name = w.trim_start_matches('/');
+                        let rest = text.trim_start().split_once(char::is_whitespace).map_or("", |x| x.1);
+                        match coturbo_tools::skills::expand(&self.root, name, rest) {
+                            Some(task) if agent.is_some() => {
+                                self.send(Out::Lines(super::app::task_lines(&task)));
+                                self.task(agent.as_mut(), &task, cancel).await;
+                            }
+                            Some(_) => self.warn("no provider ready. Use /provider to choose one."),
+                            None => self.warn(format!("unknown command: {w}. Type /help for the commands.")),
+                        }
                         false
                     }
                     Parsed::Command(cmd, arg) => match cmd {

@@ -34,7 +34,7 @@ fn usage(input: u64, output: u64) -> Usage {
 }
 
 fn agent_cfg() -> AgentConfig {
-    AgentConfig { model: "m".into(), max_turns: 5, max_tokens: 1000, effort: None, approval: ApprovalConfig::yolo(), plan_model: None, context_window: 1000, gate: None, max_fix_rounds: 3, vision: false }
+    AgentConfig { model: "m".into(), max_turns: 5, max_tokens: 1000, effort: None, approval: ApprovalConfig::yolo(), plan_model: None, context_window: 1000, gate: None, max_fix_rounds: 3, vision: false, hooks: Vec::new() }
 }
 
 #[test]

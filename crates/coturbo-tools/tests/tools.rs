@@ -529,3 +529,22 @@ fn external_tools_load_on_demand() {
     assert!(after.contains(&"mcp__gh__tool_7".to_string()), "loaded now");
     assert!(!after.contains(&"mcp__gh__tool_3".to_string()), "the others still wait");
 }
+
+/// What is remembered in one session is in the next one's instructions,
+/// until it is forgotten.
+#[tokio::test]
+async fn memory_lasts_between_sessions() {
+    let dir = tempfile::tempdir().unwrap();
+    let tools = Tools::new(dir.path(), Mode::Naive);
+    let save = serde_json::json!({"name": "Language", "type": "feedback", "description": "talk to the user in Portuguese", "content": "Always answer in Portuguese.\n**Why:** the user reads Portuguese."});
+    assert!(!tools.call("remember", &save).await.is_error);
+    let index = coturbo_tools::memory::index(tools.root());
+    assert!(index.contains("[feedback] language") && index.contains("talk to the user in Portuguese"), "{index}");
+    // A new session of the same project sees it.
+    let again = Tools::new(dir.path(), Mode::Naive);
+    let full = again.call("recall", &serde_json::json!({"name": "language"})).await;
+    assert!(full.content.contains("Always answer in Portuguese."), "{}", full.content);
+    assert!(!again.call("forget", &serde_json::json!({"name": "language"})).await.is_error);
+    assert!(coturbo_tools::memory::index(tools.root()).is_empty());
+    let _ = std::fs::remove_dir_all(coturbo_tools::memory::dir(tools.root()));
+}
