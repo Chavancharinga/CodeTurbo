@@ -293,7 +293,7 @@ async fn design_brief_locks_a_contract_and_edits_are_inspected() {
     let page = "<html><head><style>body { font-family: Inter; color: #6366f1; }</style></head><body><p>oi</p></body></html>";
     let out = t.call("write_file", &json!({"path": "index.html", "content": page})).await;
     assert!(out.content.contains("design index.html:"), "{}", out.content);
-    assert!(out.content.contains("fonte-padrao") && out.content.contains("cor-fora-do-contrato"), "{}", out.content);
+    assert!(out.content.contains("default-font") && out.content.contains("color-off-contract"), "{}", out.content);
     let out = t.call("write_file", &json!({"path": "notes.txt", "content": "#6366f1"})).await;
     assert!(!out.content.contains("design "), "only interface files are inspected");
 }

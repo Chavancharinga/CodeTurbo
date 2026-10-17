@@ -828,12 +828,12 @@ impl App {
                 let _ = reply.send(Decision::Deny((!typed.is_empty()).then_some(typed)));
             }
             (Question::Plan { reply, .. }, Stage::Write) => {
-                self.note("pedido de ajuste enviado");
+                self.note("change request sent");
                 let _ = reply.send(PlanChoice::Refine(typed));
             }
             (Question::Approve { title, reply }, Stage::Choose) => match sel {
                 0 => {
-                    self.note("permitido desta vez");
+                    self.note("allowed this time");
                     let _ = reply.send(Decision::Once);
                 }
                 1 => {

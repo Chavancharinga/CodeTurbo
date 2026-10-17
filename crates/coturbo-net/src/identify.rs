@@ -23,21 +23,24 @@ pub struct Identity {
 
 /// mDNS service types: (service, kind, brand, how to control it).
 const SERVICES: &[(&str, &str, &str, &str)] = &[
-    ("_androidtvremote2._tcp", "TV", "Android TV", "tv"),
-    ("_googlecast._tcp", "TV / Chromecast", "Google Cast", "tv (launch apps)"),
-    ("_amzn-wplay._tcp", "TV", "Amazon Fire TV", "tv"),
+    ("kasa", "smart plug / light", "TP-Link Kasa", "device"),
+    ("yeelight", "light", "Yeelight", "device"),
+    ("_wled._tcp", "light", "WLED", "device"),
+    ("_androidtvremote2._tcp", "TV", "Android TV", "device"),
+    ("_googlecast._tcp", "TV / speaker (Google Cast)", "Google Cast", "device"),
+    ("_amzn-wplay._tcp", "TV", "Amazon Fire TV", "device"),
     ("_airplay._tcp", "TV / AirPlay", "Apple", ""),
     ("_raop._tcp", "speaker / AirPlay", "", ""),
     ("_spotify-connect._tcp", "speaker", "", ""),
-    ("_sonos._tcp", "speaker", "Sonos", "device_control upnp"),
+    ("_sonos._tcp", "speaker", "Sonos", "device"),
     ("_hap._tcp", "HomeKit accessory", "", ""),
     ("_homekit._tcp", "HomeKit accessory", "", ""),
     ("_matter._tcp", "Matter device", "", ""),
-    ("_hue._tcp", "light bridge", "Philips Hue", "device_control http"),
-    ("_shelly._tcp", "smart switch / plug", "Shelly", "device_control http"),
+    ("_hue._tcp", "light bridge", "Philips Hue", "device"),
+    ("_shelly._tcp", "smart switch / plug", "Shelly", "device"),
     ("_esphomelib._tcp", "smart device", "ESPHome", ""),
     ("_mqtt._tcp", "MQTT broker", "", ""),
-    ("_ipp._tcp", "printer", "", "device_control http"),
+    ("_ipp._tcp", "printer", "", "device"),
     ("_printer._tcp", "printer", "", ""),
     ("_pdl-datastream._tcp", "printer", "", ""),
     ("_companion-link._tcp", "Apple device", "Apple", ""),
@@ -56,6 +59,10 @@ const NAME_HINTS: &[(&str, &str, &str)] = &[
     ("appletv", "TV", "Apple"),
     ("android", "Android device", ""),
     ("redmi", "phone", "Xiaomi"),
+    ("poco", "phone", "Xiaomi"),
+    ("xiaomi-1", "phone", "Xiaomi"),
+    ("xiaomi-mi", "phone", "Xiaomi"),
+    ("mitv", "TV", "Xiaomi"),
     ("xiaomi", "", "Xiaomi"),
     ("huawei", "", "Huawei"),
     ("oneplus", "phone", "OnePlus"),
@@ -140,7 +147,7 @@ pub fn identify(d: &Device, vendor: Option<&str>, host: Option<&str>, title: Opt
         };
         set(&mut id.kind, kind);
         if t.contains("mediarenderer") {
-            set(&mut id.control, "device_control upnp (play, pause, volume)");
+            set(&mut id.control, "device");
         }
     }
     let names: Vec<String> = d.names.iter().cloned().chain(host.map(str::to_string)).chain(title.map(str::to_string)).collect();
@@ -171,19 +178,19 @@ pub fn identify(d: &Device, vendor: Option<&str>, host: Option<&str>, title: Opt
     if p.contains(&8001) || p.contains(&8002) {
         set(&mut id.kind, "TV");
         set(&mut id.brand, "Samsung");
-        set(&mut id.control, "tv");
+        set(&mut id.control, "device");
     }
     if p.contains(&3000) || p.contains(&3001) {
-        set(&mut id.control, "tv");
+        set(&mut id.control, "device");
     }
     if p.contains(&8060) {
         set(&mut id.kind, "TV");
         set(&mut id.brand, "Roku");
-        set(&mut id.control, "tv");
+        set(&mut id.control, "device");
     }
     if p.contains(&5555) {
         set(&mut id.kind, "Android device (ADB on)");
-        set(&mut id.control, "tv");
+        set(&mut id.control, "device");
     }
     if p.contains(&9100) || p.contains(&631) {
         set(&mut id.kind, "printer");
@@ -306,14 +313,14 @@ mod tests {
             ..Device::default()
         };
         let id = identify(&d, None, None, None);
-        assert_eq!((id.kind.as_str(), id.brand.as_str(), id.model.as_str(), id.name.as_str()), ("TV / Chromecast", "Google Cast", "Chromecast Ultra", "Sala"));
+        assert_eq!((id.kind.as_str(), id.brand.as_str(), id.model.as_str(), id.name.as_str()), ("TV / speaker (Google Cast)", "Google Cast", "Chromecast Ultra", "Sala"));
     }
 
     #[test]
     fn recognises_a_samsung_tv_and_a_phone() {
         let tv = Device { open_ports: [8001, 8002, 9197].into_iter().collect(), ..Device::default() };
         let id = identify(&tv, Some("Samsung Electronics Co.,Ltd"), None, None);
-        assert_eq!((id.kind.as_str(), id.brand.as_str(), id.control.as_str()), ("TV", "Samsung Electronics", "tv"));
+        assert_eq!((id.kind.as_str(), id.brand.as_str(), id.control.as_str()), ("TV", "Samsung Electronics", "device"));
         let phone = Device { mac: Some("da:a1:19:00:00:01".into()), ..Device::default() };
         assert!(identify(&phone, None, Some("Galaxy-S23"), None).brand == "Samsung");
         assert!(identify(&phone, None, None, None).kind.contains("private"));

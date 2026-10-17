@@ -100,7 +100,7 @@ fn copy_to_clipboard(text: &str) -> Result<(), String> {
         ("xclip", &["-selection", "clipboard"], text.as_bytes().to_vec())
     };
     let mut child = Command::new(program).args(args).stdin(Stdio::piped()).spawn().map_err(|e| format!("{program}: {e}"))?;
-    child.stdin.take().ok_or("sem entrada")?.write_all(&bytes).map_err(|e| e.to_string())?;
+    child.stdin.take().ok_or("no input")?.write_all(&bytes).map_err(|e| e.to_string())?;
     child.wait().map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -668,7 +668,6 @@ impl Session {
     /// `/devices`: finds what is on the network and controls it with clicks.
     /// A click is the user's own action, so nothing asks again.
     async fn devices(&mut self) {
-        use coturbo_net::tv::Action;
         self.send(Out::Busy(Some("network_scan · whole subnet".into())));
         let inv = coturbo_net::scan(coturbo_net::ScanOptions { sweep: true, ..Default::default() }).await;
         self.send(Out::Busy(None));
@@ -679,43 +678,120 @@ impl Session {
         let label = |d: &coturbo_net::Device| {
             let id = &d.identity;
             let what = [id.kind.as_str(), id.brand.as_str(), id.model.as_str()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(" · ");
-            let name = if id.name.is_empty() { String::new() } else { format!("  \"{}\"", id.name) };
+            let given = coturbo_net::registry::name_of(d.mac.as_deref());
+            let name = match given {
+                Some(n) => format!("  \"{n}\""),
+                None if !id.name.is_empty() => format!("  \"{}\"", id.name),
+                None => String::new(),
+            };
             format!("{}{name}  {}", if what.is_empty() { "unidentified device" } else { &what }, d.ip.map(|i| i.to_string()).unwrap_or_default())
         };
         loop {
-            let options: Vec<Choice> = inv.devices.iter().filter_map(|d| Some(Choice::new(d.ip?.to_string(), label(d)))).collect();
+            let mut options: Vec<Choice> = inv.devices.iter().filter_map(|d| Some(Choice::new(d.ip?.to_string(), label(d)))).collect();
+            let away = coturbo_net::registry::missing(&inv);
+            for k in &away {
+                let name = if k.name.is_empty() { String::new() } else { format!("  \"{}\"", k.name) };
+                options.push(Choice::new(format!("off:{}", k.mac), format!("{}{name}  off or asleep", if k.what.is_empty() { "device" } else { &k.what })));
+            }
             let title = format!("{} device(s) on your network · pick one", options.len());
             let Some(ip) = self.select(title, options, false).await else { return };
+            // A known device that is off: wake it, or name it.
+            if let Some(mac) = ip.strip_prefix("off:") {
+                let Some(k) = away.iter().find(|k| k.mac == mac).cloned() else { continue };
+                let options = vec![Choice::new("power_on", "Turn on (Wake-on-LAN)"), Choice::new("rename", "Give it a name")];
+                match self.select(format!("{} · off or asleep", if k.name.is_empty() { &k.what } else { &k.name }), options, false).await.as_deref() {
+                    Some("power_on") => match coturbo_net::wake(&k.mac, None).await {
+                        Ok(t) => self.info(format!("{t}. The TV needs \"Turn on via network\" (Wake on LAN) on in its settings.")),
+                        Err(e) => self.warn(e),
+                    },
+                    Some("rename") => self.rename_device(&k.mac).await,
+                    _ => {}
+                }
+                continue;
+            }
             let Some(device) = inv.devices.iter().find(|d| d.ip.map(|i| i.to_string()) == Some(ip.clone())) else { return };
             let Ok(addr) = ip.parse::<std::net::IpAddr>() else { return };
-            let is_tv = device.identity.control.contains("tv") || device.identity.kind.contains("TV");
-            let mut actions: Vec<(&str, &str)> = vec![("details", "Details")];
-            if is_tv {
-                actions.extend([
-                    ("youtube", "Open YouTube"),
-                    ("netflix", "Open Netflix"),
+            // What it is decides the buttons.
+            self.send(Out::Busy(Some(format!("finding how to talk to {ip}"))));
+            let kind = coturbo_net::home::detect(addr).await;
+            self.send(Out::Busy(None));
+            let mut actions: Vec<(&str, &str)> = vec![("status", "Status"), ("details", "Details"), ("rename", "Give it a name")];
+            use coturbo_net::home::Kind;
+            match &kind {
+                Kind::Tv(_) => {
+                    actions.extend([
+                        ("youtube", "Open YouTube"),
+                        ("netflix", "Open Netflix"),
+                        ("volume_up", "Volume +"),
+                        ("volume_down", "Volume -"),
+                        ("mute", "Mute"),
+                        ("play", "Play"),
+                        ("pause", "Pause"),
+                        ("home", "Home"),
+                        ("apps", "Installed apps"),
+                        ("off", "Turn off"),
+                    ]);
+                    if device.mac.is_some() {
+                        actions.push(("on", "Turn on (Wake-on-LAN)"));
+                    }
+                }
+                Kind::Cast => actions.extend([
                     ("volume_up", "Volume +"),
                     ("volume_down", "Volume -"),
                     ("mute", "Mute"),
-                    ("home", "Home"),
-                    ("apps", "Installed apps"),
-                    ("info", "Model and system version"),
-                    ("power_off", "Turn off"),
-                ]);
-                if device.mac.is_some() {
-                    actions.push(("power_on", "Turn on (Wake-on-LAN)"));
-                }
-            } else if device.open_ports.contains(&80) || device.open_ports.contains(&443) {
+                    ("play", "Play"),
+                    ("pause", "Pause"),
+                    ("stop", "Stop"),
+                    ("youtube", "Open YouTube"),
+                    ("spotify", "Open Spotify"),
+                ]),
+                Kind::Hue | Kind::Wled | Kind::Yeelight => actions.extend([
+                    ("on", "Turn on"),
+                    ("off", "Turn off"),
+                    ("toggle", "Toggle"),
+                    ("bright100", "Brightness 100%"),
+                    ("bright50", "Brightness 50%"),
+                    ("bright10", "Brightness 10%"),
+                    ("warm", "Warm white"),
+                    ("cold", "Cool white"),
+                    ("red", "Red"),
+                    ("blue", "Blue"),
+                ]),
+                Kind::Shelly { .. } | Kind::Tasmota | Kind::Kasa => actions.extend([("on", "Turn on"), ("off", "Turn off"), ("toggle", "Toggle")]),
+                Kind::Renderer(_) => actions.extend([
+                    ("play", "Play"),
+                    ("pause", "Pause"),
+                    ("stop", "Stop"),
+                    ("next", "Next"),
+                    ("previous", "Previous"),
+                    ("volume_up", "Volume +"),
+                    ("volume_down", "Volume -"),
+                    ("mute", "Mute"),
+                ]),
+                Kind::Mqtt => actions.push(("listen", "What the devices are saying (5s)")),
+                Kind::Printer | Kind::Router(_) | Kind::Unknown => {}
+            }
+            if device.open_ports.contains(&80) || device.open_ports.contains(&443) {
                 actions.push(("web", "Its web page address"));
             }
             loop {
                 let options = actions.iter().map(|(id, l)| Choice::new(*id, *l)).collect();
-                let Some(pick) = self.select(format!("{} · choose an action (Esc goes back)", label(device)), options, false).await else { break };
-                let action = match pick.as_str() {
+                let title = format!("{} · {} · choose an action (Esc goes back)", label(device), kind.label());
+                let Some(pick) = self.select(title, options, false).await else { break };
+                use coturbo_net::home::Act;
+                let act = match pick.as_str() {
                     "details" => {
                         let one = coturbo_net::Inventory { local: inv.local, devices: vec![device.clone()] };
                         let text = coturbo_net::render(&one);
                         self.send(Out::Lines(text.lines().skip(2).map(|l| Line::raw(l.to_string())).collect()));
+                        continue;
+                    }
+                    "rename" => {
+                        if let Some(mac) = &device.mac {
+                            self.rename_device(mac).await;
+                        } else {
+                            self.warn("this device has no MAC address to remember it by");
+                        }
                         continue;
                     }
                     "web" => {
@@ -723,26 +799,51 @@ impl Session {
                         self.info(format!("Open {scheme}://{ip}/ in your browser."));
                         continue;
                     }
-                    "youtube" => Action::Launch { app: "YouTube".into(), content: None },
-                    "netflix" => Action::Launch { app: "Netflix".into(), content: None },
-                    "volume_up" => Action::VolumeUp(2),
-                    "volume_down" => Action::VolumeDown(2),
-                    "mute" => Action::Mute,
-                    "home" => Action::Key("home".into()),
-                    "apps" => Action::Apps,
-                    "info" => Action::Info,
-                    "power_off" => Action::PowerOff,
-                    "power_on" => Action::PowerOn { mac: device.mac.clone() },
+                    "status" => Act::Status,
+                    "on" => Act::On,
+                    "off" => Act::Off,
+                    "toggle" => Act::Toggle,
+                    "bright100" => Act::Brightness(100),
+                    "bright50" => Act::Brightness(50),
+                    "bright10" => Act::Brightness(10),
+                    "warm" => Act::Color(255, 180, 107),
+                    "cold" => Act::Color(220, 235, 255),
+                    "red" => Act::Color(255, 0, 0),
+                    "blue" => Act::Color(0, 0, 255),
+                    "youtube" => Act::Launch { app: "YouTube".into(), content: None },
+                    "netflix" => Act::Launch { app: "Netflix".into(), content: None },
+                    "spotify" => Act::Launch { app: "Spotify".into(), content: None },
+                    "volume_up" => Act::VolumeUp(2),
+                    "volume_down" => Act::VolumeDown(2),
+                    "mute" => Act::Mute,
+                    "play" => Act::Play,
+                    "pause" => Act::Pause,
+                    "stop" => Act::Stop,
+                    "next" => Act::Next,
+                    "previous" => Act::Previous,
+                    "home" => Act::Key("home".into()),
+                    "apps" => Act::Apps,
+                    "listen" => Act::Listen { topic: "#".into() },
                     _ => continue,
                 };
-                self.send(Out::Busy(Some(format!("tv {ip} {pick}"))));
-                let result = coturbo_net::tv::control(addr, action).await;
+                self.send(Out::Busy(Some(format!("device {ip} {pick}"))));
+                let result = coturbo_net::home::control(addr, device.mac.clone(), act, None).await;
                 self.send(Out::Busy(None));
                 match result {
                     Ok(text) => self.info(text),
                     Err(e) => self.warn(e),
                 }
             }
+        }
+    }
+
+    /// Asks for a name and remembers it for the device with this MAC.
+    async fn rename_device(&mut self, mac: &str) {
+        let title = "Name for this device (e.g. living room TV) · type it and press Enter".to_string();
+        let Some(name) = self.select(title, Vec::new(), true).await.filter(|n| !n.trim().is_empty()) else { return };
+        match coturbo_net::registry::name(mac, &name) {
+            Ok(k) => self.info(format!("Saved: \"{}\". You can now ask, for example, \"turn off the {}\".", k.name, k.name)),
+            Err(e) => self.warn(e),
         }
     }
 

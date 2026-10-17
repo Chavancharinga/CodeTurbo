@@ -387,7 +387,7 @@ dependencies = [
 
 [[package]]
 name = "coturbo-agent"
-version = "0.29.0"
+version = "0.29.1"
 dependencies = [
  "coturbo-design",
  "coturbo-providers",
@@ -400,7 +400,7 @@ dependencies = [
 
 [[package]]
 name = "coturbo-ast"
-version = "0.29.0"
+version = "0.29.1"
 dependencies = [
  "ra_ap_syntax",
  "thiserror 2.0.21",
@@ -408,7 +408,7 @@ dependencies = [
 
 [[package]]
 name = "coturbo-browse"
-version = "0.29.0"
+version = "0.29.1"
 dependencies = [
  "base64 0.22.1",
  "coturbo-design",
@@ -422,7 +422,7 @@ dependencies = [
 
 [[package]]
 name = "coturbo-cli"
-version = "0.29.0"
+version = "0.29.1"
 dependencies = [
  "clap",
  "coturbo-agent",
@@ -452,7 +452,7 @@ dependencies = [
 
 [[package]]
 name = "coturbo-design"
-version = "0.29.0"
+version = "0.29.1"
 dependencies = [
  "ignore",
  "regex",
@@ -463,7 +463,7 @@ dependencies = [
 
 [[package]]
 name = "coturbo-net"
-version = "0.29.0"
+version = "0.29.1"
 dependencies = [
  "base64 0.22.1",
  "futures-util",
@@ -474,12 +474,13 @@ dependencies = [
  "serde_json",
  "sha1 0.10.7",
  "tokio",
+ "tokio-rustls",
  "tokio-tungstenite",
 ]
 
 [[package]]
 name = "coturbo-providers"
-version = "0.29.0"
+version = "0.29.1"
 dependencies = [
  "futures-util",
  "reqwest",
@@ -492,7 +493,7 @@ dependencies = [
 
 [[package]]
 name = "coturbo-rea"
-version = "0.29.0"
+version = "0.29.1"
 dependencies = [
  "base64 0.22.1",
  "coturbo-design",
@@ -511,7 +512,7 @@ dependencies = [
 
 [[package]]
 name = "coturbo-tools"
-version = "0.29.0"
+version = "0.29.1"
 dependencies = [
  "base64 0.22.1",
  "coturbo-ast",
@@ -532,7 +533,7 @@ dependencies = [
 
 [[package]]
 name = "coturbo-verify"
-version = "0.29.0"
+version = "0.29.1"
 dependencies = [
  "futures-util",
  "lightningcss",

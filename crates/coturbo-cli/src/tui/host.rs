@@ -55,10 +55,11 @@ pub fn action_label(name: &str, input: &serde_json::Value) -> String {
         "investigate" | "observe_app" => format!("{name} {target}"),
         "browse" => format!("browse · {} step(s)", input["actions"].as_array().map_or(0, Vec::len)),
         "network_scan" => if input["sweep"].as_bool() == Some(true) { "network_scan · whole subnet".into() } else { "network_scan".into() },
-        "tv" => {
+        "device" => {
             let s = |k: &str| input[k].as_str().unwrap_or("");
-            let detail = [s("app"), s("key")].into_iter().find(|v| !v.is_empty()).unwrap_or("");
-            format!("tv {} {} {detail}", s("ip"), s("action")).trim().to_string()
+            let value = input["value"].as_u64().map(|v| v.to_string()).unwrap_or_default();
+            let detail = [s("app"), s("key"), s("color"), s("topic"), value.as_str(), s("target")].into_iter().find(|v| !v.is_empty()).unwrap_or("");
+            format!("device {} {} {detail}", s("device"), s("action")).trim().to_string()
         }
         "device_control" => {
             let s = |k: &str| input[k].as_str().unwrap_or("");

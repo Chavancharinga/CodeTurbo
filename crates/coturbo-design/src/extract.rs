@@ -203,13 +203,13 @@ pub fn scan(root: &Path) -> Existing {
 pub fn summary(e: &Existing) -> String {
     let mut lines = Vec::new();
     if !e.colors.is_empty() {
-        lines.push(format!("cores: {}", e.colors.join(", ")));
+        lines.push(format!("colors: {}", e.colors.join(", ")));
     }
     if !e.fonts.is_empty() {
-        lines.push(format!("fontes: {}", e.fonts.join(", ")));
+        lines.push(format!("fonts: {}", e.fonts.join(", ")));
     }
     if !e.radii.is_empty() {
-        lines.push(format!("raios: {}", e.radii.iter().map(|r| format!("{r}px")).collect::<Vec<_>>().join(", ")));
+        lines.push(format!("radii: {}", e.radii.iter().map(|r| format!("{r}px")).collect::<Vec<_>>().join(", ")));
     }
     if !e.spacing.is_empty() {
         lines.push(format!("most used spacings: {}", e.spacing.iter().map(|r| format!("{r}px")).collect::<Vec<_>>().join(", ")));
@@ -218,10 +218,10 @@ pub fn summary(e: &Existing) -> String {
         lines.push(format!("{} design variables already defined", e.tokens.len()));
     }
     if !e.frameworks.is_empty() {
-        lines.push(format!("bibliotecas: {}", e.frameworks.join(", ")));
+        lines.push(format!("libraries: {}", e.frameworks.join(", ")));
     }
     if !e.sources.is_empty() {
-        lines.push(format!("lido de: {}", e.sources.iter().take(6).cloned().collect::<Vec<_>>().join(", ")));
+        lines.push(format!("read from: {}", e.sources.iter().take(6).cloned().collect::<Vec<_>>().join(", ")));
     }
     lines.join("\n")
 }

@@ -5,7 +5,9 @@
 //! ever reaches private addresses, never the internet.
 
 pub mod dns;
+pub mod home;
 pub mod identify;
+pub mod registry;
 pub mod tv;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -113,10 +115,10 @@ pub fn local_ipv4() -> Option<Ipv4Addr> {
 /// Finds the devices on the local network.
 pub async fn scan(opts: ScanOptions) -> Inventory {
     let local = local_ipv4();
-    let (mdns, ssdp) = tokio::join!(mdns(local, opts.listen), ssdp(local, opts.listen));
+    let (mdns, ssdp, own) = tokio::join!(mdns(local, opts.listen), ssdp(local, opts.listen), own_discovery(local, opts.listen));
     let upnp = describe_all(ssdp).await;
     let mut by_ip: BTreeMap<IpAddr, Device> = BTreeMap::new();
-    for (ip, d) in mdns {
+    for (ip, d) in mdns.into_iter().chain(own) {
         merge(by_ip.entry(ip).or_default(), d);
     }
     for (ip, u) in upnp {
@@ -153,7 +155,42 @@ pub async fn scan(opts: ScanOptions) -> Inventory {
         .collect();
     let mut inv = Inventory { local, devices };
     name_all(&mut inv).await;
+    registry::remember(&inv);
+    home::remember_scan(&inv.devices);
     inv
+}
+
+/// Devices with a discovery of their own instead of mDNS or UPnP: TP-Link
+/// Kasa (a broadcast on 9999) and Yeelight (a multicast search on 1982).
+async fn own_discovery(local: Option<Ipv4Addr>, window: Duration) -> HashMap<IpAddr, Device> {
+    let mut out: HashMap<IpAddr, Device> = HashMap::new();
+    let Some(socket) = lan_socket(local).await else { return out };
+    let _ = socket.set_broadcast(true);
+    let ask = home::kasa_probe();
+    let _ = socket.send_to(&ask, (Ipv4Addr::BROADCAST, 9999)).await;
+    let yee = "M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1982\r\nMAN: \"ssdp:discover\"\r\nST: wifi_bulb\r\n";
+    let _ = socket.send_to(yee.as_bytes(), "239.255.255.250:1982").await;
+    listen(&socket, window, |m, from| {
+        if from.port() == 9999 {
+            if let Some((alias, model)) = home::kasa_answer(m) {
+                let d = out.entry(from.ip()).or_default();
+                d.names.insert(alias.clone());
+                d.services.push(Service { kind: "kasa".into(), port: 9999, txt: vec![format!("model={model}"), format!("fn={alias}")] });
+            }
+            return;
+        }
+        let text = String::from_utf8_lossy(m);
+        if text.to_lowercase().contains("yeelight://") {
+            let field = |k: &str| text.lines().find_map(|l| l.split_once(':').filter(|(a, _)| a.trim().eq_ignore_ascii_case(k)).map(|(_, v)| v.trim().to_string()));
+            let d = out.entry(from.ip()).or_default();
+            let model = field("model").unwrap_or_default();
+            let name = field("name").filter(|n| !n.is_empty()).unwrap_or_else(|| format!("Yeelight {model}"));
+            d.names.insert(name.clone());
+            d.services.push(Service { kind: "yeelight".into(), port: 55443, txt: vec![format!("model={model}"), format!("fn={name}")] });
+        }
+    })
+    .await;
+    out
 }
 
 /// Fills in what each device is: router names, makers, web page titles.
@@ -455,8 +492,11 @@ pub fn render(inv: &Inventory) -> String {
         let id = &d.identity;
         let what = [id.kind.as_str(), id.brand.as_str(), id.model.as_str()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(" · ");
         out.push_str(&format!("\n{ip}  {}", if what.is_empty() { "unidentified device" } else { &what }));
-        if !id.name.is_empty() {
-            out.push_str(&format!("  \"{}\"", id.name));
+        // The user's own name for it comes first.
+        match registry::name_of(d.mac.as_deref()) {
+            Some(n) => out.push_str(&format!("  named \"{n}\"")),
+            None if !id.name.is_empty() => out.push_str(&format!("  \"{}\"", id.name)),
+            None => {}
         }
         out.push('\n');
         let mut also = Vec::new();
@@ -489,6 +529,14 @@ pub fn render(inv: &Inventory) -> String {
         if !d.open_ports.is_empty() {
             let ports: Vec<String> = d.open_ports.iter().map(u16::to_string).collect();
             out.push_str(&format!("  open ports {}\n", ports.join(", ")));
+        }
+    }
+    let away = registry::missing(inv);
+    if !away.is_empty() {
+        out.push_str("\nKnown devices not answering now (off or asleep; a TV can still be woken with its MAC):\n");
+        for k in away.iter().take(20) {
+            let name = if k.name.is_empty() { String::new() } else { format!("  named \"{}\"", k.name) };
+            out.push_str(&format!("  {}  {}{name}  mac {}\n", k.ip, if k.what.is_empty() { "device" } else { &k.what }, k.mac));
         }
     }
     out

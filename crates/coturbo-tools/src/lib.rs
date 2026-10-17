@@ -50,6 +50,7 @@ pub const EDIT_TOOLS: &[&str] = &["write_file", "edit_file", "replace_symbol", "
 pub fn tier(name: &str) -> Tier {
     match name {
         "read_file" | "read_symbol" | "list_files" | "grep" | "workspace_diagnostics" | "propose_plan" | "tasks" | "network_scan" => Tier::Read,
+        "name_device" => Tier::Write,
         n if EDIT_TOOLS.contains(&n) || n == "design_brief" => Tier::Write,
         "design_review" => Tier::Read,
         _ => Tier::Exec,
@@ -284,19 +285,29 @@ impl Tools {
                 obj(json!({"sweep": {"type": "boolean", "description": "also probe common ports on the whole local /24 (about 10 s)"}, "seconds": {"type": "integer", "description": "how long to listen for announcements, 1-10 (default 3)"}}), &[]),
             ),
             spec(
-                "tv",
-                "Control a TV on the local network, any brand (Samsung, LG, Android TV / Google TV, Roku, Fire TV; others open apps through DIAL). The brand is detected from the address. Actions: info (model, system version; on Android the security patch date tells whether a system update is pending), apps (installed apps), launch (open an app such as YouTube or Netflix; `content` is a YouTube video id or search for YouTube), key (home, back, up, down, left, right, ok, play_pause, channel_up...), power_off, power_on (Wake-on-LAN; needs the MAC from network_scan), volume_up / volume_down (`value` steps), set_volume (`value` 0-100), mute. The first time, the TV may show a prompt to allow CodeTurbo: tell the user to accept it on the TV. Android TVs need Developer options > network/USB debugging for anything but opening apps.",
+                "name_device",
+                "Give a device on the network a name the user can use later (\"living room TV\"), so `tv` and the user can refer to it by name, even when it is off. `device` is its current address or MAC from network_scan.",
+                obj(json!({"device": s("address or MAC"), "name": s("the name, in the user's words")}), &["device", "name"]),
+            ),
+            spec(
+                "device",
+                "Control any device on the local network by its name or address; its protocol is found from what it answers. TVs (Samsung, LG, Android TV / Google TV, Roku, Fire TV): on, off, volume, mute, play/pause, launch (YouTube, Netflix...), key, apps, status (model, version). Speakers and players (Google Cast, Sonos and UPnP/DLNA): play, pause, stop, next, previous, volume, mute, status (what is playing). Lights, plugs and switches (Philips Hue, Shelly, Tasmota, WLED, TP-Link Kasa, Yeelight): on, off, toggle, brightness, color, status (with power use when measured); `target` picks one light, relay or channel. Printers: status (state, ink and toner levels). Routers: status (internet, public address). MQTT brokers (Zigbee2MQTT and others): publish (topic, payload) and listen (topic). The first time, some devices ask to accept on their screen (TVs) or a button press (Hue bridge): tell the user. For anything else, device_control reaches the device's own API.",
                 obj(
                     json!({
-                        "ip": s("the TV's address from network_scan"),
-                        "action": {"type": "string", "enum": ["info", "apps", "launch", "key", "power_off", "power_on", "volume_up", "volume_down", "set_volume", "mute"]},
-                        "app": s("launch: app name (YouTube, Netflix, Prime Video, Disney+, Spotify...) or its id"),
-                        "content": s("launch: what to play, e.g. a YouTube video id or search text"),
-                        "key": s("key: the remote button"),
-                        "value": {"type": "integer", "description": "volume steps, or the volume for set_volume"},
-                        "mac": s("power_on: the TV's MAC address")
+                        "device": s("its name (e.g. living room TV), address or MAC"),
+                        "action": {"type": "string", "enum": ["status", "on", "off", "toggle", "brightness", "color", "volume", "volume_up", "volume_down", "mute", "play", "pause", "stop", "next", "previous", "launch", "key", "apps", "publish", "listen"]},
+                        "value": {"type": "integer", "description": "brightness or volume 0-100, or volume steps"},
+                        "color": s("color: #rrggbb or a name (red, blue, warm...)"),
+                        "target": s("one light (by name), relay or channel inside the device"),
+                        "app": s("launch: YouTube, Netflix, Spotify... or an app id"),
+                        "content": s("launch: what to play, e.g. a YouTube video id or search"),
+                        "key": s("key: home, back, up, down, left, right, ok, ..."),
+                        "topic": s("MQTT topic, e.g. zigbee2mqtt/living room lamp/set"),
+                        "payload": s("MQTT payload, e.g. {\"state\": \"ON\"}"),
+                        "user": s("MQTT broker user, when it needs a login"),
+                        "password": s("MQTT broker password")
                     }),
-                    &["ip", "action"],
+                    &["device", "action"],
                 ),
             ),
             spec(
@@ -756,7 +767,8 @@ impl Tools {
             "browse" => self.browse(input).await,
             "network_scan" => devices::network_scan(input).await,
             "device_control" => devices::device_control(input).await,
-            "tv" => devices::tv(input).await,
+            "device" => devices::device(input).await,
+            "name_device" => devices::name_device(input),
             _ => Err(format!("unknown tool: {name}")),
         };
         let mut out = r.unwrap_or_else(ToolOutput::err);

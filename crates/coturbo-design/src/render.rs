@@ -66,8 +66,8 @@ const edge=W<600?items.filter(e=>{const r=R(e);return own(e)&&r.width<W-4&&(r.le
 const cut=items.filter(e=>{const r=R(e);return own(e)&&(r.right>W+1||r.left<-1||e.scrollWidth>e.clientWidth+2);}).map(label).slice(0,5);
 const scrollers=[...document.querySelectorAll('body *')].filter(e=>{const s=getComputedStyle(e);return vis(e)&&((/(auto|scroll)/.test(s.overflowY)&&e.scrollHeight>e.clientHeight+1)||(/(auto|scroll)/.test(s.overflowX)&&e.scrollWidth>e.clientWidth+1))&&e.clientWidth>0;}).map(label).slice(0,5);
 const small=W<600?[...document.querySelectorAll('a,button,input,select')].filter(e=>{const r=R(e);return vis(e)&&r.width>0&&(r.height<32||r.width<32);}).length:0;
-let host=document.documentElement;try{if(window.parent!==window)host=parent.document.documentElement;}catch(e){}
-const out=JSON.stringify({rounded,radii:radii.size,shadowed,shadows:shadows.size,centered,text,rows,tiny,overlaps,tight,broken,hscroll,scrollers,small,cut,edge,under});host.setAttribute('data-codeturbo',out);console.log('CT_PROBE:'+out);};
+const rgb=t=>{const m=(t||'').match(/[\d.]+/g);return m?m.map(Number):null;};const lin=v=>{v/=255;return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4);};const lum=c=>0.2126*lin(c[0])+0.7152*lin(c[1])+0.0722*lin(c[2]);const bgOf=e=>{for(let a=e;a;a=a.parentElement){const s=getComputedStyle(a);if(s.backgroundImage&&s.backgroundImage!=='none')return null;const c=rgb(s.backgroundColor);if(c&&(c.length<4||c[3]>0.9))return c;}return [255,255,255];};const contrast=[];for(const e of items){if(contrast.length>=8)break;if(!own(e))continue;const s=getComputedStyle(e);const f=rgb(s.color);const b=bgOf(e);if(!f||!b||(f.length>3&&f[3]<0.5))continue;const L1=lum(f),L2=lum(b);const r=(Math.max(L1,L2)+0.05)/(Math.min(L1,L2)+0.05);const px=parseFloat(s.fontSize);const big=px>=24||(px>=18.6&&parseInt(s.fontWeight)>=700);if(r<(big?3:4.5))contrast.push(label(e)+' '+r.toFixed(1)+':1');}const longlines=[];const sizes=new Set();const inks=new Set();const fills=new Set();for(const e of items){if(!own(e))continue;const s=getComputedStyle(e);const px=parseFloat(s.fontSize);sizes.add(Math.round(px));inks.add(s.color);if(/^(P|LI|DD|BLOCKQUOTE)$/.test(e.tagName)&&e.textContent.trim().length>160&&longlines.length<5){const chars=R(e).width/(px*0.5);if(chars>90)longlines.push(label(e)+' ~'+Math.round(chars)+' chars');}}for(const e of all){const c=getComputedStyle(e).backgroundColor;if(c&&c!=='rgba(0, 0, 0, 0)'&&c!=='transparent')fills.add(c);}const noalt=[...document.images].filter(i=>vis(i)&&!i.hasAttribute('alt')).length;const unlabeled=[...document.querySelectorAll('input,select,textarea')].filter(i=>vis(i)&&!/^(hidden|submit|button|reset|image)$/.test(i.type)&&!(i.labels&&i.labels.length)&&!i.getAttribute('aria-label')&&!i.getAttribute('aria-labelledby')&&!i.title).length;const nolang=!document.documentElement.getAttribute('lang');const noviewport=!document.querySelector('meta[name=viewport]');let host=document.documentElement;try{if(window.parent!==window)host=parent.document.documentElement;}catch(e){}
+const out=JSON.stringify({rounded,radii:radii.size,shadowed,shadows:shadows.size,centered,text,rows,tiny,overlaps,tight,broken,hscroll,scrollers,small,cut,edge,under,contrast,noalt,unlabeled,nolang,noviewport,longlines,sizes:sizes.size,inks:inks.size,fills:fills.size});host.setAttribute('data-codeturbo',out);console.log('CT_PROBE:'+out);};
 if(document.readyState==='complete')setTimeout(go,300);else addEventListener('load',()=>setTimeout(go,300));})();</script>"#;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -99,6 +99,22 @@ pub struct Metrics {
     pub edge: Vec<String>,
     /// Decorative elements (aria-hidden) drawn over content.
     pub under: Vec<String>,
+    /// Text below the WCAG AA contrast against what is really behind it.
+    pub contrast: Vec<String>,
+    /// Images with no `alt`.
+    pub noalt: usize,
+    /// Form fields no label names.
+    pub unlabeled: usize,
+    /// `<html>` with no `lang`.
+    pub nolang: bool,
+    /// No `<meta name="viewport">`: phones show a shrunken desktop page.
+    pub noviewport: bool,
+    /// Paragraphs whose lines run past ~90 characters.
+    pub longlines: Vec<String>,
+    /// Distinct font sizes, text colours and background colours drawn.
+    pub sizes: usize,
+    pub inks: usize,
+    pub fills: usize,
 }
 
 /// Measurements at every screen size checked.
@@ -174,6 +190,15 @@ pub fn parse_metrics(dom: &str) -> Option<Metrics> {
         cut: list("cut"),
         edge: list("edge"),
         under: list("under"),
+        contrast: list("contrast"),
+        noalt: n("noalt"),
+        unlabeled: n("unlabeled"),
+        nolang: v["nolang"].as_bool().unwrap_or(false),
+        noviewport: v["noviewport"].as_bool().unwrap_or(false),
+        longlines: list("longlines"),
+        sizes: n("sizes"),
+        inks: n("inks"),
+        fills: n("fills"),
     })
 }
 
@@ -185,68 +210,113 @@ fn sample(v: &[String]) -> String {
 pub fn judge(p: &Page) -> Vec<Finding> {
     let mut out = Vec::new();
     let mut add = |severity, rule, message: String| out.push(Finding { severity, rule, line: 1, message });
-    for (m, at) in [(&p.desktop, "no computador"), (&p.laptop, "no notebook"), (&p.tablet, "no tablet"), (&p.mobile, "no celular")] {
+    for (m, at) in [(&p.desktop, "on desktop"), (&p.laptop, "on a laptop"), (&p.tablet, "on a tablet"), (&p.mobile, "on the phone")] {
         if !m.overlaps.is_empty() {
-            add(Severity::P0, "render-sobreposicao", format!("elementos sobrepostos {at}: {}", sample(&m.overlaps)));
+            add(Severity::P0, "render-overlap", format!("elements drawn on top of each other {at}: {}; give them their own space in the layout (grid/flex gap) instead of absolute positions", sample(&m.overlaps)));
         }
         if !m.under.is_empty() {
-            add(Severity::P2, "render-ornamento-sobre-texto", format!(
+            add(Severity::P2, "render-ornament-over-text", format!(
                 "decorative ornament over the content {at}: {}; move it away from the text or lower its opacity",
                 sample(&m.under)
             ));
         }
         if !m.tight.is_empty() {
-            add(Severity::P1, "render-colados", format!("elements touching, with no space between them, {at}: {}", sample(&m.tight)));
+            add(Severity::P1, "render-cramped", format!("elements touching, with no space between them, {at}: {}; add a gap from the spacing scale", sample(&m.tight)));
         }
         if !m.cut.is_empty() {
-            add(Severity::P0, "render-conteudo-cortado", format!(
-                "texto cortado pela borda da tela {at}: {}; use larguras fluidas (max-width: 100%, clamp() no tamanho de fonte) em vez de esconder o excesso",
+            add(Severity::P0, "render-cut-off", format!(
+                "text cut off by the screen edge {at}: {}; use fluid widths (max-width: 100%, clamp() for font sizes) instead of hiding the overflow",
                 sample(&m.cut)
             ));
         }
         if !m.scrollers.is_empty() {
-            add(Severity::P1, "render-barra-de-rolagem", format!("visible scrollbar {at}: {}", sample(&m.scrollers)));
+            add(Severity::P1, "render-scrollbar", format!("visible scrollbar {at}: {}; let the content grow or wrap instead of scrolling inside a box", sample(&m.scrollers)));
         }
     }
     let broken = if p.desktop.broken.is_empty() { &p.mobile.broken } else { &p.desktop.broken };
     if !broken.is_empty() {
-        add(Severity::P0, "render-imagem-quebrada", format!(
+        add(Severity::P0, "render-broken-image", format!(
             "image that does not load: {}; without a real file, replace it with an inline SVG illustration or a block made in HTML and CSS, or remove it",
             sample(broken)
         ));
     }
     if !p.mobile.edge.is_empty() {
-        add(Severity::P1, "render-sem-margem", format!(
+        add(Severity::P1, "render-no-side-margin", format!(
             "text touching the screen edge on the phone: {}; give the containers side padding (padding-inline)",
             sample(&p.mobile.edge)
         ));
     }
     if p.mobile.hscroll {
-        add(Severity::P1, "render-sem-responsividade", "the page scrolls sideways on the phone (390px): it is not responsive".into());
+        add(Severity::P1, "render-not-responsive", "the page scrolls sideways on the phone (390px): it is not responsive; find the fixed width (min-width, wide images, long words) and make it fluid".into());
     }
-    for (m, at) in [(&p.desktop, "no computador"), (&p.laptop, "no notebook (1280px)"), (&p.tablet, "no tablet (768px)")] {
+    for (m, at) in [(&p.desktop, "on desktop"), (&p.laptop, "on a laptop (1280px)"), (&p.tablet, "on a tablet (768px)")] {
         if m.hscroll {
-            add(Severity::P1, "render-rolagem-lateral", format!("the page scrolls sideways {at}"));
+            add(Severity::P1, "render-sideways-scroll", format!("the page scrolls sideways {at}"));
         }
     }
     if p.mobile.small >= 3 {
-        add(Severity::P1, "render-alvo-pequeno", format!("{} buttons or links smaller than 32px on the phone", p.mobile.small));
+        add(Severity::P1, "render-small-target", format!("{} buttons or links smaller than 32px on the phone; touch targets need at least 44px (padding, min-height)", p.mobile.small));
     }
     if p.mobile.tiny >= 3 {
-        add(Severity::P2, "render-texto-pequeno", format!("{} blocos de texto abaixo de 14px no celular", p.mobile.tiny));
+        add(Severity::P2, "render-small-text", format!("{} text blocks under 14px on the phone; body text needs 16px", p.mobile.tiny));
+    }
+    // Accessibility, as the page is drawn.
+    let d = &p.desktop;
+    if !d.contrast.is_empty() {
+        add(Severity::P0, "render-low-contrast", format!(
+            "text below the WCAG AA contrast (4.5:1, or 3:1 for large text): {}; darken the text or lighten what is behind it, using the contract colours",
+            sample(&d.contrast)
+        ));
+    }
+    if d.noalt > 0 {
+        add(Severity::P1, "render-missing-alt", format!(
+            "{} image(s) with no alt text; describe what the image shows, or alt=\"\" when it is only decoration",
+            d.noalt
+        ));
+    }
+    if d.unlabeled > 0 {
+        add(Severity::P1, "render-unlabeled-field", format!(
+            "{} form field(s) with no label (a placeholder is not a label); add <label for> or aria-label",
+            d.unlabeled
+        ));
+    }
+    if d.noviewport {
+        add(Severity::P1, "render-no-viewport", "no <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">: phones show a shrunken desktop page".into());
+    }
+    if d.nolang {
+        add(Severity::P2, "render-no-lang", "<html> has no lang attribute: screen readers and translators guess the language; add lang=\"en\" (or the page's language)".into());
+    }
+    // Rhythm and coherence.
+    if !d.longlines.is_empty() {
+        add(Severity::P2, "render-long-lines", format!(
+            "lines too long to read comfortably: {}; keep running text near 60-75 characters (max-width: 65ch)",
+            sample(&d.longlines)
+        ));
+    }
+    if d.sizes > 8 {
+        add(Severity::P2, "render-too-many-sizes", format!(
+            "{} different font sizes on the page; use the contract's type scale (about 5-7 steps)",
+            d.sizes
+        ));
+    }
+    if d.inks > 6 || d.fills > 8 {
+        add(Severity::P2, "render-too-many-colours", format!(
+            "{} text colours and {} background colours drawn; keep to the contract roles (ink, muted, primary...) so the palette reads as one",
+            d.inks, d.fills
+        ));
     }
     let m = &p.desktop;
     if m.rows >= 3 {
-        add(Severity::P2, "render-grades-iguais", format!("{} rows of identical blocks in the rendered page", m.rows));
+        add(Severity::P2, "render-identical-grids", format!("{} rows of identical blocks in the rendered page; vary size, emphasis or layout so the important one leads", m.rows));
     }
     if m.rounded >= 6 && m.radii == 1 {
-        add(Severity::P1, "render-raio-unico", format!("{} elements rendered with a single radius", m.rounded));
+        add(Severity::P1, "render-single-radius", format!("{} elements rendered with a single radius; use the contract radii by role (small for inputs, larger for surfaces)", m.rounded));
     }
     if m.text >= 8 && m.centered * 10 >= m.text * 7 {
-        add(Severity::P1, "render-centralizado", format!("{} de {} blocos de texto centralizados", m.centered, m.text));
+        add(Severity::P1, "render-all-centered", format!("{} of {} text blocks centred; align running text to the left and keep centring for short headings", m.centered, m.text));
     }
     if m.shadowed >= 4 && m.shadows == 1 {
-        add(Severity::P2, "render-sombra-unica", format!("{} elementos com a mesma sombra", m.shadowed));
+        add(Severity::P2, "render-single-shadow", format!("{} elements with the same shadow; use elevation levels, or borders instead", m.shadowed));
     }
     out
 }
@@ -258,6 +328,10 @@ fn file_url(p: &Path) -> String {
 }
 
 async fn run(browser: &Path, size: (u32, u32), args: &[String]) -> Result<String, String> {
+    // A few browsers at a time: many starting together on one machine make
+    // some of them hand back nothing (no screenshot, no measurements).
+    static SLOTS: std::sync::OnceLock<tokio::sync::Semaphore> = std::sync::OnceLock::new();
+    let _slot = SLOTS.get_or_init(|| tokio::sync::Semaphore::new(3)).acquire().await.map_err(|e| e.to_string())?;
     // A fresh profile per run: Edge hands a second launch on a busy
     // profile to the running instance, which then ignores its flags.
     static RUNS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
@@ -279,8 +353,25 @@ async fn run(browser: &Path, size: (u32, u32), args: &[String]) -> Result<String
         .await
         .map_err(|_| "the browser did not answer in 40s".to_string())?
         .map_err(|e| e.to_string())?;
-    let _ = std::fs::remove_dir_all(&profile);
+    // Not removed now: on Windows the program started hands the page to
+    // another browser process and returns before the screenshot is written;
+    // deleting its profile here kills that render. Old profiles go instead.
+    sweep_profiles(&profile);
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// Removes render profiles left from earlier runs (older than ten minutes),
+/// never the one in use.
+fn sweep_profiles(current: &Path) {
+    let Some(dir) = current.parent() else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for e in entries.flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        let old = e.metadata().and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|age| age > Duration::from_secs(600));
+        if name.starts_with("codeturbo-render-") && e.path() != current && old && e.path().is_dir() {
+            let _ = std::fs::remove_dir_all(e.path());
+        }
+    }
 }
 
 pub const DESKTOP: (u32, u32) = (1440, 900);
@@ -305,7 +396,7 @@ async fn measure_at(browser: &Path, html: &Path, shot: &Path, size: (u32, u32)) 
     // in a frame of their real width instead.
     let framed = size.0 < 500;
     let frame = |src: &str, name: &str| -> Result<String, String> {
-        let f = html.with_file_name(format!(".codeturbo-render-{stem}-{name}.html"));
+        let f = html.with_file_name(format!(".codeturbo-render-{stem}-{}-{name}.html", size.0));
         let doc = format!(
             "<!DOCTYPE html><html><body style=\"margin:0;background:#1b1d22\"><iframe scrolling=\"no\" src=\"{src}\" style=\"border:0;width:{}px;height:{}px;background:#fff\"></iframe></body></html>",
             size.0, size.1
@@ -313,7 +404,7 @@ async fn measure_at(browser: &Path, html: &Path, shot: &Path, size: (u32, u32)) 
         std::fs::write(&f, doc).map_err(|e| e.to_string())?;
         Ok(file_url(&f.canonicalize().unwrap_or(f.clone())))
     };
-    let (measure_url, shot_url) = if framed { (frame(&url, "medir")?, frame(&page, "ver")?) } else { (url, page) };
+    let (measure_url, shot_url) = if framed { (frame(&url, "measure")?, frame(&page, "view")?) } else { (url, page) };
     let window = if framed { (520, size.1) } else { size };
     // The result also goes to the browser's log, for shells where its
     // standard output is lost.
@@ -356,16 +447,20 @@ async fn measure_at(browser: &Path, html: &Path, shot: &Path, size: (u32, u32)) 
     }
     shoot(browser, window, "5000", &shot_url, &shot).await;
     let _ = std::fs::remove_file(&tmp);
-    for name in ["medir", "ver"] {
-        let _ = std::fs::remove_file(html.with_file_name(format!(".codeturbo-render-{stem}-{name}.html")));
+    // Only this size's own frames: the sizes run at the same time, and one
+    // finishing first must not delete the phone's frame before its screenshot.
+    if framed {
+        for name in ["measure", "view"] {
+            let _ = std::fs::remove_file(html.with_file_name(format!(".codeturbo-render-{stem}-{}-{name}.html", size.0)));
+        }
     }
     parse_metrics(&dom?).ok_or_else(|| "the page could not be measured".to_string())
 }
 
-/// Phone screenshot path for a desktop one: `index.png` → `index-celular.png`.
+/// Phone screenshot path for a desktop one: `index.png` → `index-phone.png`.
 pub fn mobile_shot(shot: &Path) -> PathBuf {
     let stem = shot.file_stem().map_or("page".into(), |s| s.to_string_lossy().into_owned());
-    shot.with_file_name(format!("{stem}-celular.png"))
+    shot.with_file_name(format!("{stem}-phone.png"))
 }
 
 /// Screenshot path for another size: `index.png` → `index-tablet.png`.
@@ -375,10 +470,10 @@ pub fn sized_shot(shot: &Path, name: &str) -> PathBuf {
 }
 
 /// Renders `html` at desktop, laptop, tablet and phone sizes, in parallel.
-/// Screenshots go to `shot` and its `-notebook`, `-tablet` and `-celular`
+/// Screenshots go to `shot` and its `-laptop`, `-tablet` and `-phone`
 /// siblings.
 pub async fn measure(browser: &Path, html: &Path, shot: &Path) -> Result<Page, String> {
-    let (laptop_shot, tablet_shot, phone_shot) = (sized_shot(shot, "notebook"), sized_shot(shot, "tablet"), mobile_shot(shot));
+    let (laptop_shot, tablet_shot, phone_shot) = (sized_shot(shot, "laptop"), sized_shot(shot, "tablet"), mobile_shot(shot));
     let (desktop, laptop, tablet, mobile) = tokio::join!(
         measure_at(browser, html, shot, DESKTOP),
         measure_at(browser, html, &laptop_shot, LAPTOP),

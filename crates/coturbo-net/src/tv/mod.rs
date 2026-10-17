@@ -10,6 +10,7 @@
 //! - Any TV with DIAL (Samsung, LG, Android, Fire TV, Roku): launch apps.
 
 mod adb;
+mod cast;
 mod dial;
 mod lg;
 mod roku;
@@ -40,7 +41,7 @@ impl Brand {
             Brand::Lg => "LG (webOS)",
             Brand::Roku => "Roku",
             Brand::AndroidAdb => "Android TV (ADB)",
-            Brand::Cast => "Android TV / Google Cast (ADB off: only app launch through DIAL)",
+            Brand::Cast => "Android TV / Google TV (Google Cast)",
             Brand::Unknown => "unknown",
         }
     }
@@ -123,7 +124,7 @@ impl rustls::client::danger::ServerCertVerifier for AnyCert {
     }
 }
 
-fn lan_tls() -> Arc<rustls::ClientConfig> {
+pub(crate) fn lan_tls() -> Arc<rustls::ClientConfig> {
     let provider = Arc::new(rustls::crypto::ring::default_provider());
     let config = rustls::ClientConfig::builder_with_provider(provider.clone())
         .with_safe_default_protocol_versions()
@@ -157,7 +158,7 @@ async fn open(ip: IpAddr, port: u16) -> bool {
 /// Finds out what kind of TV answers at `ip`.
 pub async fn detect(ip: IpAddr) -> Brand {
     let (s8001, s8002, lg3000, lg3001, roku, adb, cast) =
-        tokio::join!(open(ip, 8001), open(ip, 8002), open(ip, 3000), open(ip, 3001), open(ip, 8060), open(ip, 5555), open(ip, 8008));
+        tokio::join!(open(ip, 8001), open(ip, 8002), open(ip, 3000), open(ip, 3001), open(ip, 8060), open(ip, 5555), open(ip, 8009));
     if (s8001 || s8002) && samsung::info(ip).await.is_ok() {
         return Brand::Samsung;
     }
@@ -196,24 +197,21 @@ pub async fn control(ip: IpAddr, action: Action) -> Result<String, String> {
         Brand::AndroidAdb => adb::control(ip, &action).await,
         Brand::Lg => lg::control(ip, &action).await,
         Brand::Roku => roku::control(ip, &action).await,
-        Brand::Cast | Brand::Unknown => match &action {
+        Brand::Cast => cast::control(ip, &action).await,
+        Brand::Unknown => match &action {
             Action::Launch { app, content } => dial::launch(ip, app, content.as_deref()).await,
             Action::Info => dial::info(ip).await,
-            _ if brand == Brand::Cast => Err(
-                "this Android TV only takes app launches over the network. For power, volume, keys and the app list, turn on \
-                 Developer options > USB debugging / Network debugging (ADB) on the TV, then try again and allow this computer on the TV."
-                    .into(),
-            ),
-            _ => Err(format!("{ip} does not look like a TV this engine knows (Samsung, LG, Android TV, Roku)")),
+            _ => Err(format!("{ip} does not look like a TV this engine knows (Samsung, LG, Android TV / Google TV, Roku)")),
         },
     };
     done.map(|text| format!("{} · {text}", brand.label()))
 }
 
-/// The MAC address of `ip` from the ARP cache, to wake it.
+/// The MAC address of `ip`: from the ARP cache, else remembered from when
+/// it was last on (a TV that is off is not in the cache).
 fn known_mac(ip: IpAddr) -> Option<String> {
     let IpAddr::V4(v4) = ip else { return None };
-    crate::arp_table().into_iter().find(|(a, _)| *a == v4).map(|(_, m)| m)
+    crate::arp_table().into_iter().find(|(a, _)| *a == v4).map(|(_, m)| m).or_else(|| crate::registry::resolve(&ip.to_string()).and_then(|(_, m)| m))
 }
 
 /// Common app names to their usual package or id, per platform.

@@ -63,13 +63,24 @@ similar. All in Rust, with no external tools.
 The agent finds what is on your local network and recognises each device by
 kind, brand and model, from every clue the network gives: Bonjour/mDNS and
 UPnP announcements, the router's name for it, the maker of its network card
-(IEEE registry) and its web page. TVs of any brand are controlled directly:
-power, volume, remote keys, installed apps and opening YouTube or Netflix
-(Samsung, LG, Android TV / Google TV, Roku, Fire TV; others open apps through
-DIAL). Any other device is reached through its own HTTP API, UPnP actions or
-Wake-on-LAN. Type `/devices` to pick a device and act on it with a click, or
-just ask. No hub or home-automation server is needed, control reaches private
-addresses only, and the agent's actions are approved by you first.
+(IEEE registry) and its web page. Each device is then controlled locally in
+its own protocol, with no cloud:
+
+| Devices | Protocols | Control |
+| --- | --- | --- |
+| TVs | Samsung, LG, Android TV / Google TV, Roku, Fire TV, DIAL | power, volume, keys, apps, YouTube/Netflix |
+| Speakers and players | Google Cast, Sonos and UPnP/DLNA | play, pause, next, volume, what is playing |
+| Lights, plugs, switches | Philips Hue, Shelly, Tasmota, WLED, TP-Link Kasa, Yeelight | on, off, brightness, colour, power use |
+| Printers | IPP | state, ink and toner levels |
+| Routers | UPnP | internet status, public address |
+| Zigbee and more | MQTT (Zigbee2MQTT, Tasmota, Shelly, ESPHome) | publish commands, read what devices report |
+| Computers | Wake-on-LAN | switch on |
+
+Devices are remembered by name ("living room TV"), so a TV that is off can
+still be switched on. Type `/devices` to pick a device and act on it with a
+click, or just ask. No hub or home-automation server is needed, control
+reaches private addresses only, and the agent's actions are approved by you
+first.
 
 **Any provider, found automatically**
 CodeTurbo detects what is on your machine and lists only that: the official

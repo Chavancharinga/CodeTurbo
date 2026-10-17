@@ -240,6 +240,27 @@ Project instructions from {name} (follow them):
     out
 }
 
+/// Where the agent runs, so it uses what this machine has.
+pub fn environment() -> String {
+    let termux = cfg!(target_os = "android") || std::env::var("PREFIX").is_ok_and(|p| p.contains("com.termux"));
+    if termux {
+        return "Environment: Android, in Termux, on the user's phone. There is no desktop browser and no window: \
+                browse, design_review and observe_app cannot run here, so do not call them. To show the user a page, \
+                write plain HTML/CSS/JS that works opened as a file, then run `termux-open <file.html>` to open it in the \
+                phone's browser (for a server, `termux-open-url http://localhost:<port>`). Python, Node and the rest may \
+                not be installed: check with `command -v` and say how to install with `pkg install <name>` instead of \
+                assuming; prefer files that need no server."
+            .into();
+    }
+    match std::env::consts::OS {
+        "windows" => "Environment: Windows. Commands run in sh (Git Bash) when it is installed, otherwise in cmd; \
+                      write commands that work there. Open a page for the user with `start <file.html>`."
+            .into(),
+        "macos" => "Environment: macOS. Open a page for the user with `open <file.html>`.".into(),
+        os => format!("Environment: {os}. Open a page for the user with `xdg-open <file.html>` when there is a desktop."),
+    }
+}
+
 fn system_prompt(mode: Mode) -> String {
     let mut s = String::from(
         "You are CodeTurbo, a coding agent working in the user's project. \
@@ -248,8 +269,8 @@ fn system_prompt(mode: Mode) -> String {
          Be fast: every reply is a round trip, so put all the tool calls that do not depend on each other \
          in the same reply (reads, searches, independent edits, the checklist update with the work it tracks), \
          and do not read back a file you just wrote. \
-         You can see and operate the devices on the user's local network (TVs, speakers, printers, lights, plugs, \
-         cameras, routers, computers): network_scan lists them and says what each one is, tv controls any TV (power, volume, apps), device_control acts on any other device; each action is approved by the user. \
+         You can see and operate every kind of device on the user's local network (TVs, speakers, lights, plugs, switches, printers, routers, Zigbee through MQTT, \
+         cameras, routers, computers): network_scan lists them and says what each one is (and the known ones that are off), name_device remembers a name the user gives one, device controls any of them by name or address (power, volume, playback, apps, brightness, colour, status), device_control reaches a device's own API when device does not cover it; each action is approved by the user. \
          Never answer that you cannot reach the network; scan it. \
          Work like a senior engineer: read the relevant code before editing, find the root cause of an error \
          instead of patching symptoms, run what you changed (build, tests, the program), read the output, \
@@ -268,6 +289,8 @@ fn system_prompt(mode: Mode) -> String {
          the design check rejects generic patterns (default fonts and palettes, emoji icons, \
          identical card grids, the template section order). After building a page, call design_review          to see it rendered and fix whatever still looks generic.",
     );
+    s.push(' ');
+    s.push_str(&environment());
     if mode == Mode::Ast {
         s.push_str(
             " For Rust: start from read_file (large files come back as skeletons), read only the \

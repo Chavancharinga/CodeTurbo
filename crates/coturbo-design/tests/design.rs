@@ -65,7 +65,7 @@ fn compiled_tokens_are_readable_and_not_the_defaults() {
 fn the_contract_round_trips() {
     let t = compile(&brief("editorial"));
     let md = contract::markdown(&t);
-    assert!(md.contains("Elemento de assinatura: um cofre"));
+    assert!(md.contains("Signature element: um cofre"));
     assert!(md.contains("fonts.googleapis.com/css2?family="));
     let c = Contract::parse(&md);
     assert_eq!(c.colors().len(), 8);
@@ -97,27 +97,27 @@ fn a_generic_page_is_refused_for_the_right_reasons() {
     let f = fiscal::check("index.html", GENERIC, None);
     let rules: Vec<&str> = f.iter().map(|x| x.rule).collect();
     for r in [
-        "fonte-padrao",
-        "paleta-generica",
-        "gradiente-generico",
-        "contraste",
-        "raio-unico",
-        "emoji-icone",
-        "cartoes-identicos",
-        "titulos",
-        "foco-ausente",
-        "sem-contrato",
-        "hover-elevacao",
-        "tudo-centralizado",
-        "movimento",
+        "default-font",
+        "generic-palette",
+        "generic-gradient",
+        "contrast",
+        "single-radius",
+        "emoji-icon",
+        "identical-cards",
+        "headings",
+        "missing-focus-style",
+        "no-contract",
+        "hover-lift",
+        "all-centered",
+        "motion",
     ] {
         assert!(rules.contains(&r), "missing {r}: {rules:?}
 {}", fiscal::render("index.html", &f));
     }
-    assert!(f.iter().any(|x| x.rule == "contraste" && x.severity == Severity::P0));
+    assert!(f.iter().any(|x| x.rule == "contrast" && x.severity == Severity::P0));
     let report = fiscal::render("index.html", &f);
     assert!(report.starts_with("design index.html: "), "{report}");
-    assert!(report.contains("index.html:2 [P1 fonte-padrao]"), "{report}");
+    assert!(report.contains("index.html:2 [P1 default-font]"), "{report}");
 }
 
 #[test]
@@ -143,7 +143,7 @@ h1 {{ font-family: var(--font-display); font-size: var(--text-display); }}
     // A stray color is caught against the contract.
     let stray = page.replace("background: var(--color-primary)", "background: #123456");
     let f = fiscal::check("index.html", &stray, Some(&c));
-    assert!(f.iter().any(|x| x.rule == "cor-fora-do-contrato"), "{f:?}");
+    assert!(f.iter().any(|x| x.rule == "color-off-contract"), "{f:?}");
 }
 
 #[test]
@@ -151,7 +151,7 @@ fn only_interface_files_are_inspected() {
     assert!(fiscal::is_ui_file("src/App.tsx"));
     assert!(fiscal::is_ui_file("index.HTML"));
     assert!(!fiscal::is_ui_file("src/main.rs"));
-    assert!(fiscal::check("style.css", "a:hover { color: red; }", None).iter().all(|f| f.rule != "foco-ausente"));
+    assert!(fiscal::check("style.css", "a:hover { color: red; }", None).iter().all(|f| f.rule != "missing-focus-style"));
 }
 
 #[test]
@@ -164,15 +164,67 @@ fn rendered_measurements_are_judged() {
     let page = Page { desktop: m.clone(), mobile: m, ..Page::default() };
     let rules: Vec<&str> = judge(&page).iter().map(|f| f.rule).collect();
     for r in [
-        "render-sobreposicao", "render-colados", "render-conteudo-cortado", "render-barra-de-rolagem", "render-imagem-quebrada",
-        "render-sem-responsividade", "render-alvo-pequeno", "render-grades-iguais", "render-raio-unico",
-        "render-centralizado", "render-sombra-unica",
+        "render-overlap", "render-cramped", "render-cut-off", "render-scrollbar", "render-broken-image",
+        "render-not-responsive", "render-small-target", "render-identical-grids", "render-single-radius",
+        "render-all-centered", "render-single-shadow",
     ] {
         assert!(rules.contains(&r), "missing {r}: {rules:?}");
     }
     let clean = Metrics { rounded: 9, radii: 3, text: 10, centered: 2, ..Metrics::default() };
     assert!(judge(&Page { desktop: clean.clone(), mobile: clean, ..Page::default() }).is_empty());
     assert!(parse_metrics("<html>").is_none());
+}
+
+/// The rendered page is checked for accessibility the way a person meets it:
+/// contrast against what is really behind the text, images with no alt,
+/// fields with no label, no page language, no viewport.
+#[tokio::test]
+async fn the_rendered_page_is_checked_for_accessibility() {
+    let Some(browser) = coturbo_design::render::find_browser() else { return };
+    let dir = tempfile::tempdir().unwrap();
+    let page = dir.path().join("a11y.html");
+    std::fs::write(
+        &page,
+        r##"<!DOCTYPE html><html><head><meta charset="utf-8"><title>t</title></head>
+<body style="background:#ffffff;font-family:Georgia;padding:24px">
+<section style="background:#1f2a44;padding:24px"><p style="color:#2b3550">Dark text on a dark band, inherited background.</p></section>
+<p style="color:#111111">Readable text on white.</p>
+<img src="data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==" width="80" height="80">
+<form><input type="email" placeholder="Your e-mail"><label>Name <input type="text"></label></form>
+</body></html>"##,
+    )
+    .unwrap();
+    let m = coturbo_design::render::measure(&browser, &page, &dir.path().join("a11y.png")).await.expect("rendered");
+    assert_eq!(m.desktop.contrast.len(), 1, "only the dark-on-dark text: {:?}", m.desktop.contrast);
+    assert!(m.desktop.contrast[0].contains("Dark text"), "{:?}", m.desktop.contrast);
+    assert_eq!((m.desktop.noalt, m.desktop.unlabeled), (1, 1), "the image and the placeholder-only field");
+    assert!(m.desktop.nolang && m.desktop.noviewport);
+    let rules: Vec<&str> = judge(&m).iter().map(|f| f.rule).collect();
+    for r in ["render-low-contrast", "render-missing-alt", "render-unlabeled-field", "render-no-viewport", "render-no-lang"] {
+        assert!(rules.contains(&r), "missing {r}: {rules:?}");
+    }
+}
+
+/// Rhythm and coherence: lines too long to read, a pile of font sizes, a
+/// patchwork of colours.
+#[tokio::test]
+async fn the_rendered_page_is_checked_for_rhythm_and_coherence() {
+    let Some(browser) = coturbo_design::render::find_browser() else { return };
+    let dir = tempfile::tempdir().unwrap();
+    let page = dir.path().join("rhythm.html");
+    let long = "Words that keep going across the whole width of a very wide desktop screen without any measure at all. ".repeat(4);
+    let sizes: String = (0..11).map(|i| format!("<p style=\"font-size:{}px;color:#{:02x}2a3a\">Size {i}</p>", 12 + i * 3, 20 + i * 9)).collect();
+    std::fs::write(
+        &page,
+        format!(r#"<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head>
+<body style="font-family:Georgia;margin:0;padding:16px"><p style="font-size:16px">{long}</p>{sizes}</body></html>"#),
+    )
+    .unwrap();
+    let m = coturbo_design::render::measure(&browser, &page, &dir.path().join("r.png")).await.expect("rendered");
+    let rules: Vec<&str> = judge(&m).iter().map(|f| f.rule).collect();
+    for r in ["render-long-lines", "render-too-many-sizes", "render-too-many-colours"] {
+        assert!(rules.contains(&r), "missing {r}: {rules:?}");
+    }
 }
 
 #[tokio::test]
@@ -187,18 +239,18 @@ async fn review_renders_in_the_installed_browser() {
     if coturbo_design::render::find_browser().is_some() {
         assert!(r.summary.contains("rendered page"), "{}", r.summary);
         assert!(dir.path().join(".codeturbo/design/index.png").exists(), "desktop screenshot saved");
-        assert!(dir.path().join(".codeturbo/design/index-celular.png").exists(), "phone screenshot saved");
+        assert!(dir.path().join(".codeturbo/design/index-phone.png").exists(), "phone screenshot saved");
         assert!(dir.path().join(".codeturbo/design/index-tablet.png").exists(), "tablet screenshot saved");
-        assert!(dir.path().join(".codeturbo/design/index-notebook.png").exists(), "laptop screenshot saved");
+        assert!(dir.path().join(".codeturbo/design/index-laptop.png").exists(), "laptop screenshot saved");
     }
 }
 
 #[test]
 fn repeated_accordion_items_are_not_cards() {
     let page = r#"<div class="faq-item">a</div><div class="faq-item">b</div><div class="faq-item">c</div>"#;
-    assert!(fiscal::check("p.html", page, None).iter().all(|f| f.rule != "cartoes-identicos"));
+    assert!(fiscal::check("p.html", page, None).iter().all(|f| f.rule != "identical-cards"));
     let cards = page.replace("faq-item", "price-card");
-    assert!(fiscal::check("p.html", &cards, None).iter().any(|f| f.rule == "cartoes-identicos"));
+    assert!(fiscal::check("p.html", &cards, None).iter().any(|f| f.rule == "identical-cards"));
 }
 
 #[test]
@@ -215,13 +267,13 @@ p { font-size: 12px; line-height: 1.1; text-align: justify; }
 <a href="#">a</a><a href="#">b</a><a href="#">c</a><img src="https://picsum.photos/200"></body></html>"##;
     let rules: Vec<&str> = fiscal::check("p.html", page, None).iter().map(|f| f.rule).collect();
     for r in [
-        "vidro-fosco", "outline-removido", "texto-pequeno", "entrelinha", "texto-justificado", "z-index", "important",
-        "sem-responsividade", "texto-de-preenchimento", "imagem-de-preenchimento", "links-vazios", "texto-cliche",
+        "frosted-glass", "outline-removed", "small-text", "line-height", "justified-text", "z-index", "important",
+        "not-responsive", "placeholder-text", "placeholder-image", "empty-links", "cliche-copy",
     ] {
         assert!(rules.contains(&r), "missing {r}: {rules:?}");
     }
     let fixed = page.replace(".grid {", "@media (max-width: 700px) { .grid { grid-template-columns: 1fr; } }\n.grid {");
-    assert!(!fiscal::check("p.html", &fixed, None).iter().any(|f| f.rule == "sem-responsividade"));
+    assert!(!fiscal::check("p.html", &fixed, None).iter().any(|f| f.rule == "not-responsive"));
 }
 
 #[test]
@@ -237,7 +289,7 @@ fn a_redesign_keeps_the_brand_and_organizes_it() {
     assert!(contrast(t.color("primary-ink"), t.color("bg")) >= 4.5, "yellow made readable as text");
     let grays: Vec<_> = ["gray-100", "gray-300", "gray-500", "gray-700"].iter().map(|n| luminance(t.color(n))).collect();
     assert!(grays.windows(2).all(|w| w[0] > w[1]), "a neutral scale from light to dark");
-    assert!(contract::markdown(&t).contains("Cores da marca preservadas: #ffd60a"));
+    assert!(contract::markdown(&t).contains("Brand colours kept: #ffd60a"));
 }
 
 #[test]
@@ -323,10 +375,10 @@ mod kit {
 #[test]
 fn feature_lists_inside_plans_are_not_cards() {
     let page = r#"<ul><li class="price-feature">a</li><li class="price-feature">b</li><li class="price-feature">c</li></ul>"#;
-    assert!(fiscal::check("p.html", page, None).iter().all(|f| f.rule != "cartoes-identicos"));
+    assert!(fiscal::check("p.html", page, None).iter().all(|f| f.rule != "identical-cards"));
     let order = r#"<section id="hero"></section><section id="features"></section><section id="testimonials"></section><section id="pricing"></section><section id="faq"></section><section id="contact"></section>"#;
     let f = fiscal::check("p.html", order, None);
-    assert!(f.iter().any(|x| x.rule == "sequencia-template" && !x.blocking()), "the order is advice: {f:?}");
+    assert!(f.iter().any(|x| x.rule == "template-sequence" && !x.blocking()), "the order is advice: {f:?}");
 }
 
 #[test]
@@ -354,7 +406,7 @@ fn the_design_system_is_read_from_the_project() {
     assert!(e.tokens.iter().any(|(k, v)| k == "--brand" && v == "#ffd60a"));
     assert!(e.frameworks.contains(&"Tailwind CSS".to_string()) && e.frameworks.iter().any(|f| f.contains("Radix")));
     let s = extract::summary(&e);
-    assert!(s.contains("fontes: ") && s.contains("Tailwind CSS"), "{s}");
+    assert!(s.contains("fonts: ") && s.contains("Tailwind CSS"), "{s}");
 
     // A redesign keeps it: same fonts, same radii, the brand yellow.
     let mut b = brief("moderno");
@@ -392,14 +444,14 @@ fn a_page_linking_the_kit_file_satisfies_the_static_rules() {
 fn design_md_follows_the_stitch_format_and_preview_renders() {
     let t = compile(&brief("editorial"));
     let md = contract::markdown(&t);
-    for section in ["## Tema visual e atmosfera", "## Paleta e papéis", "## Faça e não faça", "| Token | Cor | Papel |"] {
+    for section in ["## Visual theme and atmosphere", "## Palette and roles", "## Do and don't", "| Token | Colour | Role |"] {
         assert!(md.contains(section), "falta secao {section}");
     }
     assert!(md.contains("| `--color-primary` |"), "tabela de paleta: {md}");
     let roles = contract::color_roles(&t);
-    assert!(roles.iter().any(|(n, _, r)| *n == "ink" && r.contains("Texto principal")));
+    assert!(roles.iter().any(|(n, _, r)| *n == "ink" && r.contains("Main text")));
     let html = contract::preview_html(&t);
-    assert!(html.starts_with("<!DOCTYPE html>") && html.contains("Cores e papéis") && html.contains("btn--primary"), "preview");
+    assert!(html.starts_with("<!DOCTYPE html>") && html.contains("Colours and roles") && html.contains("btn--primary"), "preview");
     assert!(html.contains(":root") && html.contains("--color-primary"), "tokens inline no preview");
 }
 

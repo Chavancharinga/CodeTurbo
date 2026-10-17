@@ -14,6 +14,8 @@ base64 = "0.22"
 # TVs: Samsung and LG speak WebSocket over TLS with self-signed certificates.
 tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+# Google Cast: TLS straight over TCP.
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 # Android TV over ADB: RSA key pairing.
 rsa = { version = "0.9", features = ["sha1"] }
 sha1 = { version = "0.10", features = ["oid"] }
