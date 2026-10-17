@@ -54,7 +54,7 @@ pub const EDIT_TOOLS: &[&str] = &["write_file", "edit_file", "replace_symbol", "
 /// Fixed tier per tool. Unknown tools (MCP, third-party) are `Exec`.
 pub fn tier(name: &str) -> Tier {
     match name {
-        "read_file" | "read_symbol" | "list_files" | "grep" | "workspace_diagnostics" | "propose_plan" | "tasks" | "network_scan" | "tool_search" | "web_search" | "web_fetch" | "agent" | "recall" | "skill" | "lsp" | "ask_user" | "ci" => Tier::Read,
+        "read_file" | "read_symbol" | "list_files" | "grep" | "workspace_diagnostics" | "propose_plan" | "tasks" | "network_scan" | "tool_search" | "web_search" | "web_fetch" | "agent" | "recall" | "skill" | "lsp" | "ask_user" | "ci" | "jobs" => Tier::Read,
         "remember" | "forget" | "schedule" => Tier::Write,
         "name_device" => Tier::Write,
         n if EDIT_TOOLS.contains(&n) || n == "design_brief" => Tier::Write,
@@ -96,7 +96,7 @@ pub struct Tools {
     /// `browse` opens a real window the user watches, not one without a window.
     browse_window: Arc<dyn Fn() -> bool + Send + Sync>,
     /// Commands left running in the background (servers), stopped on shutdown.
-    background: std::sync::Mutex<Vec<tokio::process::Child>>,
+    background: std::sync::Mutex<Vec<shell::Job>>,
     /// External tool servers (MCP), connected after start.
     mcp: McpSlot,
     /// External tools the model loaded with tool_search; the rest are only
@@ -122,7 +122,7 @@ fn browse_actions_schema() -> Value {
     "type": "array",
     "description": "steps in order, at most 40",
     "items": {"type": "object", "properties": {
-        "do": {"type": "string", "enum": ["open", "snapshot", "click", "fill", "press", "scroll", "wait", "back", "viewport", "text", "shot"]},
+        "do": {"type": "string", "enum": ["open", "snapshot", "click", "fill", "press", "scroll", "wait", "back", "viewport", "text", "shot", "console", "network"], "description": "console: everything the page logged; network: every request with its status"},
         "url": {"type": "string", "description": "open: a project file (index.html), localhost:3000 or a full address"},
         "ref": {"type": "string", "description": "click, fill, text: the @e7 that snapshot gave"},
         "text": {"type": "string", "description": "click, text: the visible text of the element"},
@@ -319,6 +319,11 @@ impl Tools {
                     }),
                     &["name", "type", "description", "content"],
                 ),
+            ),
+            spec(
+                "jobs",
+                "The commands running in the background (started by bash with background=true): list them, read what one printed since you last looked (output), or stop one (stop). Use it to watch a server's log or a long build.",
+                obj(json!({"action": {"type": "string", "enum": ["list", "output", "stop"]}, "id": {"type": "integer", "description": "output/stop: the job id from list"}}), &[]),
             ),
             spec(
                 "ci",
@@ -575,9 +580,9 @@ impl Tools {
 
     /// Closes the browsers `browse` keeps open (when the session ends).
     pub async fn shutdown(&self) {
-        let running: Vec<tokio::process::Child> = self.background.lock().map(|mut b| std::mem::take(&mut *b)).unwrap_or_default();
-        for mut child in running {
-            let _ = child.kill().await;
+        let running: Vec<shell::Job> = self.background.lock().map(|mut b| std::mem::take(&mut *b)).unwrap_or_default();
+        for mut job in running {
+            let _ = job.child.kill().await;
         }
         for cell in self.browse_live.iter() {
             let live = cell.lock().await.take();
@@ -958,6 +963,7 @@ impl Tools {
             "skill" => skills::load(&self.root, input),
             "lsp" => self.lsp_navigate(input).await,
             "ci" => ci::tool(&self.root, input).await,
+            "jobs" => self.jobs(input).await,
             "schedule" => schedule::tool(&self.root, input),
             "recall" => memory::recall(&self.root, input),
             "forget" => memory::forget(&self.root, input),

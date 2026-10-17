@@ -965,3 +965,33 @@ async fn the_model_asks_with_options_and_sees_named_pictures() {
     assert!(reqs[0].messages[0].content.iter().any(|b| matches!(b, ContentBlock::Image { .. })), "the picture went with the message");
     assert!(tool_results(&reqs[1])[0].1.contains("The user answered: blue"));
 }
+
+/// Reads asked in one reply run at the same time: three reads that each
+/// take a second end in about one second, not three.
+#[tokio::test]
+async fn reads_in_one_reply_run_together() {
+    let dir = project();
+    let tools = Tools::new(dir.path(), Mode::Naive);
+    let slow = if cfg!(windows) { "ping -n 2 127.0.0.1 > nul" } else { "sleep 1" };
+    let hooks = vec![coturbo_agent::hooks::Hook { event: "pre_tool".into(), matcher: "read_file|list_files|grep".into(), command: slow.into() }];
+    let mock = Mock::new(vec![
+        resp(
+            vec![
+                tool("r1", "read_file", json!({"path": "src/lib.rs"})),
+                tool("r2", "list_files", json!({})),
+                tool("r3", "grep", json!({"pattern": "add"})),
+            ],
+            "tool_use",
+            usage(10, 1),
+        ),
+        resp(vec![text("read")], "end_turn", usage(10, 1)),
+    ]);
+    let mut agent = Agent::new(&mock, &tools, AgentConfig { hooks, ..config() });
+    let started = std::time::Instant::now();
+    agent.run_task("read three things", &mut NoopHost).await.unwrap();
+    let took = started.elapsed();
+    assert!(took < std::time::Duration::from_millis(2500), "took {took:?}: the reads waited for each other");
+    let results = tool_results(&mock.requests()[1]);
+    assert_eq!(results.iter().map(|r| r.0.as_str()).collect::<Vec<_>>(), vec!["r1", "r2", "r3"], "results keep the order asked");
+    assert!(results[0].1.contains("a + b") && results[2].1.contains("lib.rs"), "{results:?}");
+}

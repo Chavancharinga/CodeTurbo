@@ -11,6 +11,7 @@ pub enum Command {
     Effort,
     Devices,
     Mcp,
+    Review,
     Undo,
     Rule,
     Shake,
@@ -30,7 +31,7 @@ pub struct CommandInfo {
     pub cmd: Command,
 }
 
-pub const COMMANDS: [CommandInfo; 19] = [
+pub const COMMANDS: [CommandInfo; 20] = [
     CommandInfo { name: "/provider", aliases: &[], about: "choose the model provider", cmd: Command::Provider },
     CommandInfo {
         name: "/model",
@@ -48,6 +49,7 @@ pub const COMMANDS: [CommandInfo; 19] = [
     CommandInfo { name: "/effort", aliases: &[], about: "set how hard the model thinks (low to max)", cmd: Command::Effort },
     CommandInfo { name: "/devices", aliases: &["/tv"], about: "find the devices on your network and control them", cmd: Command::Devices },
     CommandInfo { name: "/mcp", aliases: &[], about: "external tool servers (MCP) and their tools", cmd: Command::Mcp },
+    CommandInfo { name: "/review", aliases: &[], about: "review the changes with several agents in parallel", cmd: Command::Review },
     CommandInfo { name: "/plan", aliases: &[], about: "turn plan mode on or off", cmd: Command::Plan },
     CommandInfo { name: "/usage", aliases: &[], about: "tokens and cost of the session", cmd: Command::Usage },
     CommandInfo { name: "/undo", aliases: &[], about: "undo the changes of the last task", cmd: Command::Undo },

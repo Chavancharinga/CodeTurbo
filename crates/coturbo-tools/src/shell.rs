@@ -38,13 +38,25 @@ pub fn keeps_running(command: &str) -> bool {
         || c.trim_end().ends_with('&')
 }
 
+/// A command left running, with where its output goes and how much of it
+/// was already read.
+pub struct Job {
+    pub id: u32,
+    pub child: tokio::process::Child,
+    pub command: String,
+    pub log: std::path::PathBuf,
+    pub read: u64,
+}
+
 /// How long a background command is watched before the call returns.
 const FIRST_OUTPUT: Duration = Duration::from_secs(4);
 
 impl Tools {
     /// Starts `command` and leaves it running; returns what it printed first.
     async fn background(&self, command: &str) -> Res {
-        let log = std::env::temp_dir().join(format!("codeturbo-bg-{}-{}.log", std::process::id(), self.background.lock().map(|b| b.len()).unwrap_or(0)));
+        static LOGS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = LOGS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let log = std::env::temp_dir().join(format!("codeturbo-bg-{}-{n}.log", std::process::id()));
         let file = std::fs::File::create(&log).map_err(|e| e.to_string())?;
         let err = file.try_clone().map_err(|e| e.to_string())?;
         let mut cmd = shell(command.trim_end().trim_end_matches('&'));
@@ -58,14 +70,64 @@ impl Tools {
             return Ok(if status.success() { ToolOutput::ok(text) } else { ToolOutput::err(text) });
         }
         let pid = child.id().map(|p| p.to_string()).unwrap_or_else(|| "?".into());
-        if let Ok(mut b) = self.background.lock() {
-            b.push(child);
-        }
+        let read = std::fs::metadata(&log).map(|m| m.len()).unwrap_or(0);
+        let id = match self.background.lock() {
+            Ok(mut b) => {
+                let id = b.iter().map(|j| j.id).max().unwrap_or(0) + 1;
+                b.push(Job { id, child, command: command.to_string(), log: log.clone(), read });
+                id
+            }
+            Err(_) => 0,
+        };
         Ok(ToolOutput::ok(format!(
-            "running in the background (pid {pid}); it stops when the session ends. Full output: {}\nFirst output:\n{}",
-            log.display(),
+            "running in the background as job {id} (pid {pid}); it stops when the session ends. Read what it prints later with jobs (output, id {id}).\nFirst output:\n{}",
             if first.trim().is_empty() { "(nothing yet)" } else { first.trim() }
         )))
+    }
+
+    /// `jobs`: list, read new output, or stop a background command.
+    pub(crate) async fn jobs(&self, input: &Value) -> Res {
+        let action = input["action"].as_str().unwrap_or("list");
+        let id = input["id"].as_u64().map(|i| i as u32);
+        if action == "list" {
+            let mut b = self.background.lock().map_err(|e| e.to_string())?;
+            if b.is_empty() {
+                return Ok(ToolOutput::ok("No background jobs."));
+            }
+            let lines: Vec<String> = b
+                .iter_mut()
+                .map(|j| {
+                    let state = match j.child.try_wait() {
+                        Ok(Some(s)) => format!("ended ({s})"),
+                        _ => "running".into(),
+                    };
+                    format!("job {} · {state} · {}", j.id, j.command)
+                })
+                .collect();
+            return Ok(ToolOutput::ok(lines.join("\n")));
+        }
+        let id = id.ok_or("give the job's `id` (see jobs list)")?;
+        if action == "stop" {
+            let job = {
+                let mut b = self.background.lock().map_err(|e| e.to_string())?;
+                let at = b.iter().position(|j| j.id == id).ok_or_else(|| format!("no job {id}"))?;
+                b.remove(at)
+            };
+            let mut job = job;
+            let _ = job.child.kill().await;
+            return Ok(ToolOutput::ok(format!("stopped job {id} ({})", job.command)));
+        }
+        // output: what was printed since the last look.
+        let mut b = self.background.lock().map_err(|e| e.to_string())?;
+        let job = b.iter_mut().find(|j| j.id == id).ok_or_else(|| format!("no job {id}"))?;
+        let all = std::fs::read(&job.log).unwrap_or_default();
+        let new = String::from_utf8_lossy(all.get(job.read as usize..).unwrap_or(&[])).into_owned();
+        job.read = all.len() as u64;
+        let state = match job.child.try_wait() {
+            Ok(Some(s)) => format!("ended ({s})"),
+            _ => "still running".into(),
+        };
+        Ok(ToolOutput::ok(format!("job {id} · {state}\n{}", if new.trim().is_empty() { "(no new output)".to_string() } else { tail(&new, 8_000) })))
     }
 
     pub(crate) async fn bash(&self, input: &Value) -> Res {

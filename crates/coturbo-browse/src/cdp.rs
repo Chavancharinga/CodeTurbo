@@ -176,7 +176,7 @@ impl Cdp {
             }
             Err("the browser closed the connection".to_string())
         };
-        tokio::time::timeout(COMMAND_TIMEOUT, wait).await.map_err(|_| format!("{method}: sem resposta em {}s", COMMAND_TIMEOUT.as_secs()))?
+        tokio::time::timeout(COMMAND_TIMEOUT, wait).await.map_err(|_| format!("{method}: no answer in {}s", COMMAND_TIMEOUT.as_secs()))?
     }
 
     /// Reads for up to `ms` milliseconds, keeping whatever events arrive.

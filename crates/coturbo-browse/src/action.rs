@@ -47,6 +47,10 @@ pub enum Action {
     /// The page's text, all of it or only that of an element.
     Text(Option<Target>),
     Shot,
+    /// Everything the page wrote to its console so far.
+    Console,
+    /// Every request the page made so far, with its status.
+    Network,
 }
 
 fn target(a: &Value) -> Result<Target, String> {
@@ -92,6 +96,8 @@ impl Action {
             ),
             "text" | "read" => Action::Text(target(a).ok()),
             "shot" | "screenshot" => Action::Shot,
+            "console" | "logs" => Action::Console,
+            "network" | "requests" => Action::Network,
             other => return Err(format!("unknown action: {other}")),
         })
     }
@@ -112,13 +118,15 @@ impl Action {
             Action::Snapshot => "reading the page".into(),
             Action::Click(t) => format!("clicking {}", t.describe()),
             Action::Fill(t, v) => format!("filling {} with \"{v}\"", t.describe()),
-            Action::Press(k) => format!("tecla {k}"),
+            Action::Press(k) => format!("key {k}"),
             Action::Scroll(y) => format!("scrolling {y}px"),
             Action::Wait(ms) => format!("waiting {ms} ms"),
             Action::Back => "going back".into(),
             Action::Viewport(w, h) => format!("window {w}×{h}"),
             Action::Text(_) => "reading the text".into(),
             Action::Shot => "page photo".into(),
+            Action::Console => "reading the console".into(),
+            Action::Network => "reading the requests".into(),
         }
     }
 }

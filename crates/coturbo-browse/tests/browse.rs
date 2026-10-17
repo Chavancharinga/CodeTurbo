@@ -214,3 +214,18 @@ async fn pages_are_shown_without_their_scrollbars() {
     let log = r.log.join("\n");
     assert!(log.contains("bar:0"), "a scrollbar would take width from the page: {log}");
 }
+
+/// The page's console and requests can be read, like in the browser's tools.
+#[tokio::test]
+async fn the_console_and_the_requests_are_read() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("logs.html"),
+        r#"<!doctype html><html><body><p>hi</p><script>console.log("started", 3); console.warn("slow cart"); fetch("missing.json").catch(()=>{});</script></body></html>"#,
+    )
+    .unwrap();
+    let Some((report, _)) = browse(dir.path(), vec![Action::Open("logs.html".into()), Action::Wait(400), Action::Console, Action::Network]).await else { return };
+    let log = report.log.join("\n");
+    assert!(log.contains("[log] started 3") && log.contains("[warning] slow cart"), "{log}");
+    assert!(log.contains("GET file://") && log.contains("missing.json"), "{log}");
+}

@@ -101,6 +101,16 @@ OpenAI-compatible server are supported.
 - **Hooks, skills and custom commands**: your own commands before and after
   tools, skill packs (`SKILL.md`) and `/commands` from Markdown files,
   including the ones already in `~/.claude`.
+- **Parallel reads**: the files, searches and pages asked in one reply are
+  read at the same time.
+- **`/review`**: the changes split by area and reviewed by several agents at
+  once; only the findings that hold up are reported.
+- **Background jobs**: servers and watchers keep running; their new output is
+  read and they are stopped on demand.
+- **A guard for hard-to-undo commands** (`rm -rf` of a variable, forced push,
+  `git reset --hard`, shutting the computer down...): they always ask first,
+  in any approval mode.
+- **The browser's console and requests**, like in its developer tools.
 - **Web search and page reading**, **scheduled tasks** ("every day at 23:00"),
   **CI follow-up** through `gh`, **questions with options**, **PDFs,
   notebooks and images**, and **code navigation** through the language server.

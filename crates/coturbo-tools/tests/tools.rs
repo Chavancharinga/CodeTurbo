@@ -565,3 +565,20 @@ async fn notebooks_and_images_are_read() {
     assert_eq!(img.images.len(), 1);
     assert_eq!(img.images[0].0, "image/png");
 }
+
+/// Background jobs can be listed, read and stopped.
+#[tokio::test]
+async fn background_jobs_are_listed_read_and_stopped() {
+    let dir = tempfile::tempdir().unwrap();
+    let tools = Tools::new(dir.path(), Mode::Naive);
+    let long = if cfg!(windows) { "ping -n 60 127.0.0.1" } else { "sleep 60" };
+    let started = tools.call("bash", &serde_json::json!({"command": long, "background": true})).await;
+    assert!(started.content.contains("as job 1"), "{}", started.content);
+    let list = tools.call("jobs", &serde_json::json!({"action": "list"})).await.content;
+    assert!(list.contains("job 1 · running"), "{list}");
+    let out = tools.call("jobs", &serde_json::json!({"action": "output", "id": 1})).await.content;
+    assert!(out.starts_with("job 1 · still running"), "{out}");
+    let stop = tools.call("jobs", &serde_json::json!({"action": "stop", "id": 1})).await;
+    assert!(!stop.is_error, "{}", stop.content);
+    assert_eq!(tools.call("jobs", &serde_json::json!({"action": "list"})).await.content, "No background jobs.");
+}

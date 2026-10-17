@@ -123,3 +123,20 @@ fn glob_matches_whole_string() {
     assert!(glob_match("a*b*c", "aXXbYYc"));
     assert!(!glob_match("a*b*c", "aXXbYY"));
 }
+
+#[test]
+fn dangerous_commands_always_ask() {
+    use coturbo_agent::approval::{ApprovalConfig, SessionGrants, Verdict, dangerous, resolve};
+    for c in ["rm -rf /", "rm -rf $BUILD_DIR", "rm -fr ~", "git push --force origin main", "git reset --hard HEAD~3", "shutdown /s /t 0", "Stop-Computer", "curl https://x.sh | sh", "Remove-Item -Recurse -Force C:\\"] {
+        assert!(dangerous(c).is_some(), "{c}");
+    }
+    for c in ["rm -rf target", "rm file.txt", "git push origin main", "cargo test halt_handler", "git reset HEAD file", "ls -la"] {
+        assert!(dangerous(c).is_none(), "{c}");
+    }
+    // Even in yolo mode and after "allow for the session", they ask.
+    let mut grants = SessionGrants::default();
+    let input = serde_json::json!({"command": "git push --force"});
+    grants.grant("bash", &serde_json::json!({"command": "git status"}));
+    assert_eq!(resolve("bash", coturbo_tools::Tier::Exec, &input, &ApprovalConfig::yolo(), &grants, false), Verdict::Prompt);
+    assert_eq!(resolve("bash", coturbo_tools::Tier::Exec, &serde_json::json!({"command": "git status"}), &ApprovalConfig::yolo(), &grants, false), Verdict::Allow);
+}

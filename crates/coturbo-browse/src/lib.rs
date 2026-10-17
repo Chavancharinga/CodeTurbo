@@ -125,6 +125,10 @@ struct Session {
     title: String,
     seen: Vec<String>,
     requests: std::collections::HashMap<String, String>,
+    /// The page's console messages, oldest first.
+    console: Vec<String>,
+    /// Every request: `(id, method url, status and type when known)`.
+    network: Vec<(String, String)>,
     report: Report,
 }
 
@@ -167,6 +171,10 @@ impl Session {
                 "Network.requestWillBeSent" => {
                     if let (Some(id), Some(url)) = (p["requestId"].as_str(), p["request"]["url"].as_str()) {
                         self.requests.insert(id.to_string(), url.to_string());
+                        if self.network.len() < 400 && !url.starts_with("data:") {
+                            let method = p["request"]["method"].as_str().unwrap_or("GET");
+                            self.network.push((id.to_string(), format!("{method} {url}")));
+                        }
                     }
                 }
                 "Runtime.exceptionThrown" => {
@@ -174,13 +182,29 @@ impl Session {
                     let text = d["exception"]["description"].as_str().or_else(|| d["text"].as_str()).unwrap_or("exception");
                     add(self, format!("JavaScript error: {}", text.lines().next().unwrap_or(text)));
                 }
-                "Runtime.consoleAPICalled" if p["type"] == "error" => {
-                    let text: Vec<String> = p["args"].as_array().into_iter().flatten().map(|a| a["value"].as_str().map(str::to_string).or_else(|| a["description"].as_str().map(str::to_string)).unwrap_or_default()).collect();
-                    add(self, format!("console.error: {}", text.join(" ")));
+                "Runtime.consoleAPICalled" => {
+                    let text: Vec<String> = p["args"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .map(|a| a["value"].as_str().map(str::to_string).or_else(|| a["description"].as_str().map(str::to_string)).or_else(|| a["value"].as_f64().map(|n| n.to_string())).unwrap_or_default())
+                        .collect();
+                    let kind = p["type"].as_str().unwrap_or("log");
+                    if self.console.len() < 300 {
+                        self.console.push(format!("[{kind}] {}", text.join(" ")));
+                    }
+                    if kind == "error" {
+                        add(self, format!("console.error: {}", text.join(" ")));
+                    }
                 }
                 "Network.loadingFailed" => {
                     let url = p["requestId"].as_str().and_then(|i| self.requests.get(i)).cloned().unwrap_or_default();
-                    let why = p["errorText"].as_str().unwrap_or("falhou");
+                    let why = p["errorText"].as_str().unwrap_or("failed");
+                    if let Some(id) = p["requestId"].as_str()
+                        && let Some(entry) = self.network.iter_mut().find(|(i, _)| i == id)
+                    {
+                        entry.1.push_str(&format!(" → failed ({why})"));
+                    }
                     if !url.ends_with("favicon.ico") && p["canceled"] != true && !why.contains("ABORTED") {
                         add(self, format!("did not load: {url} ({why})"));
                     }
@@ -188,8 +212,13 @@ impl Session {
                 "Network.responseReceived" => {
                     let status = p["response"]["status"].as_u64().unwrap_or(200);
                     let url = p["response"]["url"].as_str().unwrap_or("");
+                    if let Some(id) = p["requestId"].as_str()
+                        && let Some(entry) = self.network.iter_mut().find(|(i, _)| i == id)
+                    {
+                        entry.1.push_str(&format!(" → {status} {}", p["type"].as_str().unwrap_or("")));
+                    }
                     if status >= 400 && !url.ends_with("favicon.ico") {
-                        add(self, format!("resposta {status}: {url}"));
+                        add(self, format!("HTTP {status}: {url}"));
                     }
                 }
                 _ => {}
@@ -378,12 +407,23 @@ impl Session {
             }
             Action::Text(t) => {
                 let v = self.eval(&script::read_text(t.as_ref().map(Target::to_json))).await?;
-                out.push(format!("texto:\n{}", v.as_str().unwrap_or("")));
+                out.push(format!("text:\n{}", v.as_str().unwrap_or("")));
             }
             Action::Shot => {
                 let png = self.frame(&a.caption(), false, on_frame).await;
                 self.report.shots.push(png);
-                out.push(format!("foto de {}", self.url));
+                out.push(format!("photo of {}", self.url));
+            }
+            Action::Console => {
+                self.collect_problems();
+                let list = if self.console.is_empty() { "(the page wrote nothing to its console)".to_string() } else { self.console.join("\n") };
+                out.push(format!("console of {}:\n{list}", self.url));
+            }
+            Action::Network => {
+                self.collect_problems();
+                let list: Vec<&str> = self.network.iter().map(|(_, l)| l.as_str()).collect();
+                let list = if list.is_empty() { "(no requests)".to_string() } else { list.join("\n") };
+                out.push(format!("requests of {}:\n{list}", self.url));
             }
         }
         Ok(out)
@@ -438,7 +478,7 @@ impl Browser {
         } else {
             cdp.call("Emulation.setDeviceMetricsOverride", json!({"width": size.0, "height": size.1, "deviceScaleFactor": 1, "mobile": false})).await?;
         }
-        Ok(Session { visible, cdp, size, cursor: None, url: String::new(), title: String::new(), seen: Vec::new(), requests: Default::default(), report: Report::default() })
+        Ok(Session { visible, cdp, size, cursor: None, url: String::new(), title: String::new(), seen: Vec::new(), requests: Default::default(), console: Vec::new(), network: Vec::new(), report: Report::default() })
     }
 
     /// Puts the window at the right edge of the screen, tall and narrow, so it

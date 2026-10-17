@@ -425,6 +425,24 @@ impl Session {
                         Command::Key => self.set_key().await,
                         Command::Approval => self.choose_approval(&arg).await,
                         Command::Effort => self.choose_effort(&arg).await,
+                        Command::Review => {
+                            let scope = if arg.trim().is_empty() {
+                                "the uncommitted changes (git diff HEAD), or, when there are none, this branch against the main branch (git diff main...HEAD)".to_string()
+                            } else {
+                                format!("the changes against `{}` (git diff {}...HEAD)", arg.trim(), arg.trim())
+                            };
+                            let task = format!(
+                                "Review {scope}. First read the diff with bash and split it by area (module, feature or file group). \
+                                 Then, in ONE reply, call the agent tool once per area with kind review, giving each reviewer its files, \
+                                 the diff of that area and what to look for: real bugs, broken edge cases, security issues, missing tests. \
+                                 When they report back, check every finding yourself against the code and drop the ones that do not hold. \
+                                 Answer with the confirmed findings ranked most severe first, each with file:line, why it is wrong and the fix. \
+                                 Change nothing."
+                            );
+                            self.send(Out::Lines(super::app::task_lines(&task)));
+                            self.task(agent.as_mut(), &task, cancel).await;
+                            false
+                        }
                         Command::Mcp => {
                             self.show_mcp(&mcp);
                             false

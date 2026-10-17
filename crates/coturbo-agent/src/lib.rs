@@ -802,6 +802,46 @@ impl<'a> Agent<'a> {
                     sub_results.extend(sub::run_all(self.provider, self.tools, &self.config, subs).await);
                 }
             }
+            // The reads of this round run together: they change nothing, so
+            // their order does not matter, and waiting for each in turn only
+            // costs time (several files, searches, pages at once).
+            let mut read_results: HashMap<String, ToolOutput> = HashMap::new();
+            if !truncated && handoff.is_none() {
+                let reads: Vec<(String, String, Value)> = calls
+                    .iter()
+                    .filter(|(id, n, i)| {
+                        !sub_results.contains_key(id)
+                            && !matches!(n.as_str(), "agent" | "propose_plan" | "ask_user" | "tasks")
+                            && i.get(INVALID_JSON_KEY).is_none()
+                            && coturbo_tools::tier(n) == coturbo_tools::Tier::Read
+                            && approval::resolve(n, coturbo_tools::Tier::Read, i, &self.config.approval, &self.grants, self.plan_mode) == Verdict::Allow
+                    })
+                    .cloned()
+                    .collect();
+                if reads.len() > 1 {
+                    for (_, name, input) in &reads {
+                        host.on_event(Event::ToolStart { name, input });
+                    }
+                    let (root, tools, hook_list) = (self.tools.root().to_path_buf(), self.tools, &self.config.hooks);
+                    let done = futures_util::future::join_all(reads.iter().map(|(id, name, input)| {
+                        let root = &root;
+                        async move {
+                            if let hooks::Verdict::Block(why) = hooks::before(hook_list, root, name, input).await {
+                                return (id.clone(), ToolOutput::err(format!("blocked by a hook: {why}")));
+                            }
+                            let mut out = tools.call(name, input).await;
+                            let notes = hooks::after(hook_list, root, name, input, &out.content, out.is_error).await;
+                            if !notes.is_empty() {
+                                out.content.push('\n');
+                                out.content.push_str(&notes);
+                            }
+                            (id.clone(), out)
+                        }
+                    }))
+                    .await;
+                    read_results.extend(done);
+                }
+            }
             // Every tool_use gets exactly one result, in one user message.
             let mut results = Vec::with_capacity(calls.len());
             let mut images = Vec::new();
@@ -814,6 +854,8 @@ impl<'a> Agent<'a> {
                 } else if handoff.is_some() {
                     ToolOutput::err("not executed: the plan was already answered in this turn")
                 } else if let Some(out) = sub_results.remove(&id) {
+                    out
+                } else if let Some(out) = read_results.remove(&id) {
                     out
                 } else {
                     host.on_event(Event::ToolStart { name: &name, input: &input });

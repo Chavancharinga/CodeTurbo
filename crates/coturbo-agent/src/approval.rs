@@ -160,6 +160,55 @@ pub fn plan_slug(path: &str) -> Option<String> {
     ok.then(|| slug.to_string())
 }
 
+/// Why a shell command could do damage that is hard to undo, if it could.
+/// These always ask, whatever the approval mode or earlier grants.
+pub fn dangerous(command: &str) -> Option<&'static str> {
+    let c = command.to_lowercase().replace('\t', " ");
+    let words: Vec<&str> = c.split_whitespace().collect();
+    let has = |w: &str| words.contains(&w);
+    let rm_recursive_force = words.windows(2).any(|p| p[0] == "rm" && p[1].starts_with('-') && p[1].contains('r') && p[1].contains('f'))
+        || (has("rm") && (has("-r") || has("-R") || has("--recursive")) && (has("-f") || has("--force")));
+    if rm_recursive_force {
+        let target = words.iter().rev().find(|w| !w.starts_with('-')).copied().unwrap_or("");
+        if matches!(target, "/" | "/*" | "~" | "~/" | "*" | "." | ".." | "c:\\" | "c:/") || target.contains('$') {
+            return Some("recursive forced delete of a whole tree, or of a path from a variable that may be empty");
+        }
+    }
+    let checks: &[(&str, &str)] = &[
+        ("git push --force", "a forced push rewrites the remote's history"),
+        ("git push -f", "a forced push rewrites the remote's history"),
+        ("git reset --hard", "it throws away uncommitted work"),
+        ("git clean -f", "it deletes untracked files for good"),
+        ("git checkout -- .", "it throws away uncommitted changes"),
+        ("git branch -d", "it deletes a branch"),
+        ("format c:", "it formats a disk"),
+        ("dd if=", "it writes raw data to a device"),
+        ("rd /s", "recursive delete"),
+        ("rmdir /s", "recursive delete"),
+        ("del /s", "recursive delete"),
+        ("remove-item -recurse -force", "recursive forced delete"),
+        ("chmod -r 777 /", "it opens every file of the system"),
+        (":(){", "a fork bomb"),
+        ("drop database", "it deletes a database"),
+        ("drop table", "it deletes a table"),
+    ];
+    // Whole words: commands that switch the machine off or wipe a disk.
+    if words.iter().any(|w| matches!(*w, "shutdown" | "shutdown.exe" | "reboot" | "poweroff" | "halt" | "stop-computer" | "restart-computer")) {
+        return Some("it turns off or restarts the computer");
+    }
+    if words.iter().any(|w| w.starts_with("mkfs") || *w == "diskpart") {
+        return Some("it formats or repartitions a disk");
+    }
+    if let Some((_, why)) = checks.iter().find(|(p, _)| c.contains(p)) {
+        return Some(why);
+    }
+    // Running whatever a download says.
+    if (c.contains("curl ") || c.contains("wget ") || c.contains("iwr ") || c.contains("invoke-webrequest")) && (c.contains("| sh") || c.contains("| bash") || c.contains("| iex") || c.contains("|sh") || c.contains("|bash")) {
+        return Some("it runs a script straight from the internet");
+    }
+    None
+}
+
 /// Decides one tool call. In plan mode everything above `Read` is denied
 /// except writing a plan file.
 pub fn resolve(
@@ -178,6 +227,17 @@ pub fn resolve(
             ));
         }
         return Verdict::Allow;
+    }
+    // Hard-to-undo commands ask every time, in any mode, unless the user wrote
+    // an explicit allow rule that matches this very command.
+    if tool == "bash"
+        && let Some(_why) = dangerous(input["command"].as_str().unwrap_or(""))
+    {
+        return match cfg.bash_rule(input["command"].as_str().unwrap_or("")) {
+            Some(Policy::Allow) => Verdict::Allow,
+            Some(Policy::Deny) => Verdict::Deny("bash is denied by the user's approval policy".into()),
+            _ => Verdict::Prompt,
+        };
     }
     let user = if tool == "bash" {
         cfg.bash_rule(input["command"].as_str().unwrap_or("")).or_else(|| cfg.tools.get(tool).copied())
