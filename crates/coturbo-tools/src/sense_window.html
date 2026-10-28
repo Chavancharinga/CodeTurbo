@@ -87,7 +87,7 @@
   <div class="badge mono" id="badge">LEARNING</div>
 </section>
 
-<p class="note">Estimates from WiFi: coarse, not a camera, not a medical measurement. One link shows that something moves near its path, not where; the figure walks near the path. The router distance comes from signal strength.</p>
+<p class="note">Estimates from WiFi: coarse, not a camera, not a medical measurement. This computer's WiFi tells how much moves, not where or in what pose: the figure walks at the measured pace, its place in the room is illustrative. Position and pose need three or more ESP32 nodes around the room. The router moves closer or farther as its signal changes; the distance is not in metres.</p>
 <div class="keys mono"><span>[drag] orbit</span><span>[scroll] zoom</span><span>[space] pause</span><span>[d] demo</span><span>[x] stop</span></div>
 <div class="tag" id="tag-pc">this computer</div><div class="tag" id="tag-rt">router</div><div class="tag" id="tag-me" style="color: var(--green)"></div>
 <div class="toast" id="toast">The link changed: the computer or the router moved</div>
@@ -213,11 +213,20 @@ addEventListener('keydown', e => {
   if (e.key === 'd' || e.key === 'D') { demo = !demo; $('demo').hidden = !demo; }
 });
 
-// The router's distance from signal strength (log-distance path loss): coarse, but it follows the room.
-const distanceFrom = dbm => Math.min(14, Math.max(1.2, Math.pow(10, (-30 - dbm) / 30)));
+// Routers send at different powers, so the level alone cannot give metres.
+// The router starts at a set distance and moves as the level changes from
+// the first one (log-distance path loss): closer when it rises, farther when it falls.
+const START = 5;
+let base = null;
+const distanceFrom = dbm => { base ??= dbm; return Math.min(14, Math.max(1.5, START * Math.pow(10, (base - dbm) / 30))); };
 
-let r = null, t = 0, walk = 0, around = 0, amp = 0, shown = 0, dist = 4, slow = 4, toastUntil = 0;
-const pos = new THREE.Vector3(), tmp = new THREE.Vector3();
+let r = null, t = 0, walk = 0, heading = 0, amp = 0, shown = 0, dist = START, slow = START, toastUntil = 0;
+const pos = new THREE.Vector3(), tmp = new THREE.Vector3(), to = new THREE.Vector3(), goal = new THREE.Vector3(1.5, 0, 1.5);
+// Somewhere else in the room, all around, clear of the desk and the router.
+const pickGoal = () => {
+  do goal.set((Math.random() * 2 - 1) * 6, 0, (Math.random() * 2 - 1) * 4);
+  while (Math.abs(Math.abs(goal.x) - dist / 2) < 1.1 && Math.abs(goal.z) < 1.1);
+};
 const label = (id, v, text) => {
   tmp.copy(v).project(camera);
   const el = $(id);
@@ -259,15 +268,23 @@ const frame = () => {
   });
   led.material.color.setHex((t * 4 | 0) % 3 ? 0x54e08a : 0x1a3a26);
 
-  // The person: walks a loop across the path while there is movement, stands and breathes when still.
+  // The person: wanders the whole room while there is movement, the pace
+  // following the measured motion; stands and breathes when still. Where
+  // they walk is illustrative: one computer's WiFi cannot place anyone.
   shown += ((here ? 1 : 0) - shown) * Math.min(1, dt * 2.5);
-  amp += ((moving ? 1 : 0) - amp) * Math.min(1, dt * 3);
-  const speed = 0.5 + motion * 1.1;
-  if (!paused && !reduce) { around += dt * speed * amp / 1.6; walk += dt * speed * 5.5 * amp; }
-  const rx = Math.min(1.8, dist * 0.3), rz = 1.2;
-  pos.set(Math.cos(around) * rx, 0, Math.sin(around) * rz);
+  amp += ((moving ? Math.min(1, 0.3 + motion * 3) : 0) - amp) * Math.min(1, dt * 3);
+  const speed = 0.4 + amp * 1.0;
+  if (!paused && !reduce && amp > 0.02) {
+    to.copy(goal).sub(pos);
+    if (to.length() < 0.3) pickGoal();
+    else pos.add(to.setLength(Math.min(to.length(), dt * speed * amp)));
+    let turn = Math.atan2(goal.x - pos.x, goal.z - pos.z) - heading;
+    turn = Math.atan2(Math.sin(turn), Math.cos(turn));
+    heading += turn * Math.min(1, dt * 4);
+    walk += dt * speed * 5.5;
+  }
   person.position.copy(pos);
-  person.rotation.y = Math.atan2(-Math.sin(around) * rx, Math.cos(around) * rz);
+  person.rotation.y = heading;
   const sw = Math.sin(walk) * amp;
   hipL.rotation.x = -sw * 0.5; hipR.rotation.x = sw * 0.5;
   kneeL.rotation.x = Math.max(0, Math.sin(walk + 1.4)) * 0.9 * amp;
@@ -301,9 +318,9 @@ const frame = () => {
   renderer.render(scene, camera);
 
   label('tag-pc', tmp.set(-dist / 2, 1.35, 0), s && s.csi ? 'ESP32 node' : 'this computer');
-  label('tag-rt', tmp.set(dist / 2, 1.45, 0), (s && s.csi ? 'transmitter' : 'router') + (s && s.level != null ? ' · ≈ ' + dist.toFixed(1) + ' m' : ''));
+  label('tag-rt', tmp.set(dist / 2, 1.45, 0), (s && s.csi ? 'transmitter' : 'router') + (Math.abs(dist - START) > 0.4 ? (dist < START ? ' · closer than at the start' : ' · farther than at the start') : ''));
   $('tag-me').style.opacity = shown;
-  label('tag-me', tmp.set(pos.x, 2.05, pos.z), moving ? 'movement near the path' : 'someone still');
+  label('tag-me', tmp.set(pos.x, 2.05, pos.z), moving ? 'movement detected · position illustrative' : 'someone still');
   requestAnimationFrame(frame);
 };
 requestAnimationFrame(frame);

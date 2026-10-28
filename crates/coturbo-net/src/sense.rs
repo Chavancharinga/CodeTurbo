@@ -4,9 +4,12 @@
 //! - **CSI from ESP32 nodes** (the RuView / ESP32 CSI firmware frame, UDP
 //!   port 5005): the amplitude of every subcarrier, tens of times a second.
 //!   Enough for movement, presence and, when the person is still, breathing.
-//! - **This machine's own WiFi link** (RSSI from `netsh`, `/proc/net/wireless`
-//!   or Termux): no extra hardware, about once a second. Enough for
-//!   movement near the path between the computer and the router.
+//! - **This machine's own WiFi** (RSSI from the WLAN API or `netsh` on
+//!   Windows, `/proc/net/wireless`, or Termux): no extra hardware. Enough
+//!   for movement near the path between the computer and the router. On
+//!   Windows it also scans every access point in reach: each radio (a
+//!   router's bands, the neighbours') crosses the room by its own path, so
+//!   each is one more sensor.
 //!
 //! Every number is an estimate: WiFi sensing is coarse, not a camera and not
 //! a medical device.
@@ -87,6 +90,118 @@ fn quiet(cmd: &str, args: &[&str]) -> Option<String> {
     }
     let out = c.output().ok()?;
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// The Windows WLAN API: the link's RSSI without starting a process, and
+/// active scans of every access point in reach.
+#[cfg(windows)]
+pub mod wlan {
+    use std::ffi::c_void;
+
+    #[link(name = "wlanapi")]
+    unsafe extern "system" {
+        fn WlanOpenHandle(version: u32, reserved: *mut c_void, negotiated: *mut u32, handle: *mut *mut c_void) -> u32;
+        fn WlanCloseHandle(handle: *mut c_void, reserved: *mut c_void) -> u32;
+        fn WlanEnumInterfaces(handle: *mut c_void, reserved: *mut c_void, list: *mut *mut u8) -> u32;
+        fn WlanQueryInterface(handle: *mut c_void, guid: *const [u8; 16], op: u32, reserved: *mut c_void, size: *mut u32, data: *mut *mut u8, kind: *mut u32) -> u32;
+        fn WlanScan(handle: *mut c_void, guid: *const [u8; 16], ssid: *const c_void, ie: *const c_void, reserved: *mut c_void) -> u32;
+        fn WlanGetNetworkBssList(handle: *mut c_void, guid: *const [u8; 16], ssid: *const c_void, bss_type: u32, secure: i32, reserved: *mut c_void, list: *mut *mut u8) -> u32;
+        fn WlanFreeMemory(memory: *mut c_void);
+    }
+
+    const OPCODE_RSSI: u32 = 0x1000_0102;
+    const BSS_ANY: u32 = 3;
+    /// `WLAN_BSS_ENTRY`: the MAC at 40, `lRssi` at 56.
+    const BSS_ENTRY: usize = 360;
+
+    /// An open handle on the first WiFi interface.
+    pub struct Wlan {
+        handle: *mut c_void,
+        guid: [u8; 16],
+    }
+
+    // SAFETY: the handle is a token for the API, used from one thread at a time.
+    unsafe impl Send for Wlan {}
+
+    impl Wlan {
+        pub fn open() -> Option<Self> {
+            let (mut negotiated, mut handle) = (0u32, std::ptr::null_mut());
+            // SAFETY: out-pointers to locals.
+            if unsafe { WlanOpenHandle(2, std::ptr::null_mut(), &mut negotiated, &mut handle) } != 0 {
+                return None;
+            }
+            let mut list = std::ptr::null_mut();
+            // SAFETY: `WLAN_INTERFACE_INFO_LIST` holds the count at 0 and the
+            // first interface's GUID at 8; the list is freed after reading.
+            let guid = unsafe {
+                if WlanEnumInterfaces(handle, std::ptr::null_mut(), &mut list) != 0 || list.is_null() {
+                    None
+                } else {
+                    let n = list.cast::<u32>().read_unaligned();
+                    let guid = (n > 0).then(|| list.add(8).cast::<[u8; 16]>().read_unaligned());
+                    WlanFreeMemory(list.cast());
+                    guid
+                }
+            };
+            match guid {
+                Some(guid) => Some(Self { handle, guid }),
+                None => {
+                    // SAFETY: the handle opened above.
+                    unsafe { WlanCloseHandle(handle, std::ptr::null_mut()) };
+                    None
+                }
+            }
+        }
+
+        /// The connected link's RSSI in dBm, if connected.
+        pub fn rssi(&self) -> Option<f64> {
+            let (mut size, mut data, mut kind) = (0u32, std::ptr::null_mut(), 0u32);
+            // SAFETY: the API allocates `data` (a LONG), freed after reading.
+            unsafe {
+                if WlanQueryInterface(self.handle, &self.guid, OPCODE_RSSI, std::ptr::null_mut(), &mut size, &mut data, &mut kind) != 0 || data.is_null() {
+                    return None;
+                }
+                let v = data.cast::<i32>().read_unaligned();
+                WlanFreeMemory(data.cast());
+                (v < 0).then_some(f64::from(v))
+            }
+        }
+
+        /// Asks the card for a fresh scan; the results land a few seconds later.
+        pub fn scan(&self) {
+            // SAFETY: a null SSID and IE ask for a scan of everything.
+            unsafe { WlanScan(self.handle, &self.guid, std::ptr::null(), std::ptr::null(), std::ptr::null_mut()) };
+        }
+
+        /// Every access point of the last scan: MAC and dBm.
+        pub fn access_points(&self) -> Vec<([u8; 6], f64)> {
+            let mut list = std::ptr::null_mut();
+            // SAFETY: `WLAN_BSS_LIST` holds the count at 4 and entries of
+            // `BSS_ENTRY` bytes from 8; the list is freed after reading.
+            unsafe {
+                if WlanGetNetworkBssList(self.handle, &self.guid, std::ptr::null(), BSS_ANY, 0, std::ptr::null_mut(), &mut list) != 0 || list.is_null() {
+                    return Vec::new();
+                }
+                let n = list.add(4).cast::<u32>().read_unaligned() as usize;
+                let out = (0..n)
+                    .map(|i| {
+                        let e = list.add(8 + i * BSS_ENTRY);
+                        (e.add(40).cast::<[u8; 6]>().read_unaligned(), f64::from(e.add(56).cast::<i32>().read_unaligned()))
+                    })
+                    .filter(|(_, dbm)| *dbm < 0.0)
+                    .collect();
+                WlanFreeMemory(list.cast());
+                out
+            }
+        }
+    }
+
+    impl Drop for Wlan {
+        fn drop(&mut self) {
+            // SAFETY: the handle opened in `open`.
+            unsafe { WlanCloseHandle(self.handle, std::ptr::null_mut()) };
+        }
+    }
 }
 
 /// This machine's WiFi signal now, in dBm, if it is on WiFi.
@@ -180,6 +295,8 @@ struct Sample {
 #[derive(Debug, Default)]
 pub struct Analyzer {
     rssi: VecDeque<Sample>,
+    /// Every access point heard in the scans: its MAC and `(time, dBm)`.
+    aps: std::collections::BTreeMap<[u8; 6], VecDeque<(f64, f64)>>,
     csi: VecDeque<Sample>,
     nodes: std::collections::BTreeSet<u8>,
     /// The quietest motion seen: the empty room.
@@ -251,6 +368,24 @@ impl Analyzer {
         }
     }
 
+    /// One scan: each access point heard and its level.
+    pub fn push_scan(&mut self, t: f64, heard: &[([u8; 6], f64)]) {
+        for (mac, dbm) in heard {
+            self.aps.entry(*mac).or_default().push_back((t, *dbm));
+        }
+        for v in self.aps.values_mut() {
+            while v.front().is_some_and(|s| t - s.0 > KEEP) {
+                v.pop_front();
+            }
+        }
+        self.aps.retain(|_, v| !v.is_empty());
+    }
+
+    /// Access points heard in the last half minute.
+    fn heard(&self, now: f64) -> usize {
+        self.aps.values().filter(|v| v.back().is_some_and(|s| now - s.0 <= 30.0)).count()
+    }
+
     pub fn push_csi(&mut self, t: f64, f: &CsiFrame) {
         self.nodes.insert(f.node);
         let mean = f.amps.iter().map(|a| f64::from(*a)).sum::<f64>() / f.amps.len() as f64;
@@ -284,7 +419,23 @@ impl Analyzer {
             Some(per / n as f64)
         } else {
             let w: Vec<f64> = self.rssi.iter().filter(|s| now - s.t <= 6.0).map(|s| s.value).collect();
-            (w.len() >= 3).then(|| std_dev(w.iter().copied()))
+            let link = (w.len() >= 3).then(|| std_dev(w.iter().copied()));
+            // The scans: each access point's spread over its last few scans,
+            // averaged over the half that moved most (the paths a person crosses).
+            let mut per: Vec<f64> = self
+                .aps
+                .values()
+                .map(|v| v.iter().filter(|s| now - s.0 <= 15.0).map(|s| s.1).collect::<Vec<_>>())
+                .filter(|v| v.len() >= 3)
+                .map(|v| std_dev(v.into_iter()))
+                .collect();
+            per.sort_by(|a, b| b.total_cmp(a));
+            let half = per.len().div_ceil(2);
+            let scans = (half > 0).then(|| per[..half].iter().sum::<f64>() / half as f64);
+            match (link, scans) {
+                (Some(a), Some(b)) => Some(a.max(b)),
+                (a, b) => a.or(b),
+            }
         }
     }
 
@@ -298,7 +449,12 @@ impl Analyzer {
         let rate = if span > 0.0 { (series.len() - 1) as f64 / span } else { 0.0 };
         let signal_history: Vec<f64> = series.iter().map(|s| s.value).collect();
         let level = if csi { None } else { self.rssi.back().map(|s| s.value) };
-        let source = if csi { format!("ESP32 CSI ({} node{})", self.nodes.len(), if self.nodes.len() == 1 { "" } else { "s" }) } else { "this computer's WiFi".to_string() };
+        let source = match (csi, self.heard(now)) {
+            (true, _) => format!("ESP32 CSI ({} node{})", self.nodes.len(), if self.nodes.len() == 1 { "" } else { "s" }),
+            (false, 0) => "this computer's WiFi".to_string(),
+            (false, 1) => "this computer's WiFi + 1 access point".to_string(),
+            (false, n) => format!("this computer's WiFi + {n} access points"),
+        };
 
         let raw = self.raw_motion(now, csi);
         // The floor rises slowly (a room changes) and drops at once to a quieter reading.
@@ -368,6 +524,8 @@ pub async fn run(seconds: Option<f64>, on: &(dyn Fn(Event) + Send + Sync)) -> Re
     on(Event::Start);
     let started = Instant::now();
     let an = std::sync::Arc::new(std::sync::Mutex::new(Analyzer::default()));
+    let native = native_wifi(an.clone(), started);
+    let native_on = native.is_some();
     let udp = tokio::net::UdpSocket::bind(("0.0.0.0", CSI_PORT)).await.ok();
     let listen = {
         let an = an.clone();
@@ -397,7 +555,7 @@ pub async fn run(seconds: Option<f64>, on: &(dyn Fn(Event) + Send + Sync)) -> Re
                     return last;
                 }
                 // The computer's WiFi about twice a second.
-                if wifi && tick.is_multiple_of(2) {
+                if wifi && !native_on && tick.is_multiple_of(2) {
                     match tokio::task::spawn_blocking(host_rssi).await.ok().flatten() {
                         Some(v) => {
                             if let Ok(mut a) = an.lock() {
@@ -421,8 +579,45 @@ pub async fn run(seconds: Option<f64>, on: &(dyn Fn(Event) + Send + Sync)) -> Re
         }
     };
     let (_, last) = tokio::join!(listen, sample);
+    if let Some(t) = native {
+        let _ = tokio::task::spawn_blocking(move || t.join()).await;
+    }
     on(Event::End);
     Ok(last)
+}
+
+/// Windows: the WLAN API reads the link ten times a second and scans every
+/// access point every two seconds, on a thread of its own until the run stops.
+#[cfg(windows)]
+fn native_wifi(an: std::sync::Arc<std::sync::Mutex<Analyzer>>, started: Instant) -> Option<std::thread::JoinHandle<()>> {
+    let w = wlan::Wlan::open()?;
+    w.rssi()?;
+    Some(std::thread::spawn(move || {
+        w.scan();
+        let mut last_scan = Instant::now();
+        while !STOP.load(Ordering::SeqCst) {
+            let t = started.elapsed().as_secs_f64();
+            if let Some(v) = w.rssi()
+                && let Ok(mut a) = an.lock()
+            {
+                a.push_rssi(t, v);
+            }
+            if last_scan.elapsed() >= Duration::from_secs(2) {
+                let heard = w.access_points();
+                if let Ok(mut a) = an.lock() {
+                    a.push_scan(t, &heard);
+                }
+                w.scan();
+                last_scan = Instant::now();
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }))
+}
+
+#[cfg(not(windows))]
+fn native_wifi(_: std::sync::Arc<std::sync::Mutex<Analyzer>>, _: Instant) -> Option<std::thread::JoinHandle<()>> {
+    None
 }
 
 #[cfg(test)]
@@ -452,6 +647,36 @@ mod tests {
         assert_eq!(parse_netsh("    Sinal                  : 80%\n"), Some(-60.0));
         let proc = "Inter-| sta-|   Quality        |   Discarded packets\n face | tus | link level noise |  nwid  crypt\n wlan0: 0000   54.  -56.  -256        0      0\n";
         assert_eq!(parse_proc_wireless(proc), Some(-56.0));
+    }
+
+    #[test]
+    fn scans_of_every_access_point_show_movement_a_steady_link_hides() {
+        let mut a = Analyzer::default();
+        let (router, band, neighbour) = ([1; 6], [2; 6], [3; 6]);
+        // A quiet room: the link and the scans hold still.
+        for i in 0..40 {
+            let t = f64::from(i) * 0.5;
+            a.push_rssi(t, -43.0);
+            if i % 4 == 0 {
+                a.push_scan(t, &[(router, -45.0), (band, -57.0), (neighbour, -95.0)]);
+            }
+            a.reading(t, t);
+        }
+        let quiet = a.reading(20.0, 20.0);
+        assert_eq!(quiet.presence, Presence::Empty);
+        assert_eq!(quiet.source, "this computer's WiFi + 3 access points");
+        // Someone walks: the link the driver smooths stays at -43, the scans swing.
+        let mut moving = quiet;
+        for i in 40..60 {
+            let t = f64::from(i) * 0.5;
+            a.push_rssi(t, -43.0);
+            if i % 4 == 0 {
+                let swing = if i % 8 == 0 { 3.0 } else { -2.0 };
+                a.push_scan(t, &[(router, -45.0 + swing), (band, -57.0 - swing), (neighbour, -95.0)]);
+            }
+            moving = a.reading(t, t);
+        }
+        assert_eq!(moving.presence, Presence::Moving, "{moving:?}");
     }
 
     #[test]
