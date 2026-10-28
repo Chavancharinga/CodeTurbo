@@ -1584,6 +1584,7 @@ fn wifi_sensing_takes_the_whole_screen_and_x_closes_it() {
         breathing: None,
         motion_history: vec![0.1, 0.4, 0.62],
         signal_history: vec![-45.0, -51.0, -44.0],
+        fingerprint: Vec::new(),
     })));
     let screen = screen_rows(&mut h, 100, 30).join("\n");
     for want in ["WiFi sensing", "SOMEONE IS MOVING", "motion 62%", "-45 dBm (range 7 dB)", "needs an ESP32", "x to close"] {

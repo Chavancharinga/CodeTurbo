@@ -257,6 +257,9 @@ pub struct Reading {
     pub motion_history: Vec<f64>,
     /// The signal over the last minute (dBm or mean amplitude).
     pub signal_history: Vec<f64>,
+    /// The level of each path heard lately, by name (`link` or an access
+    /// point's MAC): where a person stands changes it, so a room map can match it.
+    pub fingerprint: Vec<(String, f64)>,
 }
 
 impl Reading {
@@ -386,6 +389,18 @@ impl Analyzer {
         self.aps.values().filter(|v| v.back().is_some_and(|s| now - s.0 <= 30.0)).count()
     }
 
+    /// Each path's mean level over the last few seconds: the link over 2 s,
+    /// each access point over its last scans (5 s).
+    fn fingerprint(&self, now: f64) -> Vec<(String, f64)> {
+        let mean = |v: Vec<f64>| (!v.is_empty()).then(|| v.iter().sum::<f64>() / v.len() as f64);
+        let link = mean(self.rssi.iter().filter(|s| now - s.t <= 2.0).map(|s| s.value).collect());
+        let aps = self.aps.iter().filter_map(|(mac, v)| {
+            let m = mean(v.iter().filter(|s| now - s.0 <= 5.0).map(|s| s.1).collect())?;
+            Some((mac.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(":"), m))
+        });
+        link.map(|l| ("link".to_string(), l)).into_iter().chain(aps).collect()
+    }
+
     pub fn push_csi(&mut self, t: f64, f: &CsiFrame) {
         self.nodes.insert(f.node);
         let mean = f.amps.iter().map(|a| f64::from(*a)).sum::<f64>() / f.amps.len() as f64;
@@ -418,14 +433,14 @@ impl Analyzer {
                 .sum::<f64>();
             Some(per / n as f64)
         } else {
-            let w: Vec<f64> = self.rssi.iter().filter(|s| now - s.t <= 6.0).map(|s| s.value).collect();
+            let w: Vec<f64> = self.rssi.iter().filter(|s| now - s.t <= 3.0).map(|s| s.value).collect();
             let link = (w.len() >= 3).then(|| std_dev(w.iter().copied()));
             // The scans: each access point's spread over its last few scans,
             // averaged over the half that moved most (the paths a person crosses).
             let mut per: Vec<f64> = self
                 .aps
                 .values()
-                .map(|v| v.iter().filter(|s| now - s.0 <= 15.0).map(|s| s.1).collect::<Vec<_>>())
+                .map(|v| v.iter().filter(|s| now - s.0 <= 8.0).map(|s| s.1).collect::<Vec<_>>())
                 .filter(|v| v.len() >= 3)
                 .map(|v| std_dev(v.into_iter()))
                 .collect();
@@ -504,6 +519,7 @@ impl Analyzer {
             breathing: breath,
             motion_history: self.motions.iter().map(|m| m.1).collect(),
             signal_history,
+            fingerprint: if csi { Vec::new() } else { self.fingerprint(now) },
         }
     }
 }
@@ -545,7 +561,7 @@ pub async fn run(seconds: Option<f64>, on: &(dyn Fn(Event) + Send + Sync)) -> Re
     let sample = {
         let an = an.clone();
         async move {
-            let mut last = Reading { source: String::new(), csi: false, rate_hz: 0.0, seconds: 0.0, level: None, motion: 0.0, presence: Presence::Learning, breathing: None, motion_history: Vec::new(), signal_history: Vec::new() };
+            let mut last = Reading { source: String::new(), csi: false, rate_hz: 0.0, seconds: 0.0, level: None, motion: 0.0, presence: Presence::Learning, breathing: None, motion_history: Vec::new(), signal_history: Vec::new(), fingerprint: Vec::new() };
             let mut tick = 0u32;
             let mut wifi = true;
             loop {
@@ -665,6 +681,8 @@ mod tests {
         let quiet = a.reading(20.0, 20.0);
         assert_eq!(quiet.presence, Presence::Empty);
         assert_eq!(quiet.source, "this computer's WiFi + 3 access points");
+        assert_eq!(quiet.fingerprint[0], ("link".to_string(), -43.0));
+        assert!(quiet.fingerprint.contains(&("02:02:02:02:02:02".to_string(), -57.0)));
         // Someone walks: the link the driver smooths stays at -43, the scans swing.
         let mut moving = quiet;
         for i in 40..60 {

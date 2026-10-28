@@ -47,6 +47,10 @@
   .note { position: fixed; bottom: 20px; left: 28px; max-width: 460px; color: var(--dim); font-size: 11px; margin: 0; }
   .tag { position: fixed; transform: translate(-50%, -100%); font-size: 12px; font-weight: 600; color: #b3c2dc; pointer-events: none; white-space: nowrap; text-shadow: 0 1px 3px #000; }
   .toast { position: fixed; top: 76px; left: 50%; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--amber); color: var(--amber); border-radius: 8px; padding: 6px 14px; font-size: 13px; display: none; }
+  .mapbar { position: fixed; top: 76px; left: 50%; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--green); border-radius: 10px; padding: 10px 14px; display: none; gap: 12px; align-items: center; max-width: min(720px, calc(100vw - 32px)); }
+  .mapbar p { margin: 0; font-size: 13px; }
+  .mapbar b { color: var(--green); }
+  #mapbtn.on { border-color: var(--green); color: var(--green); }
   .ended { position: fixed; inset: 0; display: none; place-items: center; background: rgba(5, 8, 13, 0.72); font-size: 18px; }
   @media (max-width: 900px) { #vitals, #signal { top: auto; bottom: 60px; transform: none; width: 46%; } #vitals { left: 12px; } #signal { right: 12px; } .keys, .note { display: none; } }
   @media (prefers-reduced-motion: reduce) { .bar > span { transition: none; } }
@@ -55,7 +59,8 @@
 <body>
 <canvas id="scene" aria-label="3D view of the room as the WiFi sees it"></canvas>
 <header><h1><b>~</b> CodeTurbo</h1><p class="mono">WIFI SENSING OBSERVATORY</p></header>
-<div class="top"><span class="chip mono" id="live"><i></i>LIVE</span><span class="chip mono" id="demo" hidden style="color: var(--amber); border-color: var(--amber)">DEMO: simulated</span><span class="chip" id="src">listening</span><button id="stop" type="button">Stop</button></div>
+<div class="top"><span class="chip mono" id="live"><i></i>LIVE</span><span class="chip mono" id="demo" hidden style="color: var(--amber); border-color: var(--amber)">DEMO: simulated</span><span class="chip" id="src">listening</span><button id="mapbtn" type="button">Map the room</button><button id="stop" type="button">Stop</button></div>
+<div class="mapbar" id="mapbar"><p id="maptext"></p><button id="mapclear" type="button">Clear map</button><button id="mapdone" type="button">Done</button></div>
 
 <section class="panel" id="vitals" aria-live="polite">
   <h2 class="mono">VITAL SIGNS</h2>
@@ -87,8 +92,8 @@
   <div class="badge mono" id="badge">LEARNING</div>
 </section>
 
-<p class="note">Estimates from WiFi: coarse, not a camera, not a medical measurement. This computer's WiFi tells how much moves, not where or in what pose: the figure walks at the measured pace, its place in the room is illustrative. Position and pose need three or more ESP32 nodes around the room. The router moves closer or farther as its signal changes; the distance is not in metres.</p>
-<div class="keys mono"><span>[drag] orbit</span><span>[scroll] zoom</span><span>[space] pause</span><span>[d] demo</span><span>[x] stop</span></div>
+<p class="note">Estimates from WiFi: coarse, not a camera, not a medical measurement. This computer's WiFi tells how much moves; where you stand only shows once the room is mapped: stand still at a few spots and the figure goes to the spot whose signal matches best (a few metres off, seconds late). The pose is drawn, not measured: that needs three or more ESP32 nodes. The router moves closer or farther as its signal changes; the distance is not in metres.</p>
+<div class="keys mono"><span>[drag] orbit</span><span>[scroll] zoom</span><span>[m] map</span><span>[space] pause</span><span>[d] demo</span><span>[x] stop</span></div>
 <div class="tag" id="tag-pc">this computer</div><div class="tag" id="tag-rt">router</div><div class="tag" id="tag-me" style="color: var(--green)"></div>
 <div class="toast" id="toast">The link changed: the computer or the router moved</div>
 <div class="ended" id="ended">Measurement finished. You can close this window.</div>
@@ -199,8 +204,12 @@ const setOpacity = o => { skin.opacity = o; skin.depthWrite = o > 0.98; person.v
 
 // Orbit: drag to turn, scroll to zoom.
 let yaw = -0.45, pitch = 0.42, zoom = 1, drag = false, lx = 0, ly = 0, idle = 0, paused = false, demo = false;
-cv.addEventListener('pointerdown', e => { drag = true; lx = e.clientX; ly = e.clientY; cv.setPointerCapture(e.pointerId); });
-cv.addEventListener('pointerup', () => { drag = false; idle = 0; });
+let downX = 0, downY = 0;
+cv.addEventListener('pointerdown', e => { drag = true; lx = downX = e.clientX; ly = downY = e.clientY; cv.setPointerCapture(e.pointerId); });
+cv.addEventListener('pointerup', e => {
+  drag = false; idle = 0;
+  if (mapping && Math.hypot(e.clientX - downX, e.clientY - downY) < 6) pickSpot(e.clientX, e.clientY);
+});
 cv.addEventListener('pointermove', e => {
   if (!drag) return;
   yaw -= (e.clientX - lx) * 0.006; pitch = Math.min(1.35, Math.max(0.08, pitch + (e.clientY - ly) * 0.005));
@@ -211,6 +220,7 @@ addEventListener('keydown', e => {
   if (e.code === 'Space') { paused = !paused; e.preventDefault(); }
   if (e.key === 'x' || e.key === 'X') stop();
   if (e.key === 'd' || e.key === 'D') { demo = !demo; $('demo').hidden = !demo; }
+  if (e.key === 'm' || e.key === 'M') setMapping(!mapping);
 });
 
 // Routers send at different powers, so the level alone cannot give metres.
@@ -242,6 +252,67 @@ const sample = () => {
   return { motion: m, presence: Math.sin(t * 0.15) > -0.6 ? 'moving' : 'still', level: -46 + 3 * Math.sin(t * 0.07), breathing: [15, 0.8], csi: false };
 };
 
+// The room map: spots the user stood still at and each path's level there.
+// Live, the figure goes to the spots whose levels match the current ones best
+// (the nearest three, weighted): a body in the room bends and blocks the
+// paths differently at each spot. Coarse: a few metres, and seconds behind.
+let map = { points: [] }, mapping = false, capture = null, found = null;
+const SECONDS = 8, now = () => performance.now() / 1000;
+const fixed = new THREE.Vector3();
+const markers = new THREE.Group(); scene.add(markers);
+const ringGeo = new THREE.RingGeometry(0.22, 0.3, 32);
+const ring = (x, z, color) => {
+  const m = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.8, side: THREE.DoubleSide }));
+  m.rotation.x = -Math.PI / 2; m.position.set(x, 0.04, z); markers.add(m);
+};
+const drawMarkers = () => { markers.clear(); for (const p of map.points) ring(p.x, p.z, 0x54e08a); };
+const saveMap = () => fetch('/map', { method: 'POST', body: JSON.stringify(map) }).catch(() => {});
+fetch('/map').then(x => x.json()).then(j => { if (Array.isArray(j.points)) { map = j; drawMarkers(); } }).catch(() => {});
+const mapText = () => {
+  const n = map.points.length;
+  $('maptext').innerHTML = capture
+    ? 'Stand still on the <b>yellow ring</b> for <b>' + Math.max(0, Math.ceil(capture.until - now())) + ' s</b>…'
+    : 'Click the floor where you will stand, then stand still there for ' + SECONDS + ' s. Map <b>3 or more</b> spots across the room: the desk, the router, the middle, the corners. <b>' + n + '</b> mapped.';
+};
+const setMapping = on => { mapping = on; $('mapbar').style.display = on ? 'flex' : 'none'; $('mapbtn').classList.toggle('on', on); mapText(); };
+const ray = new THREE.Raycaster(), floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const pickSpot = (cx, cy) => {
+  if (capture) return;
+  ray.setFromCamera(new THREE.Vector2(cx / innerWidth * 2 - 1, -(cy / innerHeight) * 2 + 1), camera);
+  const at = new THREE.Vector3();
+  if (!ray.ray.intersectPlane(floorPlane, at)) return;
+  capture = { x: at.x, z: at.z, until: now() + SECONDS, sums: {}, counts: {} };
+  ring(at.x, at.z, 0xf0c850);
+  mapText();
+};
+// Each reading during a capture adds to the spot's average.
+const gather = fp => {
+  if (!capture || !fp) return;
+  for (const [k, v] of Object.entries(fp)) { capture.sums[k] = (capture.sums[k] || 0) + v; capture.counts[k] = (capture.counts[k] || 0) + 1; }
+};
+const finishCapture = () => {
+  const fp = {};
+  for (const k in capture.sums) if (capture.counts[k] >= 2) fp[k] = capture.sums[k] / capture.counts[k];
+  if (Object.keys(fp).length) map.points.push({ x: capture.x, z: capture.z, fp, dist });
+  capture = null; drawMarkers(); saveMap(); mapText();
+};
+// Where the current levels say the person is, and how far (dB) the best match is.
+const locate = fp => {
+  if (!fp || map.points.length < 2) return null;
+  const scored = map.points.map(p => {
+    const keys = Object.keys(p.fp).filter(k => k in fp);
+    if (keys.length < 2) return null;
+    return { p, d: Math.sqrt(keys.reduce((a, k) => a + (fp[k] - p.fp[k]) ** 2, 0) / keys.length) };
+  }).filter(Boolean).sort((a, b) => a.d - b.d).slice(0, 3);
+  if (!scored.length) return null;
+  let x = 0, z = 0, w = 0;
+  for (const { p, d } of scored) { const k = 1 / (d * d + 0.5); x += p.x * k; z += p.z * k; w += k; }
+  return { x: x / w, z: z / w, d: scored[0].d };
+};
+$('mapbtn').addEventListener('click', () => setMapping(!mapping));
+$('mapdone').addEventListener('click', () => setMapping(false));
+$('mapclear').addEventListener('click', () => { map = { points: [] }; capture = null; found = null; drawMarkers(); saveMap(); mapText(); });
+
 const clock = new THREE.Clock();
 const frame = () => {
   const dt = Math.min(0.1, clock.getDelta());
@@ -250,7 +321,10 @@ const frame = () => {
   const here = pres === 'moving' || pres === 'still', moving = pres === 'moving';
 
   // Where the computer and router stand, from the measured level.
-  if (s && s.level != null) {
+  // While mapped, the router stays where it stood when the spots were taken.
+  const mapped = map.points.length >= 2 && !demo;
+  if (mapped) dist += ((map.points[0].dist || START) - dist) * Math.min(1, dt * 2);
+  else if (s && s.level != null) {
     const target = distanceFrom(s.level);
     dist += (target - dist) * Math.min(1, dt * 1.5);
     slow += (target - slow) * Math.min(1, dt * 0.12);
@@ -271,10 +345,24 @@ const frame = () => {
   // The person: wanders the whole room while there is movement, the pace
   // following the measured motion; stands and breathes when still. Where
   // they walk is illustrative: one computer's WiFi cannot place anyone.
-  shown += ((here ? 1 : 0) - shown) * Math.min(1, dt * 2.5);
-  amp += ((moving ? Math.min(1, 0.3 + motion * 3) : 0) - amp) * Math.min(1, dt * 3);
+  // With a room map it heads for the matched spot instead, walking while it
+  // has ground to cover; on the ring while a spot is being mapped.
+  shown += ((here || capture || (mapped && found) ? 1 : 0) - shown) * Math.min(1, dt * 2.5);
+  const target = capture ? fixed.set(capture.x, 0, capture.z) : mapped && found ? fixed.set(found.x, 0, found.z) : null;
+  if (target) {
+    to.copy(target).sub(pos);
+    const left = to.length(), going = left > 0.25;
+    amp += ((going ? Math.min(1, 0.4 + left * 0.4) : Math.min(0.25, motion)) - amp) * Math.min(1, dt * 3);
+    if (!paused && going) {
+      pos.add(to.setLength(Math.min(left, dt * 1.4)));
+      let turn = Math.atan2(target.x - pos.x, target.z - pos.z) - heading;
+      turn = Math.atan2(Math.sin(turn), Math.cos(turn));
+      heading += turn * Math.min(1, dt * 5);
+    }
+    if (!paused) walk += dt * (0.4 + amp) * 5.5;
+  } else amp += ((moving ? Math.min(1, 0.3 + motion * 3) : 0) - amp) * Math.min(1, dt * 3);
   const speed = 0.4 + amp * 1.0;
-  if (!paused && !reduce && amp > 0.02) {
+  if (!target && !paused && !reduce && amp > 0.02) {
     to.copy(goal).sub(pos);
     if (to.length() < 0.3) pickGoal();
     else pos.add(to.setLength(Math.min(to.length(), dt * speed * amp)));
@@ -320,7 +408,7 @@ const frame = () => {
   label('tag-pc', tmp.set(-dist / 2, 1.35, 0), s && s.csi ? 'ESP32 node' : 'this computer');
   label('tag-rt', tmp.set(dist / 2, 1.45, 0), (s && s.csi ? 'transmitter' : 'router') + (Math.abs(dist - START) > 0.4 ? (dist < START ? ' · closer than at the start' : ' · farther than at the start') : ''));
   $('tag-me').style.opacity = shown;
-  label('tag-me', tmp.set(pos.x, 2.05, pos.z), moving ? 'movement detected · position illustrative' : 'someone still');
+  label('tag-me', tmp.set(pos.x, 2.05, pos.z), capture ? 'mapping this spot' : mapped && found ? 'you, by the room map · best match ' + found.d.toFixed(1) + ' dB off' : moving ? 'movement detected · place illustrative (map the room)' : 'someone still');
   requestAnimationFrame(frame);
 };
 requestAnimationFrame(frame);
@@ -342,6 +430,10 @@ const end = () => { done = true; $('ended').style.display = 'grid'; $('live').cl
 const stop = () => { fetch('/stop').catch(() => {}); end(); };
 const show = j => {
   r = j;
+  gather(r.fingerprint);
+  if (capture && now() >= capture.until) finishCapture();
+  else if (capture) mapText();
+  found = locate(r.fingerprint) ?? found;
   const pct = Math.round(r.motion * 100);
   $('motion').textContent = pct; $('motionbar').style.width = Math.min(100, pct) + '%';
   $('mot').textContent = r.motion.toFixed(3);

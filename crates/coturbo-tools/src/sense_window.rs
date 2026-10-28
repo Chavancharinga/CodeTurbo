@@ -13,12 +13,18 @@ const PAGE: &str = include_str!("sense_window.html");
 /// three.js 0.160.0 (MIT), served with the page so the window works offline.
 const THREE: &str = include_str!("three.module.min.js");
 
-#[derive(Default)]
 struct State {
     reading: Option<serde_json::Value>,
     ended: bool,
     /// When the page last asked for a reading.
     polled: Option<Instant>,
+    map_file: std::path::PathBuf,
+}
+
+impl State {
+    fn new(map_file: std::path::PathBuf) -> Self {
+        State { reading: None, ended: false, polled: None, map_file }
+    }
 }
 
 fn reading_json(r: &Reading) -> serde_json::Value {
@@ -33,16 +39,52 @@ fn reading_json(r: &Reading) -> serde_json::Value {
         "breathing": r.breathing.map(|(bpm, c)| [bpm, c]),
         "motion_history": r.motion_history,
         "signal_history": r.signal_history,
+        "fingerprint": r.fingerprint.iter().map(|(k, v)| (k.clone(), json!(v))).collect::<serde_json::Map<_, _>>(),
     })
+}
+
+/// Where the room map lives: the spots the user stood at and what the WiFi
+/// heard there, kept between runs.
+fn map_file() -> std::path::PathBuf {
+    let base = if cfg!(windows) {
+        std::env::var_os("APPDATA").map(std::path::PathBuf::from)
+    } else {
+        std::env::var_os("XDG_CONFIG_HOME").map(std::path::PathBuf::from).or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".config")))
+    };
+    base.unwrap_or_else(std::env::temp_dir).join("codeturbo").join("sense-map.json")
+}
+
+/// The whole request, the body read up to its Content-Length (64 KiB at most).
+async fn request(sock: &mut tokio::net::TcpStream) -> Option<(String, String)> {
+    let mut buf = Vec::new();
+    let mut chunk = [0u8; 4096];
+    loop {
+        let n = tokio::time::timeout(Duration::from_secs(2), sock.read(&mut chunk)).await.ok()?.ok()?;
+        buf.extend_from_slice(&chunk[..n]);
+        let text = String::from_utf8_lossy(&buf).into_owned();
+        if let Some(end) = text.find("\r\n\r\n") {
+            let len = text[..end].lines().find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").and_then(|v| v.trim().parse::<usize>().ok())).unwrap_or(0);
+            if buf.len() >= end + 4 + len || n == 0 || buf.len() > 65536 {
+                return Some((text[..end].to_string(), text[end + 4..].to_string()));
+            }
+        } else if n == 0 || buf.len() > 65536 {
+            return None;
+        }
+    }
 }
 
 /// Answers one request: the page, the latest reading, or a stop.
 async fn answer(mut sock: tokio::net::TcpStream, state: Arc<Mutex<State>>) {
-    let mut buf = [0u8; 2048];
-    let Ok(Ok(n)) = tokio::time::timeout(Duration::from_secs(2), sock.read(&mut buf)).await else { return };
-    let head = String::from_utf8_lossy(&buf[..n]);
-    let path = head.split_whitespace().nth(1).unwrap_or("/");
+    let Some((head, sent)) = request(&mut sock).await else { return };
+    let mut words = head.split_whitespace();
+    let (method, path) = (words.next().unwrap_or("GET"), words.next().unwrap_or("/"));
+    let map = state.lock().map(|s| s.map_file.clone()).unwrap_or_else(|_| map_file());
     let (kind, body) = match path {
+        "/map" if method == "POST" => {
+            let ok = serde_json::from_str::<serde_json::Value>(&sent).is_ok() && map.parent().is_some_and(|d| std::fs::create_dir_all(d).is_ok()) && std::fs::write(&map, &sent).is_ok();
+            ("application/json", json!({ "saved": ok }).to_string())
+        }
+        "/map" => ("application/json", std::fs::read_to_string(&map).ok().filter(|t| serde_json::from_str::<serde_json::Value>(t).is_ok()).unwrap_or_else(|| "{\"points\":[]}".to_string())),
         "/" => ("text/html; charset=utf-8", PAGE.to_string()),
         "/three.module.js" => ("text/javascript; charset=utf-8", THREE.to_string()),
         "/reading" => {
@@ -104,7 +146,7 @@ pub async fn run(seconds: Option<f64>, on: &(dyn Fn(Event) + Send + Sync)) -> Re
     if !desktop() {
         return sense::run(seconds, on).await;
     }
-    let state = Arc::new(Mutex::new(State::default()));
+    let state = Arc::new(Mutex::new(State::new(map_file())));
     let Ok((port, server)) = serve(state.clone()).await else { return sense::run(seconds, on).await };
     let mut child = launch(port);
     let watch = {
@@ -163,21 +205,35 @@ mod tests {
 
     #[tokio::test]
     async fn the_window_gets_the_page_and_the_latest_reading() {
-        let state = Arc::new(Mutex::new(State::default()));
+        let map = std::env::temp_dir().join(format!("codeturbo-sense-map-{}.json", std::process::id()));
+        let _ = std::fs::remove_file(&map);
+        let state = Arc::new(Mutex::new(State::new(map.clone())));
         let (port, server) = serve(state.clone()).await.unwrap();
         let page = get(port, "/").await;
         assert!(page.starts_with("HTTP/1.1 200") && page.contains("<canvas id=\"scene\""));
         assert!(get(port, "/reading").await.ends_with("{\"ended\":false,\"reading\":null}"));
 
-        let r = Reading { source: "this computer's WiFi".into(), csi: false, rate_hz: 2.0, seconds: 9.0, level: Some(-45.0), motion: 0.4, presence: sense::Presence::Moving, breathing: None, motion_history: vec![0.1, 0.4], signal_history: vec![-45.0, -47.0] };
+        let r = Reading { source: "this computer's WiFi".into(), csi: false, rate_hz: 2.0, seconds: 9.0, level: Some(-45.0), motion: 0.4, presence: sense::Presence::Moving, breathing: None, motion_history: vec![0.1, 0.4], signal_history: vec![-45.0, -47.0], fingerprint: vec![("link".into(), -45.0), ("02:02:02:02:02:02".into(), -57.0)] };
         state.lock().unwrap().reading = Some(reading_json(&r));
         let body = get(port, "/reading").await;
         let j: serde_json::Value = serde_json::from_str(body.split("\r\n\r\n").nth(1).unwrap()).unwrap();
         assert_eq!(j["reading"]["presence"], "moving");
         assert_eq!(j["reading"]["level"], -45.0);
+        assert_eq!(j["reading"]["fingerprint"]["02:02:02:02:02:02"], -57.0);
         assert!(state.lock().unwrap().polled.is_some());
         assert!(get(port, "/three.module.js").await.contains("text/javascript"));
         assert!(get(port, "/nope").await.starts_with("HTTP/1.1 404"));
+
+        // The room map: empty at first, then what the page saved.
+        assert!(get(port, "/map").await.ends_with("{\"points\":[]}"));
+        let saved = r#"{"points":[{"x":1.5,"z":-2,"fp":{"link":-44}}]}"#;
+        let mut s = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        s.write_all(format!("POST /map HTTP/1.1\r\nHost: x\r\nContent-Length: {}\r\n\r\n{saved}", saved.len()).as_bytes()).await.unwrap();
+        let mut out = String::new();
+        s.read_to_string(&mut out).await.unwrap();
+        assert!(out.ends_with("{\"saved\":true}"), "{out}");
+        assert!(get(port, "/map").await.ends_with(saved));
+        let _ = std::fs::remove_file(&map);
         server.abort();
     }
 }
