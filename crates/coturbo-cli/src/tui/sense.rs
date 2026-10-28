@@ -89,19 +89,24 @@ pub fn draw(f: &mut Frame, area: Rect, view: &SenseView, ms: u128) {
     );
 
     let width = rows[3].width.saturating_sub(2) as usize;
-    let motion: Vec<u64> = r.motion_history.iter().map(|m| (m * 100.0) as u64).collect();
+    // One step above zero, so a still room is a visible baseline, not an empty box.
+    let motion: Vec<u64> = r.motion_history.iter().map(|m| (m * 100.0) as u64 + 2).collect();
     f.render_widget(
         Sparkline::default()
             .block(Block::new().borders(Borders::TOP).border_style(dim).title(Span::styled(" movement, last minute ", dim)))
             .data(tail(&motion, width))
-            .max(100)
+            .max(102)
             .style(Style::new().fg(color)),
         rows[3],
     );
 
     let lo = r.signal_history.iter().copied().fold(f64::INFINITY, f64::min);
     let hi = r.signal_history.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-    let signal: Vec<u64> = r.signal_history.iter().map(|v| ((v - lo) * 10.0) as u64 + 1).collect();
+    // Around the middle, on a span of at least 6 dB (or 2 amplitude units),
+    // so a steady signal reads as a flat line and not as full bars.
+    let span = (hi - lo).max(if r.csi { 2.0 } else { 6.0 });
+    let mid = (hi + lo) / 2.0;
+    let signal: Vec<u64> = r.signal_history.iter().map(|v| (((v - mid) / span + 0.5) * 100.0).clamp(1.0, 100.0) as u64).collect();
     let unit = match r.level {
         Some(l) => format!(" signal, last minute: {l:.0} dBm (range {:.0} dB) ", (hi - lo).max(0.0)),
         None => " signal, last minute (CSI amplitude) ".to_string(),
@@ -110,6 +115,7 @@ pub fn draw(f: &mut Frame, area: Rect, view: &SenseView, ms: u128) {
         Sparkline::default()
             .block(Block::new().borders(Borders::TOP).border_style(dim).title(Span::styled(unit, dim)))
             .data(tail(&signal, width))
+            .max(100)
             .style(Style::new().fg(BLUE)),
         rows[4],
     );
