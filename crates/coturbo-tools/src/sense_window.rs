@@ -10,6 +10,8 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 const PAGE: &str = include_str!("sense_window.html");
+/// three.js 0.160.0 (MIT), served with the page so the window works offline.
+const THREE: &str = include_str!("three.module.min.js");
 
 #[derive(Default)]
 struct State {
@@ -42,6 +44,7 @@ async fn answer(mut sock: tokio::net::TcpStream, state: Arc<Mutex<State>>) {
     let path = head.split_whitespace().nth(1).unwrap_or("/");
     let (kind, body) = match path {
         "/" => ("text/html; charset=utf-8", PAGE.to_string()),
+        "/three.module.js" => ("text/javascript; charset=utf-8", THREE.to_string()),
         "/reading" => {
             let mut s = state.lock().unwrap_or_else(|e| e.into_inner());
             s.polled = Some(Instant::now());
@@ -173,6 +176,7 @@ mod tests {
         assert_eq!(j["reading"]["presence"], "moving");
         assert_eq!(j["reading"]["level"], -45.0);
         assert!(state.lock().unwrap().polled.is_some());
+        assert!(get(port, "/three.module.js").await.contains("text/javascript"));
         assert!(get(port, "/nope").await.starts_with("HTTP/1.1 404"));
         server.abort();
     }

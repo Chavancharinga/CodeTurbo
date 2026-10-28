@@ -45,6 +45,8 @@
   .keys { position: fixed; bottom: 18px; right: 28px; display: flex; gap: 8px; }
   .keys span { border: 1px solid var(--line); border-radius: 6px; padding: 3px 9px; font-size: 11px; color: var(--dim); background: var(--panel); }
   .note { position: fixed; bottom: 20px; left: 28px; max-width: 460px; color: var(--dim); font-size: 11px; margin: 0; }
+  .tag { position: fixed; transform: translate(-50%, -100%); font-size: 12px; font-weight: 600; color: #b3c2dc; pointer-events: none; white-space: nowrap; text-shadow: 0 1px 3px #000; }
+  .toast { position: fixed; top: 76px; left: 50%; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--amber); color: var(--amber); border-radius: 8px; padding: 6px 14px; font-size: 13px; display: none; }
   .ended { position: fixed; inset: 0; display: none; place-items: center; background: rgba(5, 8, 13, 0.72); font-size: 18px; }
   @media (max-width: 900px) { #vitals, #signal { top: auto; bottom: 60px; transform: none; width: 46%; } #vitals { left: 12px; } #signal { right: 12px; } .keys, .note { display: none; } }
   @media (prefers-reduced-motion: reduce) { .bar > span { transition: none; } }
@@ -53,7 +55,7 @@
 <body>
 <canvas id="scene" aria-label="3D view of the room as the WiFi sees it"></canvas>
 <header><h1><b>~</b> CodeTurbo</h1><p class="mono">WIFI SENSING OBSERVATORY</p></header>
-<div class="top"><span class="chip mono" id="live"><i></i>LIVE</span><span class="chip" id="src">listening</span><button id="stop" type="button">Stop</button></div>
+<div class="top"><span class="chip mono" id="live"><i></i>LIVE</span><span class="chip mono" id="demo" hidden style="color: var(--amber); border-color: var(--amber)">DEMO: simulated</span><span class="chip" id="src">listening</span><button id="stop" type="button">Stop</button></div>
 
 <section class="panel" id="vitals" aria-live="polite">
   <h2 class="mono">VITAL SIGNS</h2>
@@ -85,210 +87,279 @@
   <div class="badge mono" id="badge">LEARNING</div>
 </section>
 
-<p class="note">Estimates from WiFi: coarse, not a camera, not a medical measurement. One link shows movement along its path, not where a person stands; the figure marks that path.</p>
-<div class="keys mono"><span>[drag] orbit</span><span>[scroll] zoom</span><span>[space] pause</span><span>[x] stop</span></div>
+<p class="note">Estimates from WiFi: coarse, not a camera, not a medical measurement. One link shows that something moves near its path, not where; the figure walks near the path. The router distance comes from signal strength.</p>
+<div class="keys mono"><span>[drag] orbit</span><span>[scroll] zoom</span><span>[space] pause</span><span>[d] demo</span><span>[x] stop</span></div>
+<div class="tag" id="tag-pc">this computer</div><div class="tag" id="tag-rt">router</div><div class="tag" id="tag-me" style="color: var(--green)"></div>
+<div class="toast" id="toast">The link changed: the computer or the router moved</div>
 <div class="ended" id="ended">Measurement finished. You can close this window.</div>
 
-<script>
-(() => {
-  const cv = document.getElementById('scene');
-  const ctx = cv.getContext('2d');
-  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  let W = 0, H = 0;
-  const fit = () => { const d = devicePixelRatio || 1; W = innerWidth; H = innerHeight; cv.width = W * d; cv.height = H * d; ctx.setTransform(d, 0, 0, d, 0, 0); };
-  addEventListener('resize', fit); fit();
 
-  // The camera orbits the room's centre, looking down at the floor.
-  let yaw = -0.5, pitch = 0.32, dist = 11, drag = false, lx = 0, ly = 0, idle = 0, paused = false;
-  cv.addEventListener('pointerdown', e => { drag = true; lx = e.clientX; ly = e.clientY; cv.setPointerCapture(e.pointerId); });
-  cv.addEventListener('pointerup', () => { drag = false; idle = 0; });
-  cv.addEventListener('pointermove', e => {
-    if (!drag) return;
-    yaw += (e.clientX - lx) * 0.006; pitch = Math.min(1.3, Math.max(0.05, pitch + (e.clientY - ly) * 0.005));
-    lx = e.clientX; ly = e.clientY;
+<script type="module">
+import * as THREE from '/three.module.js';
+
+const $ = id => document.getElementById(id);
+const cv = $('scene');
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true });
+renderer.setPixelRatio(Math.min(2, devicePixelRatio || 1));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x05080d);
+scene.fog = new THREE.Fog(0x05080d, 14, 34);
+const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
+const fit = () => { renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); };
+addEventListener('resize', fit); fit();
+
+scene.add(new THREE.HemisphereLight(0x8fb4ff, 0x0a1410, 0.9));
+const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+sun.position.set(4, 9, 6); sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -10, right: 10, top: 10, bottom: -10 });
+scene.add(sun);
+const glow = new THREE.PointLight(0x54e08a, 0, 5);
+scene.add(glow);
+
+// The floor: a dark plane under tiles lit by the disturbance.
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.MeshStandardMaterial({ color: 0x070b10, roughness: 1 }));
+ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+const NX = 27, NZ = 17, STEP = 0.62;
+const tiles = new THREE.InstancedMesh(new THREE.BoxGeometry(0.5, 0.02, 0.5), new THREE.MeshBasicMaterial(), NX * NZ);
+const m4 = new THREE.Matrix4(), col = new THREE.Color(), dark = new THREE.Color(0x0c1a13), lit = new THREE.Color(0x54e08a);
+for (let i = 0; i < NX; i++) for (let k = 0; k < NZ; k++) {
+  m4.makeTranslation((i - (NX - 1) / 2) * STEP, 0.01, (k - (NZ - 1) / 2) * STEP);
+  tiles.setMatrixAt(i * NZ + k, m4); tiles.setColorAt(i * NZ + k, dark);
+}
+scene.add(tiles);
+const shadowCatcher = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.ShadowMaterial({ opacity: 0.55 }));
+shadowCatcher.rotation.x = -Math.PI / 2; shadowCatcher.position.y = 0.025; shadowCatcher.receiveShadow = true; scene.add(shadowCatcher);
+
+const std = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.1, ...extra });
+const add = (parent, geo, mat, x = 0, y = 0, z = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true; parent.add(m); return m; };
+
+// This computer: a desk with a laptop on it.
+const pc = new THREE.Group(); scene.add(pc);
+const wood = std(0x2a3446), metal = std(0x8c98af, { metalness: 0.6, roughness: 0.35 });
+add(pc, new THREE.BoxGeometry(1.3, 0.05, 0.7), wood, 0, 0.74, 0);
+for (const [x, z] of [[-0.6, -0.3], [0.6, -0.3], [-0.6, 0.3], [0.6, 0.3]]) add(pc, new THREE.BoxGeometry(0.05, 0.74, 0.05), wood, x, 0.37, z);
+add(pc, new THREE.BoxGeometry(0.42, 0.02, 0.3), metal, 0, 0.775, 0.05);
+const screen = add(pc, new THREE.BoxGeometry(0.42, 0.28, 0.015), std(0x111827, { emissive: 0x2a5cc8, emissiveIntensity: 0.7 }), 0, 0.92, -0.1);
+screen.rotation.x = -0.25;
+
+// The router: on a shelf, two antennas and a blinking light.
+const rt = new THREE.Group(); scene.add(rt);
+add(rt, new THREE.BoxGeometry(0.5, 0.9, 0.35), wood, 0, 0.45, 0);
+add(rt, new THREE.BoxGeometry(0.36, 0.06, 0.22), std(0x1d2433), 0, 0.93, 0);
+for (const x of [-0.13, 0.13]) { const a = add(rt, new THREE.CylinderGeometry(0.012, 0.012, 0.3), std(0x1d2433), x, 1.1, -0.08); a.rotation.z = x * 1.6; }
+const led = add(rt, new THREE.SphereGeometry(0.014), new THREE.MeshBasicMaterial({ color: 0x54e08a }), 0.12, 0.94, 0.112);
+
+// The router's field: wire domes drifting outwards.
+const domes = [0, 1, 2].map(() => {
+  const d = new THREE.Mesh(new THREE.SphereGeometry(1, 28, 10, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x3d6fe0, wireframe: true, transparent: true, opacity: 0.2, depthWrite: false }));
+  scene.add(d); return d;
+});
+
+// The link between them, and the packets along it.
+const linkGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+scene.add(new THREE.Line(linkGeo, new THREE.LineBasicMaterial({ color: 0x4d8dff, transparent: true, opacity: 0.8 })));
+const packets = [0, 1, 2, 3, 4].map(() => { const p = new THREE.Mesh(new THREE.SphereGeometry(0.035), new THREE.MeshBasicMaterial({ color: 0x8fb4ff })); scene.add(p); return p; });
+
+// The person: a plain smooth mannequin, jointed so it can walk and breathe.
+const skin = new THREE.MeshStandardMaterial({ color: 0xd9dee8, roughness: 0.38, metalness: 0.05, transparent: true });
+const joint = (parent, x, y, z) => { const g = new THREE.Group(); g.position.set(x, y, z); parent.add(g); return g; };
+const limb = (parent, r, len, y) => add(parent, new THREE.CapsuleGeometry(r, len, 6, 16), skin, 0, y, 0);
+const person = new THREE.Group(); scene.add(person);
+const pelvis = joint(person, 0, 0.94, 0);
+add(pelvis, new THREE.SphereGeometry(0.15, 24, 16), skin).scale.set(1.15, 0.75, 0.8);
+const spine = joint(pelvis, 0, 0.06, 0);
+const chest = add(spine, new THREE.CapsuleGeometry(0.15, 0.26, 8, 20), skin, 0, 0.26, 0);
+chest.scale.set(1.2, 1, 0.75);
+add(spine, new THREE.CylinderGeometry(0.045, 0.05, 0.1, 16), skin, 0, 0.53, 0);
+const head = add(spine, new THREE.SphereGeometry(0.105, 32, 24), skin, 0, 0.67, 0.01);
+head.scale.set(0.9, 1.12, 0.98);
+const arm = side => {
+  const sh = joint(spine, side * 0.22, 0.44, 0);
+  limb(sh, 0.048, 0.22, -0.14);
+  const el = joint(sh, 0, -0.29, 0);
+  limb(el, 0.04, 0.2, -0.12);
+  add(el, new THREE.SphereGeometry(0.045, 16, 12), skin, 0, -0.27, 0.01).scale.set(0.8, 1.2, 0.6);
+  return [sh, el];
+};
+const leg = side => {
+  const hip = joint(pelvis, side * 0.095, -0.04, 0);
+  limb(hip, 0.068, 0.3, -0.2);
+  const knee = joint(hip, 0, -0.43, 0);
+  limb(knee, 0.052, 0.3, -0.2);
+  add(knee, new THREE.BoxGeometry(0.09, 0.05, 0.22, 2, 2, 2), skin, 0, -0.42, 0.05);
+  return [hip, knee];
+};
+const [shL, elL] = arm(-1), [shR, elR] = arm(1), [hipL, kneeL] = leg(-1), [hipR, kneeR] = leg(1);
+const setOpacity = o => { skin.opacity = o; skin.depthWrite = o > 0.98; person.visible = o > 0.01; };
+
+// Orbit: drag to turn, scroll to zoom.
+let yaw = -0.45, pitch = 0.42, zoom = 1, drag = false, lx = 0, ly = 0, idle = 0, paused = false, demo = false;
+cv.addEventListener('pointerdown', e => { drag = true; lx = e.clientX; ly = e.clientY; cv.setPointerCapture(e.pointerId); });
+cv.addEventListener('pointerup', () => { drag = false; idle = 0; });
+cv.addEventListener('pointermove', e => {
+  if (!drag) return;
+  yaw -= (e.clientX - lx) * 0.006; pitch = Math.min(1.35, Math.max(0.08, pitch + (e.clientY - ly) * 0.005));
+  lx = e.clientX; ly = e.clientY;
+});
+cv.addEventListener('wheel', e => { e.preventDefault(); zoom = Math.min(2.5, Math.max(0.4, zoom * (1 + e.deltaY * 0.001))); }, { passive: false });
+addEventListener('keydown', e => {
+  if (e.code === 'Space') { paused = !paused; e.preventDefault(); }
+  if (e.key === 'x' || e.key === 'X') stop();
+  if (e.key === 'd' || e.key === 'D') { demo = !demo; $('demo').hidden = !demo; }
+});
+
+// The router's distance from signal strength (log-distance path loss): coarse, but it follows the room.
+const distanceFrom = dbm => Math.min(14, Math.max(1.2, Math.pow(10, (-30 - dbm) / 30)));
+
+let r = null, t = 0, walk = 0, around = 0, amp = 0, shown = 0, dist = 4, slow = 4, toastUntil = 0;
+const pos = new THREE.Vector3(), tmp = new THREE.Vector3();
+const label = (id, v, text) => {
+  tmp.copy(v).project(camera);
+  const el = $(id);
+  el.style.display = tmp.z < 1 ? 'block' : 'none';
+  el.style.left = (tmp.x * 0.5 + 0.5) * innerWidth + 'px'; el.style.top = (-tmp.y * 0.5 + 0.5) * innerHeight + 'px';
+  if (text !== undefined) el.textContent = text;
+};
+
+// What the scene shows: the real reading, or a labelled simulation.
+const sample = () => {
+  if (!demo) return r;
+  const m = 0.35 + 0.3 * Math.sin(t * 0.4);
+  return { motion: m, presence: Math.sin(t * 0.15) > -0.6 ? 'moving' : 'still', level: -46 + 3 * Math.sin(t * 0.07), breathing: [15, 0.8], csi: false };
+};
+
+const clock = new THREE.Clock();
+const frame = () => {
+  const dt = Math.min(0.1, clock.getDelta());
+  if (!paused) { t += dt; idle += dt; if (!drag && idle > 5 && !reduce) yaw += dt * 0.05; }
+  const s = sample(), motion = s ? s.motion : 0, pres = s ? s.presence : 'learning';
+  const here = pres === 'moving' || pres === 'still', moving = pres === 'moving';
+
+  // Where the computer and router stand, from the measured level.
+  if (s && s.level != null) {
+    const target = distanceFrom(s.level);
+    dist += (target - dist) * Math.min(1, dt * 1.5);
+    slow += (target - slow) * Math.min(1, dt * 0.12);
+    if (Math.abs(dist - slow) > 0.8 && !demo) toastUntil = t + 4;
+  }
+  $('toast').style.display = t < toastUntil ? 'block' : 'none';
+  pc.position.set(-dist / 2, 0, 0); pc.rotation.y = Math.PI / 2;
+  rt.position.set(dist / 2, 0, 0); rt.rotation.y = -Math.PI / 2;
+  const a = new THREE.Vector3(-dist / 2 + 0.1, 0.92, 0), b = new THREE.Vector3(dist / 2, 0.98, 0);
+  linkGeo.setFromPoints([a, b]);
+  packets.forEach((p, k) => { const u = reduce ? k / 5 : (t * 0.35 + k / 5) % 1; p.position.lerpVectors(b, a, u); p.scale.setScalar(0.4 + Math.sin(Math.PI * u)); });
+  domes.forEach((d, k) => {
+    const ph = reduce ? k / 3 : (t * 0.1 + k / 3) % 1;
+    d.position.set(dist / 2, 0, 0); d.scale.setScalar(0.6 + ph * (dist + 3)); d.material.opacity = 0.22 * (1 - ph);
   });
-  cv.addEventListener('wheel', e => { e.preventDefault(); dist = Math.min(24, Math.max(5, dist * (1 + e.deltaY * 0.001))); }, { passive: false });
-  addEventListener('keydown', e => {
-    if (e.code === 'Space') { paused = !paused; e.preventDefault(); }
-    if (e.key === 'x' || e.key === 'X') stop();
-  });
+  led.material.color.setHex((t * 4 | 0) % 3 ? 0x54e08a : 0x1a3a26);
 
-  const P = (x, y, z) => {
-    const cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
-    const x1 = x * cy - z * sy, z1 = x * sy + z * cy;
-    const y2 = (y - 1) * cp + z1 * sp, z2 = z1 * cp - (y - 1) * sp + dist;
-    const f = Math.min(W, H) * 1.05 / Math.max(0.1, z2);
-    return [W / 2 + x1 * f, H * 0.52 - y2 * f, z2, f];
-  };
-  const seg = (a, b, color, width = 1) => {
-    const p = P(...a), q = P(...b);
-    ctx.strokeStyle = color; ctx.lineWidth = width; ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); ctx.stroke();
-  };
-  const label = (x, y, z, text) => {
-    const p = P(x, y, z);
-    ctx.fillStyle = '#9fb0cc'; ctx.font = '600 12px "Segoe UI", system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillText(text, p[0], p[1]);
-  };
-  const box = (cx, cz, sx, sy, sz, color) => {
-    const c = [];
-    for (const dx of [-1, 1]) for (const dy of [0, 1]) for (const dz of [-1, 1]) c.push([cx + dx * sx / 2, dy * sy, cz + dz * sz / 2]);
-    for (const [a, b] of [[0,1],[2,3],[4,5],[6,7],[0,2],[1,3],[4,6],[5,7],[0,4],[1,5],[2,6],[3,7]]) seg(c[a], c[b], color, 1.4);
-  };
+  // The person: walks a loop across the path while there is movement, stands and breathes when still.
+  shown += ((here ? 1 : 0) - shown) * Math.min(1, dt * 2.5);
+  amp += ((moving ? 1 : 0) - amp) * Math.min(1, dt * 3);
+  const speed = 0.5 + motion * 1.1;
+  if (!paused && !reduce) { around += dt * speed * amp / 1.6; walk += dt * speed * 5.5 * amp; }
+  const rx = Math.min(1.8, dist * 0.3), rz = 1.2;
+  pos.set(Math.cos(around) * rx, 0, Math.sin(around) * rz);
+  person.position.copy(pos);
+  person.rotation.y = Math.atan2(-Math.sin(around) * rx, Math.cos(around) * rz);
+  const sw = Math.sin(walk) * amp;
+  hipL.rotation.x = -sw * 0.5; hipR.rotation.x = sw * 0.5;
+  kneeL.rotation.x = Math.max(0, Math.sin(walk + 1.4)) * 0.9 * amp;
+  kneeR.rotation.x = Math.max(0, Math.sin(walk + 1.4 + Math.PI)) * 0.9 * amp;
+  shL.rotation.x = sw * 0.45; shR.rotation.x = -sw * 0.45;
+  shL.rotation.z = -0.08; shR.rotation.z = 0.08;
+  elL.rotation.x = -0.25 - amp * 0.2; elR.rotation.x = -0.25 - amp * 0.2;
+  pelvis.position.y = 0.94 + Math.abs(Math.cos(walk)) * 0.025 * amp;
+  const bpm = s && s.breathing ? s.breathing[0] : 14;
+  const breath = reduce ? 0 : Math.sin(t * Math.PI * 2 * bpm / 60);
+  chest.scale.set(1.2 + breath * 0.025, 1 + breath * 0.01, 0.75 + breath * 0.035);
+  spine.rotation.x = 0.04 * amp;
+  setOpacity(shown);
+  glow.position.set(pos.x, 1.2, pos.z); glow.intensity = shown * (1 + motion * 6);
 
-  // Where things stand: this computer, the router, and the link's middle.
-  const PC = [-4.2, 0.8, 1.6], RT = [4.2, 1.1, -1.6], MID = [0, 0, 0];
-  let r = null, t = 0, last = performance.now(), walk = 0, shown = 0;
+  // Tiles light near the path, and most around the person while they move.
+  for (let i = 0; i < NX; i++) for (let k = 0; k < NZ; k++) {
+    const x = (i - (NX - 1) / 2) * STEP, z = (k - (NZ - 1) / 2) * STEP;
+    const nearPath = Math.abs(x) < dist / 2 ? Math.exp(-z * z / 1.6) : Math.exp(-(z * z + (Math.abs(x) - dist / 2) ** 2) / 1.6);
+    const nearMe = Math.exp(-((x - pos.x) ** 2 + (z - pos.z) ** 2) / 0.9);
+    const ripple = reduce ? 0.5 : 0.5 + 0.5 * Math.sin(t * 4 - Math.hypot(x - pos.x, z - pos.z) * 2.2);
+    const heat = Math.min(1, nearPath * 0.12 + shown * (nearPath * motion * 0.6 + nearMe * (0.25 + motion) * (0.55 + 0.45 * ripple)));
+    tiles.setColorAt(i * NZ + k, col.copy(dark).lerp(lit, heat));
+  }
+  tiles.instanceColor.needsUpdate = true;
 
-  // A wireframe dome of the router's field.
-  const dome = (radius, alpha) => {
-    ctx.strokeStyle = '#3d6fe0'; ctx.lineWidth = 1;
-    for (let lat = 0; lat < 6; lat++) {
-      const a = lat / 6 * Math.PI / 2, y = Math.sin(a) * radius, rr = Math.cos(a) * radius;
-      ctx.globalAlpha = alpha; ctx.beginPath();
-      for (let s = 0; s <= 40; s++) { const b = s / 40 * Math.PI * 2, p = P(RT[0] + Math.cos(b) * rr, y, RT[2] + Math.sin(b) * rr); s ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]); }
-      ctx.stroke();
-    }
-    for (let m = 0; m < 16; m++) {
-      const b = m / 16 * Math.PI * 2; ctx.globalAlpha = alpha * 0.8; ctx.beginPath();
-      for (let s = 0; s <= 14; s++) { const a = s / 14 * Math.PI / 2, p = P(RT[0] + Math.cos(b) * Math.cos(a) * radius, Math.sin(a) * radius, RT[2] + Math.sin(b) * Math.cos(a) * radius); s ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]); }
-      ctx.stroke();
-    }
-    ctx.globalAlpha = 1;
-  };
+  // Camera around the middle, far enough to see both ends.
+  const R = Math.max(6.5, dist * 1.25 + 3) * zoom;
+  camera.position.set(Math.sin(yaw) * Math.cos(pitch) * R, 0.9 + Math.sin(pitch) * R, Math.cos(yaw) * Math.cos(pitch) * R);
+  camera.lookAt(0, 0.8, 0);
+  renderer.render(scene, camera);
 
-  // A glowing person: limbs as thick lines, the pose from a walk phase.
-  const person = (x, z, phase, breath, alpha) => {
-    const sw = Math.sin(phase) * 0.45, lift = Math.abs(Math.cos(phase)) * 0.05;
-    const hip = 0.95 + lift, sh = 1.5 + lift + breath * 0.02, head = 1.78 + lift + breath * 0.02;
-    const limbs = [
-      [[x, hip, z], [x, sh, z], 0.22],
-      [[x - 0.1, hip, z], [x - 0.1 + sw * 0.5, 0.48, z], 0.13], [[x - 0.1 + sw * 0.5, 0.48, z], [x - 0.1 + sw * 0.6, 0.02, z], 0.12],
-      [[x + 0.1, hip, z], [x + 0.1 - sw * 0.5, 0.48, z], 0.13], [[x + 0.1 - sw * 0.5, 0.48, z], [x + 0.1 - sw * 0.6, 0.02, z], 0.12],
-      [[x - 0.2, sh, z], [x - 0.24 - sw * 0.35, 1.18, z], 0.09], [[x - 0.24 - sw * 0.35, 1.18, z], [x - 0.24 - sw * 0.5, 0.88, z], 0.08],
-      [[x + 0.2, sh, z], [x + 0.24 + sw * 0.35, 1.18, z], 0.09], [[x + 0.24 + sw * 0.35, 1.18, z], [x + 0.24 + sw * 0.5, 0.88, z], 0.08],
-      [[x - 0.2, sh, z], [x + 0.2, sh, z], 0.1],
-    ];
-    ctx.globalAlpha = alpha; ctx.lineCap = 'round';
-    for (const [blur, color, k] of [[18, '#54e08a', 1.0], [0, '#b9ffd2', 0.45]]) {
-      ctx.shadowBlur = blur; ctx.shadowColor = '#54e08a'; ctx.strokeStyle = color;
-      for (const [a, b, w] of limbs) { const p = P(...a), q = P(...b); ctx.lineWidth = Math.max(2, w * p[3] * k); ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); ctx.stroke(); }
-      const h = P(x, head, z); ctx.fillStyle = color; ctx.beginPath(); ctx.arc(h[0], h[1], 0.14 * h[3] * k + 1, 0, Math.PI * 2); ctx.fill();
-    }
-    ctx.shadowBlur = 0; ctx.globalAlpha = 1; ctx.lineCap = 'butt';
-  };
+  label('tag-pc', tmp.set(-dist / 2, 1.35, 0), s && s.csi ? 'ESP32 node' : 'this computer');
+  label('tag-rt', tmp.set(dist / 2, 1.45, 0), (s && s.csi ? 'transmitter' : 'router') + (s && s.level != null ? ' · ≈ ' + dist.toFixed(1) + ' m' : ''));
+  $('tag-me').style.opacity = shown;
+  label('tag-me', tmp.set(pos.x, 2.05, pos.z), moving ? 'movement near the path' : 'someone still');
+  requestAnimationFrame(frame);
+};
+requestAnimationFrame(frame);
 
-  const draw = now => {
-    const dt = Math.min(0.1, (now - last) / 1000); last = now;
-    if (!paused) { t += dt; idle += dt; if (!drag && idle > 4 && !reduce) yaw += dt * 0.06; }
-    ctx.clearRect(0, 0, W, H);
-    const motion = r ? r.motion : 0, pres = r ? r.presence : 'learning';
-    const here = pres === 'moving' || pres === 'still';
-    shown += ((here ? 1 : 0) - shown) * Math.min(1, dt * 3);
+const spark = data => {
+  const c = $('spark'), g = c.getContext('2d'), w = c.width, h = c.height;
+  g.clearRect(0, 0, w, h);
+  if (data.length < 2) return;
+  const lo = Math.min(...data), hi = Math.max(...data), span = Math.max(6, hi - lo), mid = (hi + lo) / 2;
+  const pts = data.map((v, i) => [i / (data.length - 1) * w, h - 8 - ((v - mid) / span + 0.5) * (h - 16)]);
+  g.beginPath(); pts.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.lineTo(w, h); g.lineTo(0, h); g.closePath();
+  g.fillStyle = 'rgba(77, 141, 255, 0.16)'; g.fill();
+  g.beginPath(); pts.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.strokeStyle = '#4d8dff'; g.lineWidth = 3; g.stroke();
+};
+const badge = { moving: ['PRESENT · MOVING', 'var(--green)'], still: ['PRESENT · STILL', 'var(--blue)'], empty: ['NO MOVEMENT', 'var(--dim)'], learning: ['LEARNING', 'var(--amber)'] };
 
-    // The floor: tiles lit by how much the link is disturbed near them.
-    const tiles = [];
-    const dx = RT[0] - PC[0], dz = RT[2] - PC[2];
-    for (let i = -7; i <= 7; i++) for (let k = -5; k <= 5; k++) {
-      const x = i * 0.8, z = k * 0.8;
-      const u = Math.max(0, Math.min(1, ((x - PC[0]) * dx + (z - PC[2]) * dz) / (dx * dx + dz * dz)));
-      const d = Math.hypot(x - (PC[0] + dx * u), z - (PC[2] + dz * u));
-      const ripple = reduce ? 0.5 : 0.5 + 0.5 * Math.sin(t * 3 - Math.hypot(x, z) * 1.6);
-      const heat = Math.exp(-d * d / 2.2) * (0.1 + shown * (0.25 + motion * 1.4) * (0.6 + 0.4 * ripple));
-      tiles.push([P(x, 0, z)[2], x, z, heat]);
-    }
-    tiles.sort((a, b) => b[0] - a[0]);
-    for (const [, x, z, heat] of tiles) {
-      const s = 0.22, c = [P(x - s, 0, z - s), P(x + s, 0, z - s), P(x + s, 0, z + s), P(x - s, 0, z + s)];
-      ctx.fillStyle = `rgba(84, 224, 138, ${Math.min(0.9, 0.06 + heat)})`;
-      ctx.beginPath(); c.forEach((p, n) => n ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); ctx.fill();
-    }
-
-    // The router's field: domes drifting outwards.
-    for (let n = 0; n < 3; n++) {
-      const ph = reduce ? n / 3 : (t * 0.12 + n / 3) % 1;
-      dome(1.2 + ph * 7, 0.24 * (1 - ph));
-    }
-
-    // The link and the waves along it.
-    seg(PC, RT, '#4d8dff', 1.4);
-    for (let k = 0; k < 5; k++) {
-      const u = reduce ? k / 5 : (t * 0.3 + k / 5) % 1, p = P(RT[0] - dx * u, RT[1] + (PC[1] - RT[1]) * u, RT[2] - dz * u);
-      ctx.fillStyle = '#4d8dff'; ctx.globalAlpha = Math.sin(Math.PI * u); ctx.beginPath(); ctx.arc(p[0], p[1], 3.5, 0, Math.PI * 2); ctx.fill();
-    }
-    ctx.globalAlpha = 1;
-
-    // The person on the path: walks while moving, breathes while still.
-    if (shown > 0.02) {
-      const base = [P(MID[0] - 0.6, 0, MID[2] - 0.6), P(MID[0] + 0.6, 0, MID[2] - 0.6), P(MID[0] + 0.6, 0, MID[2] + 0.6), P(MID[0] - 0.6, 0, MID[2] + 0.6)];
-      ctx.fillStyle = `rgba(84, 224, 138, ${0.18 * shown})`; ctx.strokeStyle = `rgba(84, 224, 138, ${0.5 * shown})`;
-      ctx.beginPath(); base.forEach((p, n) => n ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); ctx.closePath(); ctx.fill(); ctx.stroke();
-      if (!paused && !reduce && pres === 'moving') walk += dt * (3 + motion * 5);
-      const bpm = r && r.breathing ? r.breathing[0] : 14;
-      person(MID[0], MID[2], walk, reduce ? 0 : Math.sin(t * Math.PI * 2 * bpm / 60), shown);
-    }
-
-    box(PC[0], PC[2], 0.9, PC[1], 0.6, '#7d8aa3'); label(PC[0], PC[1] + 0.4, PC[2], r && r.csi ? 'ESP32 node' : 'this computer');
-    box(RT[0], RT[2], 0.7, RT[1], 0.4, '#7d8aa3');
-    seg([RT[0] - 0.2, RT[1], RT[2]], [RT[0] - 0.32, RT[1] + 0.55, RT[2]], '#7d8aa3', 1.4);
-    seg([RT[0] + 0.2, RT[1], RT[2]], [RT[0] + 0.32, RT[1] + 0.55, RT[2]], '#7d8aa3', 1.4);
-    label(RT[0], RT[1] + 0.85, RT[2], r && r.csi ? 'transmitter' : 'router');
-    requestAnimationFrame(draw);
-  };
-  requestAnimationFrame(draw);
-
-  const $ = id => document.getElementById(id);
-  const spark = data => {
-    const c = $('spark'), g = c.getContext('2d'), w = c.width, h = c.height;
-    g.clearRect(0, 0, w, h);
-    if (data.length < 2) return;
-    const lo = Math.min(...data), hi = Math.max(...data), span = Math.max(6, hi - lo), mid = (hi + lo) / 2;
-    const pts = data.map((v, i) => [i / (data.length - 1) * w, h - 8 - ((v - mid) / span + 0.5) * (h - 16)]);
-    g.beginPath(); pts.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.lineTo(w, h); g.lineTo(0, h); g.closePath();
-    g.fillStyle = 'rgba(77, 141, 255, 0.16)'; g.fill();
-    g.beginPath(); pts.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.strokeStyle = '#4d8dff'; g.lineWidth = 3; g.stroke();
-  };
-  const badge = { moving: ['PRESENT · MOVING', 'var(--green)'], still: ['PRESENT · STILL', 'var(--blue)'], empty: ['NO MOVEMENT', 'var(--dim)'], learning: ['LEARNING', 'var(--amber)'] };
-
-  let fails = 0, done = false;
-  const end = () => { done = true; $('ended').style.display = 'grid'; $('live').classList.add('off'); $('live').lastChild.textContent = 'ENDED'; };
-  const stop = () => { fetch('/stop').catch(() => {}); end(); };
-  const show = j => {
-    r = j;
-    const pct = Math.round(r.motion * 100);
-    $('motion').textContent = pct; $('motionbar').style.width = Math.min(100, pct) + '%';
-    $('mot').textContent = r.motion.toFixed(3);
-    $('rssi').textContent = r.level == null ? 'CSI' : Math.round(r.level) + ' dBm';
-    const h = r.signal_history, mean = h.reduce((a, b) => a + b, 0) / (h.length || 1);
-    $('var').textContent = h.length ? (h.reduce((a, b) => a + (b - mean) ** 2, 0) / h.length).toFixed(2) : '–';
-    $('rate').textContent = r.rate_hz.toFixed(1);
-    $('src').textContent = r.source;
-    if (r.breathing) {
-      $('breath').innerHTML = '<strong>' + Math.round(r.breathing[0]) + '</strong><em>RPM</em>';
-      $('breathbar').style.width = Math.round(r.breathing[1] * 100) + '%';
-    } else {
-      $('breath').innerHTML = '<span class="why">' + (r.csi ? 'shows when the person is still' : 'needs an ESP32 CSI node') + '</span>';
-      $('breathbar').style.width = '0';
-    }
-    const lit = r.presence === 'moving' ? Math.max(1, Math.round(r.motion * 8)) : r.presence === 'still' ? 1 : 0;
-    [...$('dots').children].forEach((d, i) => d.classList.toggle('on', i < lit));
-    const [text, color] = badge[r.presence] || badge.learning;
-    $('badge').textContent = text; $('badge').style.color = color; $('badge').style.borderColor = color;
-    spark(h);
-  };
-  const poll = async () => {
-    try {
-      const j = await (await fetch('/reading', { cache: 'no-store' })).json();
-      fails = 0;
-      if (j.reading) show(j.reading);
-      if (j.ended) return end();
-    } catch (e) {
-      if (++fails > 8) return end();
-    }
-    if (!done) setTimeout(poll, 250);
-  };
-  poll();
-  addEventListener('pagehide', () => navigator.sendBeacon('/closed'));
-  $('stop').addEventListener('click', stop);
-})();
+let fails = 0, done = false;
+const end = () => { done = true; $('ended').style.display = 'grid'; $('live').classList.add('off'); $('live').lastChild.textContent = 'ENDED'; };
+const stop = () => { fetch('/stop').catch(() => {}); end(); };
+const show = j => {
+  r = j;
+  const pct = Math.round(r.motion * 100);
+  $('motion').textContent = pct; $('motionbar').style.width = Math.min(100, pct) + '%';
+  $('mot').textContent = r.motion.toFixed(3);
+  $('rssi').textContent = r.level == null ? 'CSI' : Math.round(r.level) + ' dBm';
+  const h = r.signal_history, mean = h.reduce((x, y) => x + y, 0) / (h.length || 1);
+  $('var').textContent = h.length ? (h.reduce((x, y) => x + (y - mean) ** 2, 0) / h.length).toFixed(2) : '–';
+  $('rate').textContent = r.rate_hz.toFixed(1);
+  $('src').textContent = r.source;
+  if (r.breathing) {
+    $('breath').innerHTML = '<strong>' + Math.round(r.breathing[0]) + '</strong><em>RPM</em>';
+    $('breathbar').style.width = Math.round(r.breathing[1] * 100) + '%';
+  } else {
+    $('breath').innerHTML = '<span class="why">' + (r.csi ? 'shows when the person is still' : 'needs an ESP32 CSI node') + '</span>';
+    $('breathbar').style.width = '0';
+  }
+  const lit = r.presence === 'moving' ? Math.max(1, Math.round(r.motion * 8)) : r.presence === 'still' ? 1 : 0;
+  [...$('dots').children].forEach((d, i) => d.classList.toggle('on', i < lit));
+  const [text, color] = badge[r.presence] || badge.learning;
+  $('badge').textContent = text; $('badge').style.color = color; $('badge').style.borderColor = color;
+  spark(h);
+};
+const poll = async () => {
+  try {
+    const j = await (await fetch('/reading', { cache: 'no-store' })).json();
+    fails = 0;
+    if (j.reading) show(j.reading);
+    if (j.ended) return end();
+  } catch (e) {
+    if (++fails > 8) return end();
+  }
+  if (!done) setTimeout(poll, 250);
+};
+poll();
+addEventListener('pagehide', () => navigator.sendBeacon('/closed'));
+$('stop').addEventListener('click', stop);
 </script>
 </body>
 </html>
