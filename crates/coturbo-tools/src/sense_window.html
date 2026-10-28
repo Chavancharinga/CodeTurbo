@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CodeTurbo · WiFi sensing</title>
+<style>
+  :root { --bg: #0b0e14; --panel: rgba(16, 20, 30, 0.86); --line: #222a3a; --ink: #dfe6f3; --dim: #8c98af; --blue: #2f7bff; --green: #50dc78; --amber: #f0c850; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 14px/1.45 "Segoe UI", system-ui, sans-serif; overflow: hidden; }
+  canvas#scene { position: fixed; inset: 0; width: 100%; height: 100%; cursor: grab; }
+  canvas#scene:active { cursor: grabbing; }
+  .hud { position: fixed; top: 20px; left: 20px; width: 340px; padding: 18px 20px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+  .brand { color: var(--blue); font-weight: 700; letter-spacing: 0; margin: 0 0 14px; font-size: 15px; }
+  .state { font-size: 26px; font-weight: 700; margin: 0; line-height: 1.15; }
+  .meter { height: 8px; background: #1b2130; border-radius: 4px; margin: 12px 0 4px; overflow: hidden; }
+  .meter > i { display: block; height: 100%; width: 0; background: var(--blue); transition: width 0.25s ease-out; }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 14px 0 0; }
+  dt { color: var(--dim); }
+  dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+  .graph { margin-top: 14px; }
+  .graph p { margin: 0 0 4px; color: var(--dim); font-size: 12px; }
+  .graph canvas { width: 100%; height: 46px; display: block; background: #121722; border-radius: 6px; }
+  .note { color: var(--dim); font-size: 12px; margin: 14px 0 0; }
+  .help { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); color: var(--dim); font-size: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; }
+  button { position: fixed; top: 20px; right: 20px; background: transparent; color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; font: inherit; cursor: pointer; }
+  button:hover { border-color: var(--blue); }
+  button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+  .ended { position: fixed; inset: 0; display: none; place-items: center; background: rgba(11, 14, 20, 0.7); font-size: 18px; }
+  @media (max-width: 640px) { .hud { width: auto; right: 12px; left: 12px; top: 12px; } .help { display: none; } }
+  @media (prefers-reduced-motion: reduce) { .meter > i { transition: none; } }
+</style>
+</head>
+<body>
+<canvas id="scene" aria-label="3D view of the WiFi link and what disturbs it"></canvas>
+<section class="hud" aria-live="polite">
+  <p class="brand">CodeTurbo · WiFi sensing</p>
+  <p class="state" id="state">Listening to the WiFi</p>
+  <div class="meter" role="meter" aria-label="motion" aria-valuemin="0" aria-valuemax="100" id="meterbox"><i id="meter"></i></div>
+  <dl>
+    <dt>Motion</dt><dd id="motion">–</dd>
+    <dt>Signal</dt><dd id="signal">–</dd>
+    <dt>Breathing</dt><dd id="breath">–</dd>
+    <dt>Source</dt><dd id="source">–</dd>
+  </dl>
+  <div class="graph"><p>Movement, last minute</p><canvas id="g1" width="600" height="92"></canvas></div>
+  <div class="graph"><p>Signal, last minute</p><canvas id="g2" width="600" height="92"></canvas></div>
+  <p class="note">Estimates from WiFi: coarse, not a camera, not a medical measurement. One link shows movement along its path, not where a person stands.</p>
+</section>
+<button id="stop" type="button">Stop</button>
+<p class="help">Drag to turn · scroll to zoom</p>
+<div class="ended" id="ended">Measurement finished. You can close this window.</div>
+<script>
+(() => {
+  const cv = document.getElementById('scene');
+  const ctx = cv.getContext('2d');
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let W = 0, H = 0, dpr = 1;
+  const fit = () => { dpr = devicePixelRatio || 1; W = innerWidth; H = innerHeight; cv.width = W * dpr; cv.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); };
+  addEventListener('resize', fit); fit();
+
+  // Camera orbiting the room's centre.
+  let yaw = -0.6, pitch = 0.42, dist = 10, dragging = false, lastX = 0, lastY = 0, idle = 0;
+  cv.addEventListener('pointerdown', e => { dragging = true; lastX = e.clientX; lastY = e.clientY; cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener('pointerup', () => { dragging = false; idle = 0; });
+  cv.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    yaw += (e.clientX - lastX) * 0.006; pitch = Math.min(1.35, Math.max(0.08, pitch + (e.clientY - lastY) * 0.005));
+    lastX = e.clientX; lastY = e.clientY;
+  });
+  cv.addEventListener('wheel', e => { e.preventDefault(); dist = Math.min(26, Math.max(6, dist * (1 + e.deltaY * 0.001))); }, { passive: false });
+
+  const project = (x, y, z) => {
+    const cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
+    const x1 = x * cy - z * sy, z1 = x * sy + z * cy;
+    const y2 = y * cp + z1 * sp, z2 = z1 * cp - y * sp + dist;
+    const f = Math.min(W, H) * 0.9 / Math.max(0.1, z2);
+    return [W * 0.58 + x1 * f, H * 0.56 - y2 * f, z2];
+  };
+  const line = (a, b, color, width = 1) => {
+    const p = project(...a), q = project(...b);
+    ctx.strokeStyle = color; ctx.lineWidth = width; ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); ctx.stroke();
+  };
+  const box = (cx, cy, cz, sx, sy, sz, color) => {
+    const c = [];
+    for (const dx of [-1, 1]) for (const dy of [0, 1]) for (const dz of [-1, 1]) c.push([cx + dx * sx / 2, cy + dy * sy, cz + dz * sz / 2]);
+    const edges = [[0,1],[2,3],[4,5],[6,7],[0,2],[1,3],[4,6],[5,7],[0,4],[1,5],[2,6],[3,7]];
+    for (const [a, b] of edges) line(c[a], c[b], color, 1.6);
+  };
+  const label = (x, y, z, text, color) => {
+    const p = project(x, y, z);
+    ctx.fillStyle = color; ctx.font = '600 13px "Segoe UI", system-ui, sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(text, p[0], p[1]);
+  };
+
+  let r = null, t = 0, last = performance.now(), wave = 0;
+  const A = [-3.2, 0, 0], B = [3.2, 0, 0];
+
+  const draw = now => {
+    const dt = Math.min(0.1, (now - last) / 1000); last = now; t += dt; idle += dt;
+    if (!dragging && idle > 4 && !reduce) yaw += dt * 0.08;
+    ctx.clearRect(0, 0, W, H);
+
+    // The floor: a 10 x 8 m room.
+    for (let i = -5; i <= 5; i++) line([i, 0, -4], [i, 0, 4], i === 0 ? '#273047' : '#171d2b');
+    for (let k = -4; k <= 4; k++) line([-5, 0, k], [5, 0, k], k === 0 ? '#273047' : '#171d2b');
+
+    const motion = r ? r.motion : 0;
+    const csi = r && r.csi;
+    const moving = r && r.presence === 'moving';
+    const tint = moving ? '#50dc78' : (r && r.presence === 'still') ? '#2f7bff' : '#5d6b86';
+
+    // Endpoints: this computer and the router (or ESP32 nodes for CSI).
+    const hA = 0.8, hB = 1.1;
+    box(A[0], 0, A[2], 0.9, hA, 0.6, '#8c98af');
+    label(A[0], hA + 0.45, A[2], csi ? 'ESP32 node' : 'this computer', '#dfe6f3');
+    box(B[0], 0, B[2], 0.7, hB, 0.4, '#8c98af');
+    line([B[0] - 0.2, hB, B[2]], [B[0] - 0.35, hB + 0.6, B[2]], '#8c98af', 1.6);
+    line([B[0] + 0.2, hB, B[2]], [B[0] + 0.35, hB + 0.6, B[2]], '#8c98af', 1.6);
+    label(B[0], hB + 0.95, B[2], csi ? 'transmitter' : 'router', '#dfe6f3');
+
+    // The link's Fresnel zone: rings along the path, widest in the middle,
+    // trembling with the measured motion.
+    const ya = hA * 0.8, yb = hB * 0.9, rings = 22;
+    for (let i = 0; i <= rings; i++) {
+      const u = i / rings, x = A[0] + (B[0] - A[0]) * u, y = ya + (yb - ya) * u;
+      const base = Math.sin(Math.PI * u) * 0.9;
+      const shake = reduce ? 0 : motion * 0.45 * Math.sin(t * 9 + i * 1.7);
+      const rad = base + shake;
+      ctx.beginPath();
+      for (let s = 0; s <= 28; s++) {
+        const a = s / 28 * Math.PI * 2;
+        const p = project(x, y + Math.sin(a) * rad * 0.8, Math.cos(a) * rad);
+        s ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]);
+      }
+      ctx.strokeStyle = tint; ctx.globalAlpha = 0.18 + 0.5 * Math.sin(Math.PI * u) * (0.4 + motion); ctx.lineWidth = 1.2; ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    line([A[0], ya, A[2]], [B[0], yb, B[2]], '#2f7bff', 1.4);
+
+    // Waves travelling from the router to the receiver.
+    wave = reduce ? 0.5 : (wave + dt * 0.35) % 1;
+    for (let k = 0; k < 4; k++) {
+      const u = (wave + k / 4) % 1, x = B[0] + (A[0] - B[0]) * u, y = yb + (ya - yb) * u;
+      const p = project(x, y, 0);
+      ctx.fillStyle = '#2f7bff'; ctx.globalAlpha = 0.9 * Math.sin(Math.PI * u);
+      ctx.beginPath(); ctx.arc(p[0], p[1], 4, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // The disturbance: a ripple on the path while something moves through it.
+    if (motion > 0.05) {
+      const mid = project(0, (ya + yb) / 2, 0);
+      for (let k = 0; k < 3; k++) {
+        const ph = reduce ? 0.5 : (t * 0.8 + k / 3) % 1;
+        ctx.strokeStyle = '#50dc78'; ctx.globalAlpha = (1 - ph) * Math.min(1, motion * 1.5);
+        ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(mid[0], mid[1], 30 + ph * 120 * (0.4 + motion), (30 + ph * 120 * (0.4 + motion)) * 0.45, 0, 0, Math.PI * 2); ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      label(0, (ya + yb) / 2 + 1.5, 0, 'movement on this path', '#50dc78');
+    }
+    // Breathing: a slow ring at the measured rate.
+    if (r && r.breathing) {
+      const mid = project(0, (ya + yb) / 2, 0), hz = r.breathing[0] / 60;
+      const s = 0.5 + 0.5 * Math.sin(t * Math.PI * 2 * hz);
+      ctx.strokeStyle = '#2f7bff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(mid[0], mid[1], 40 + s * 30, (40 + s * 30) * 0.45, 0, 0, Math.PI * 2); ctx.stroke();
+    }
+    requestAnimationFrame(draw);
+  };
+  requestAnimationFrame(draw);
+
+  const spark = (id, data, max, color) => {
+    const c = document.getElementById(id), g = c.getContext('2d'), w = c.width, h = c.height;
+    g.clearRect(0, 0, w, h);
+    if (!data.length) return;
+    const lo = max ? 0 : Math.min(...data), hi = max ? max : Math.max(...data);
+    const span = Math.max(max ? max : 6, hi - lo), mid = max ? span / 2 : (hi + lo) / 2;
+    g.strokeStyle = color; g.lineWidth = 3; g.beginPath();
+    data.forEach((v, i) => {
+      const x = data.length === 1 ? w : i / (data.length - 1) * w;
+      const y = h - 6 - ((v - mid) / span + 0.5) * (h - 12);
+      i ? g.lineTo(x, y) : g.moveTo(x, y);
+    });
+    g.stroke();
+  };
+
+  const labels = { moving: 'Someone is moving', still: 'Someone is there, still', empty: 'No movement', learning: 'Learning the room' };
+  const colors = { moving: 'var(--green)', still: 'var(--blue)', empty: 'var(--dim)', learning: 'var(--amber)' };
+  const $ = id => document.getElementById(id);
+  let fails = 0;
+  const poll = async () => {
+    try {
+      const res = await fetch('/reading', { cache: 'no-store' });
+      const j = await res.json();
+      fails = 0;
+      if (j.reading) {
+        r = j.reading;
+        $('state').textContent = labels[r.presence] || r.presence;
+        $('state').style.color = colors[r.presence] || 'inherit';
+        const pct = Math.round(r.motion * 100);
+        $('meter').style.width = pct + '%'; $('meterbox').setAttribute('aria-valuenow', pct);
+        $('meter').style.background = colors[r.presence];
+        $('motion').textContent = pct + '%';
+        $('signal').textContent = r.level == null ? 'CSI amplitude' : Math.round(r.level) + ' dBm';
+        $('breath').textContent = r.breathing ? Math.round(r.breathing[0]) + '/min (' + Math.round(r.breathing[1] * 100) + '%)' : (r.csi ? 'when still' : 'needs ESP32 CSI');
+        $('source').textContent = r.source;
+        spark('g1', r.motion_history, 1, '#50dc78');
+        spark('g2', r.signal_history, 0, '#2f7bff');
+      }
+      if (j.ended) { $('ended').style.display = 'grid'; return; }
+    } catch (e) {
+      if (++fails > 8) { $('ended').style.display = 'grid'; return; }
+    }
+    setTimeout(poll, 250);
+  };
+  poll();
+  addEventListener('pagehide', () => navigator.sendBeacon('/closed'));
+  $('stop').addEventListener('click', () => { fetch('/stop').catch(() => {}); $('ended').style.display = 'grid'; });
+})();
+</script>
+</body>
+</html>

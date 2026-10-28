@@ -9,6 +9,7 @@ pub mod memory;
 pub mod schedule;
 pub mod skills;
 mod research;
+pub mod sense_window;
 mod web;
 mod shell;
 
@@ -1048,7 +1049,7 @@ impl Tools {
                         s(e);
                     }
                 };
-                coturbo_net::sense::run(Some(secs), &on).await.map(|r| ToolOutput::ok(r.summary()))
+                sense_window::run(Some(secs), &on).await.map(|r| ToolOutput::ok(r.summary()))
             }
             "name_device" => devices::name_device(input),
             _ => Err(format!("unknown tool: {name}")),

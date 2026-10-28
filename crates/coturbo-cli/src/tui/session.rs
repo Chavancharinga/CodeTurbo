@@ -462,7 +462,7 @@ impl Session {
                             let on = move |e| {
                                 let _ = screen.send(Out::Sense(e));
                             };
-                            match coturbo_net::sense::run(None, &on).await {
+                            match coturbo_tools::sense_window::run(None, &on).await {
                                 Ok(r) => self.info(r.summary()),
                                 Err(e) => self.warn(e),
                             }
