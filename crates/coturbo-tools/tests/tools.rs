@@ -38,10 +38,15 @@ fn tool_sets_differ_and_are_sorted() {
     let naive = names(Mode::Naive);
     let ast = names(Mode::Ast);
     for n in [&naive, &ast] {
-        let mut sorted = n.clone();
+        // Sorted, with tool_search (the list of the tools not loaded yet) last.
+        let (last, rest) = n.split_last().unwrap();
+        assert_eq!(last, "tool_search");
+        let mut sorted = rest.to_vec();
         sorted.sort();
-        assert_eq!(n, &sorted, "tool order must be deterministic for prompt caching");
+        assert_eq!(rest, &sorted[..], "tool order must be deterministic for prompt caching");
     }
+    // Tools for particular jobs stay out of every request until loaded.
+    assert!(!ast.contains(&"browse".to_string()) && !ast.contains(&"wifi_sense".to_string()));
     assert!(naive.contains(&"edit_file".to_string()));
     assert!(!naive.contains(&"read_symbol".to_string()));
     for t in ["read_symbol", "replace_symbol", "insert_symbol", "workspace_diagnostics", "edit_file"] {
@@ -384,6 +389,9 @@ async fn browse_drives_a_page_shows_every_step_and_stays_in_the_project() {
     let frames: Arc<Mutex<Vec<coturbo_browse::Frame>>> = Arc::default();
     let sink = frames.clone();
     let t = Tools::new(dir.path(), Mode::Naive).with_browse_sink(Arc::new(move |f| sink.lock().unwrap().push(f)));
+    assert!(!t.specs().iter().any(|s| s.name == "browse"), "only named until loaded");
+    assert!(t.specs().iter().any(|s| s.name == "tool_search" && s.description.contains("browse (drive a real browser")));
+    t.call("tool_search", &json!({"query": "select:browse"})).await;
     assert!(t.specs().iter().any(|s| s.name == "browse"));
     assert_eq!(coturbo_tools::tier("browse"), coturbo_tools::Tier::Exec, "it opens a program, so it asks like one");
 

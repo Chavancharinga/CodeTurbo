@@ -8,6 +8,7 @@ pub mod dns;
 pub mod home;
 pub mod identify;
 pub mod registry;
+pub mod sense;
 pub mod tv;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};

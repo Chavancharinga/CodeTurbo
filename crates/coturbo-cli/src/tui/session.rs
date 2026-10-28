@@ -311,7 +311,13 @@ impl Session {
             .with_browse_window_when(config::browser_window_enabled)
             .with_browse_sink(Arc::new(move |frame| {
                 let _ = screen.send(Out::Browser(frame));
-            }));
+            }))
+            .with_sense_sink({
+                let screen = self.out.clone();
+                Arc::new(move |e| {
+                    let _ = screen.send(Out::Sense(e));
+                })
+            });
         // External tool servers connect in the background; the next task sees them.
         let servers = self.cfg.mcp_servers(&self.root);
         if !servers.is_empty() {
@@ -449,6 +455,17 @@ impl Session {
                         }
                         Command::Devices => {
                             self.devices().await;
+                            false
+                        }
+                        Command::Sense => {
+                            let screen = self.out.clone();
+                            let on = move |e| {
+                                let _ = screen.send(Out::Sense(e));
+                            };
+                            match coturbo_net::sense::run(None, &on).await {
+                                Ok(r) => self.info(r.summary()),
+                                Err(e) => self.warn(e),
+                            }
                             false
                         }
                         Command::Plan => {

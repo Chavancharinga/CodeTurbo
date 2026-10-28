@@ -1566,3 +1566,34 @@ fn a_command_typed_during_a_task_stops_the_task_and_runs() {
     h.press(KeyCode::Enter);
     assert!(h.cancel.try_recv().is_err(), "text does not stop the task");
 }
+
+#[test]
+fn wifi_sensing_takes_the_whole_screen_and_x_closes_it() {
+    use coturbo_net::sense::{Event as S, Presence, Reading};
+    let mut h = harness();
+    assert_eq!(commands::parse("/sense"), Parsed::Command(Command::Sense, String::new()));
+    h.app.apply(Out::Sense(S::Start));
+    h.app.apply(Out::Sense(S::Reading(Reading {
+        source: "this computer's WiFi".into(),
+        csi: false,
+        rate_hz: 2.0,
+        seconds: 12.0,
+        level: Some(-45.0),
+        motion: 0.62,
+        presence: Presence::Moving,
+        breathing: None,
+        motion_history: vec![0.1, 0.4, 0.62],
+        signal_history: vec![-45.0, -51.0, -44.0],
+    })));
+    let screen = screen_rows(&mut h, 100, 30).join("\n");
+    for want in ["WiFi sensing", "SOMEONE IS MOVING", "motion 62%", "-45 dBm (range 7 dB)", "needs an ESP32", "x to close"] {
+        assert!(screen.contains(want), "{want} missing:\n{screen}");
+    }
+    assert!(!screen.contains("codeturbo"), "the logo is hidden behind the full screen");
+    // Typing is swallowed; x closes it and the conversation is back.
+    h.app.on_event(Event::Key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)), false);
+    assert!(screen_rows(&mut h, 100, 30).join("\n").contains("WiFi sensing"));
+    h.app.on_event(Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)), false);
+    assert!(!screen_rows(&mut h, 100, 30).join("\n").contains("WiFi sensing"));
+    assert!(h.app.input().is_empty());
+}

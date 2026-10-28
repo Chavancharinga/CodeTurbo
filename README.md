@@ -50,8 +50,30 @@ windows at once and drives them together.
 
 **Design engine**
 Pages and interfaces are reviewed on desktop and phone layouts against design
-rules (overlaps, cut-off content, tap targets, spacing, consistency). A design
-that fails is refused, with the evidence.
+rules (overlaps, cut-off content, tap targets, spacing, consistency). After
+every edit the inspector also runs the static gates of
+[Hallmark](https://github.com/Nutlope/hallmark): the purple gradient, the
+eyebrow over every heading, tracked capitals, `transition: all`, content
+hidden until a script runs, invented metrics, a form that says thanks
+without sending anything, and more. A design that fails is refused, with the
+evidence.
+
+**Sensing through WiFi**
+People disturb the radio waves that fill a room. Type `/sense` (or ask) and
+a full-screen view shows, live, whether someone is moving or still, with
+the signal over the last minute; `x` closes it. On a PC or a phone (Termux,
+with Termux:API) it reads the device's own WiFi signal, which shows movement
+near the path to the router. With an ESP32 node running CSI firmware
+(the frame [RuView](https://github.com/ruvnet/RuView)'s nodes send, UDP port
+5005) it reads every subcarrier, and finds the breathing rate of a person
+who is still. Readings are estimates: not a camera, not a medical device.
+
+**What people said this month**
+`last30days` searches Hacker News, GitHub, Polymarket, dev.to, arXiv and
+Reddit (with your Reddit API app) at the same time, keeps what is on topic
+and ranks it by engagement: points, reactions, comments and money traded.
+The agent then writes a brief that links every claim. Based on
+[last30days](https://github.com/mvanhorn/last30days-skill).
 
 **Built-in reverse engineering**
 The agent studies how a website, a JavaScript or Electron app, a native binary
@@ -100,13 +122,20 @@ OpenAI-compatible server are supported.
   project's decisions, remembered per project.
 - **Hooks, skills and custom commands**: your own commands before and after
   tools, skill packs (`SKILL.md`) and `/commands` from Markdown files,
-  including the ones already in `~/.claude`.
+  including the ones already in `~/.claude`. Hallmark, last30days and RuView
+  ship built in, with their mechanisms running natively.
+- **Small requests**: a short system prompt, and the tools for particular
+  jobs (browser, devices, reverse engineering, research, sensing...) only
+  named until the agent loads one, so each request carries about half the
+  fixed tokens it used to.
 - **Parallel reads**: the files, searches and pages asked in one reply are
   read at the same time.
 - **`/review`**: the changes split by area and reviewed by several agents at
   once; only the findings that hold up are reported.
 - **Background jobs**: servers and watchers keep running; their new output is
   read and they are stopped on demand.
+- **Every command of a chain is approved**: allowing `git` never lets
+  `git diff && rm -rf build` through as one command.
 - **A guard for hard-to-undo commands** (`rm -rf` of a variable, forced push,
   `git reset --hard`, shutting the computer down...): they always ask first,
   in any approval mode.
@@ -198,6 +227,8 @@ codeturbo run "add email validation to the signup form"
 | `/approval`  | choose when CodeTurbo asks before acting                |
 | `/plan`      | read-only plan mode until you approve the plan          |
 | `/usage`     | tokens and cost of the session                          |
+| `/sense`     | sense movement and breathing through WiFi (`x` closes)  |
+| `/devices`   | find the devices on your network and control them       |
 | `/undo`      | undo the changes of the last task                       |
 | `/retry`     | run the last task again                                 |
 | `/rule`      | pin a rule the model must always follow                 |
@@ -237,6 +268,8 @@ Preferences live in `%APPDATA%\codeturbo\config.toml` on Windows and
 | `CODETURBO_BROWSER`            | `window` or `headless`: how the agent's browser opens          |
 | `CODETURBO_GRAPHICS`           | `off` keeps the mini browser in blocks instead of an image     |
 | `CODETURBO_NO_UPDATE_CHECK`    | turns the daily update notice off                              |
+| `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET` | adds Reddit to `last30days` (a "script" app from reddit.com/prefs/apps) |
+| `GITHUB_TOKEN`                 | raises GitHub's search limits for `last30days`                 |
 
 ## Updating
 
@@ -252,6 +285,9 @@ Under active development. Releases and notes are on the
 [releases page](https://github.com/Chavancharinga/CodeTurbo/releases).
 
 ## License
+
+The built-in skills keep their own MIT licences, in their folders:
+Hallmark (Hallmark contributors) and last30days (Matt Van Horn).
 
 Licensed, at your option, under either of:
 

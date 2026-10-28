@@ -97,11 +97,22 @@ impl ApprovalConfig {
     }
 
     fn bash_rule(&self, command: &str) -> Option<Policy> {
-        self.bash
-            .iter()
-            .filter(|(g, _)| glob_match(g, command))
-            .max_by_key(|(g, p)| (g.len(), *p))
-            .map(|(_, p)| *p)
+        let one = |c: &str| self.bash.iter().filter(|(g, _)| glob_match(g, c)).max_by_key(|(g, p)| (g.len(), *p)).map(|(_, p)| *p);
+        let parts = segments(command);
+        if parts.len() <= 1 {
+            return one(command.trim());
+        }
+        // A chain is allowed only when every command in it is; one denied denies it.
+        let each: Vec<Option<Policy>> = parts.iter().map(|c| one(c)).collect();
+        if each.contains(&Some(Policy::Deny)) {
+            Some(Policy::Deny)
+        } else if each.iter().all(|p| *p == Some(Policy::Allow)) {
+            Some(Policy::Allow)
+        } else if each.contains(&Some(Policy::Prompt)) || each.contains(&Some(Policy::Allow)) {
+            Some(Policy::Prompt)
+        } else {
+            None
+        }
     }
 }
 
@@ -117,10 +128,51 @@ pub fn bash_base(command: &str) -> &str {
     command.split_whitespace().next().unwrap_or("")
 }
 
+/// The commands of a shell line: split on `&&`, `||`, `;`, `|`, `&` and new
+/// lines outside quotes, so `git diff && rm -rf x` is two commands, not `git *`.
+pub fn segments(command: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let mut quote: Option<char> = None;
+    let mut chars = command.chars().peekable();
+    while let Some(c) = chars.next() {
+        match (quote, c) {
+            (Some(q), _) if c == q => {
+                quote = None;
+                cur.push(c);
+            }
+            (Some(_), _) => cur.push(c),
+            (None, '\'' | '"') => {
+                quote = Some(c);
+                cur.push(c);
+            }
+            (None, '\\') => {
+                cur.push(c);
+                if let Some(n) = chars.next() {
+                    cur.push(n);
+                }
+            }
+            // `2>&1` and `&>` redirect; they do not start a new command.
+            (None, '&') if cur.ends_with('>') || chars.peek() == Some(&'>') => cur.push(c),
+            (None, ';' | '\n' | '|' | '&') => {
+                if matches!(c, '|' | '&') && chars.peek() == Some(&c) {
+                    chars.next();
+                }
+                out.push(std::mem::take(&mut cur));
+            }
+            (None, _) => cur.push(c),
+        }
+    }
+    out.push(cur);
+    out.into_iter().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+}
+
 impl SessionGrants {
     pub fn grant(&mut self, tool: &str, input: &Value) {
         if tool == "bash" {
-            self.bash.insert(bash_base(input["command"].as_str().unwrap_or("")).to_string());
+            for c in segments(input["command"].as_str().unwrap_or("")) {
+                self.bash.insert(bash_base(&c).to_string());
+            }
         } else {
             self.tools.insert(tool.to_string());
         }
@@ -128,8 +180,9 @@ impl SessionGrants {
 
     fn covers(&self, tool: &str, input: &Value) -> bool {
         if tool == "bash" {
-            let base = bash_base(input["command"].as_str().unwrap_or(""));
-            !base.is_empty() && self.bash.contains(base)
+            // Every command of a chain must be covered, not just the first.
+            let parts = segments(input["command"].as_str().unwrap_or(""));
+            !parts.is_empty() && parts.iter().all(|c| self.bash.contains(bash_base(c)))
         } else {
             self.tools.contains(tool)
         }

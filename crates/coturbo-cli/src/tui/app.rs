@@ -315,6 +315,8 @@ pub struct App {
     work: Work,
     /// The mini browser: the page the agent is using, with its pointer.
     browser: BrowserView,
+    /// The full-screen WiFi sensing view, while open (closed with `x`).
+    sense: Option<super::sense::SenseView>,
     /// The code being written right now: its title and last lines.
     live: Option<(String, Vec<Line<'static>>)>,
     flash: Option<(Mood, Instant)>,
@@ -351,6 +353,7 @@ impl App {
             done_at: None,
             work: Work::default(),
             browser: BrowserView::default(),
+            sense: None,
             live: None,
             flash: None,
             phase: 0.0,
@@ -445,6 +448,22 @@ impl App {
             }
             Out::Browser(f) => self.browser.apply(f, Instant::now()),
             Out::Live(l) => self.live = l,
+            Out::Sense(e) => {
+                use coturbo_net::sense::Event;
+                match e {
+                    Event::Start => self.sense = Some(super::sense::SenseView::new()),
+                    Event::Reading(r) => {
+                        if let Some(v) = self.sense.as_mut() {
+                            v.reading = Some(r);
+                        }
+                    }
+                    Event::End => {
+                        if let Some(v) = self.sense.as_mut() {
+                            v.running = false;
+                        }
+                    }
+                }
+            }
             Out::Mood(m) if m.is_flash() => self.flash = Some((m, Instant::now())),
             Out::Mood(m) => self.mood = m,
             Out::Ended(m) => {
@@ -571,6 +590,14 @@ impl App {
         let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
         let alt = k.modifiers.contains(KeyModifiers::ALT);
         let shift = k.modifiers.contains(KeyModifiers::SHIFT);
+        // The sensing view owns the screen: `x` (or Esc) closes it and stops the run.
+        if self.sense.is_some() && !ctrl {
+            if matches!(k.code, KeyCode::Char('x' | 'X') | KeyCode::Esc) {
+                self.sense = None;
+                coturbo_net::sense::stop();
+            }
+            return;
+        }
         match k.code {
             KeyCode::Char('c') if ctrl && !alt => {
                 if self.busy.is_some() {
@@ -1017,6 +1044,10 @@ impl App {
     pub fn draw(&mut self, f: &mut Frame) {
         let area = f.area();
         let tick = self.started.elapsed();
+        if let Some(v) = &self.sense {
+            super::sense::draw(f, area, v, tick.as_millis());
+            return;
+        }
         // The logo slides in on the clock; the snail's frame is a running
         // total so a change of mood changes the pace, never jumps.
         let mood = self.mood();

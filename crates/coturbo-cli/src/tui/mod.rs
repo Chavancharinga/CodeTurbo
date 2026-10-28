@@ -13,6 +13,7 @@ pub mod fx;
 pub mod host;
 pub mod input;
 pub mod path;
+pub mod sense;
 pub mod session;
 pub mod text;
 pub mod work;
@@ -160,6 +161,8 @@ pub enum Out {
     Clear,
     /// Saves the conversation as text to this file (`/exportar`).
     Export(std::path::PathBuf),
+    /// WiFi sensing: opens the full-screen view, updates it, marks it finished.
+    Sense(coturbo_net::sense::Event),
 }
 
 /// From the screen to the agent side.

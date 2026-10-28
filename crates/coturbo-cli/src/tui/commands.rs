@@ -10,6 +10,7 @@ pub enum Command {
     Usage,
     Effort,
     Devices,
+    Sense,
     Mcp,
     Review,
     Undo,
@@ -31,7 +32,7 @@ pub struct CommandInfo {
     pub cmd: Command,
 }
 
-pub const COMMANDS: [CommandInfo; 20] = [
+pub const COMMANDS: [CommandInfo; 21] = [
     CommandInfo { name: "/provider", aliases: &[], about: "choose the model provider", cmd: Command::Provider },
     CommandInfo {
         name: "/model",
@@ -48,6 +49,7 @@ pub const COMMANDS: [CommandInfo; 20] = [
     },
     CommandInfo { name: "/effort", aliases: &[], about: "set how hard the model thinks (low to max)", cmd: Command::Effort },
     CommandInfo { name: "/devices", aliases: &["/tv"], about: "find the devices on your network and control them", cmd: Command::Devices },
+    CommandInfo { name: "/sense", aliases: &["/wifi"], about: "sense movement and breathing through WiFi, full screen (x closes)", cmd: Command::Sense },
     CommandInfo { name: "/mcp", aliases: &[], about: "external tool servers (MCP) and their tools", cmd: Command::Mcp },
     CommandInfo { name: "/review", aliases: &[], about: "review the changes with several agents in parallel", cmd: Command::Review },
     CommandInfo { name: "/plan", aliases: &[], about: "turn plan mode on or off", cmd: Command::Plan },

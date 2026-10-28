@@ -8,6 +8,7 @@ mod fsops;
 pub mod memory;
 pub mod schedule;
 pub mod skills;
+mod research;
 mod web;
 mod shell;
 
@@ -54,7 +55,7 @@ pub const EDIT_TOOLS: &[&str] = &["write_file", "edit_file", "replace_symbol", "
 /// Fixed tier per tool. Unknown tools (MCP, third-party) are `Exec`.
 pub fn tier(name: &str) -> Tier {
     match name {
-        "read_file" | "read_symbol" | "list_files" | "grep" | "workspace_diagnostics" | "propose_plan" | "tasks" | "network_scan" | "tool_search" | "web_search" | "web_fetch" | "agent" | "recall" | "skill" | "lsp" | "ask_user" | "ci" | "jobs" => Tier::Read,
+        "read_file" | "read_symbol" | "list_files" | "grep" | "workspace_diagnostics" | "propose_plan" | "tasks" | "network_scan" | "tool_search" | "web_search" | "web_fetch" | "agent" | "recall" | "skill" | "lsp" | "ask_user" | "ci" | "jobs" | "last30days" | "wifi_sense" => Tier::Read,
         "remember" | "forget" | "schedule" => Tier::Write,
         "name_device" => Tier::Write,
         n if EDIT_TOOLS.contains(&n) || n == "design_brief" => Tier::Write,
@@ -89,6 +90,8 @@ pub struct Tools {
     /// Where `browse` sends each picture of the page, so the screen can show
     /// the agent using it.
     browse_sink: Option<BrowseSink>,
+    /// Where `wifi_sense` sends its live readings (the full-screen view).
+    sense_sink: Option<SenseSink>,
     /// The browser `browse` keeps open between calls, so the page is still
     /// there for the next steps. It closes after a while with no use.
     /// One kept browser per window the user watches (see [`MAX_BROWSE_WINDOWS`]).
@@ -103,6 +106,23 @@ pub struct Tools {
     /// named, so a pile of them costs few tokens.
     loaded: std::sync::Mutex<std::collections::BTreeSet<String>>,
 }
+
+/// Built-in tools for particular jobs, named with one line until the model
+/// loads them with tool_search: their full definitions stay out of every
+/// request that does not need them.
+pub const DEFERRED: [(&str, &str); 11] = [
+    ("browse", "drive a real browser: open pages, click, type, read, screenshots, console and requests"),
+    ("ci", "GitHub Actions of the branch: status, failed logs, wait for a run"),
+    ("device", "control a TV, speaker, light, plug, printer or router on the local network"),
+    ("device_control", "call a network device's own HTTP or UPnP API"),
+    ("investigate", "reverse-engineer a website, JS/Electron app, binary, APK or SQLite database"),
+    ("last30days", "what people said about a topic lately: Hacker News, GitHub, Reddit, Polymarket, dev.to, arXiv"),
+    ("name_device", "remember a name for a network device"),
+    ("network_scan", "list the devices on the local network"),
+    ("observe_app", "run a desktop program and watch its window"),
+    ("schedule", "run a task later or on a repeat"),
+    ("wifi_sense", "sense movement and breathing through WiFi, shown full screen"),
+];
 
 /// With more external tools than this, they are named only, and loaded on demand.
 const EAGER_EXTERNAL: usize = 8;
@@ -144,6 +164,9 @@ const BROWSER_IDLE: std::time::Duration = std::time::Duration::from_secs(120);
 /// Receives the pictures of a `browse` session as they are taken.
 pub type BrowseSink = Arc<dyn Fn(coturbo_browse::Frame) + Send + Sync>;
 
+/// Receives a `wifi_sense` run as it goes: start, readings, end.
+pub type SenseSink = Arc<dyn Fn(coturbo_net::sense::Event) + Send + Sync>;
+
 /// FNV-1a hash of file content, for cheap change detection.
 pub(crate) fn content_hash(s: &str) -> u64 {
     s.bytes().fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ b as u64).wrapping_mul(0x0100_0000_01b3))
@@ -171,7 +194,7 @@ fn arg<'a>(input: &'a Value, key: &str) -> Result<&'a str, String> {
 impl Tools {
     pub fn new(root: &Path, mode: Mode) -> Self {
         let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
-        Self { root, mode, lsp: None, native_checks: false, seen: std::sync::Mutex::new(std::collections::HashMap::new()), browse_sink: None, browse_live: Arc::new((0..MAX_BROWSE_WINDOWS).map(|_| Arc::default()).collect()), browse_window: Arc::new(|| false), background: std::sync::Mutex::new(Vec::new()), mcp: Arc::default(), loaded: std::sync::Mutex::default() }
+        Self { root, mode, lsp: None, native_checks: false, seen: std::sync::Mutex::new(std::collections::HashMap::new()), browse_sink: None, sense_sink: None, browse_live: Arc::new((0..MAX_BROWSE_WINDOWS).map(|_| Arc::default()).collect()), browse_window: Arc::new(|| false), background: std::sync::Mutex::new(Vec::new()), mcp: Arc::default(), loaded: std::sync::Mutex::default() }
     }
 
     /// Makes `browse` open a real window beside the terminal, with the agent's
@@ -191,6 +214,12 @@ impl Tools {
     /// Shows the pages `browse` visits: every picture goes to `sink`.
     pub fn with_browse_sink(mut self, sink: BrowseSink) -> Self {
         self.browse_sink = Some(sink);
+        self
+    }
+
+    /// Shows `wifi_sense` live: every event goes to `sink`.
+    pub fn with_sense_sink(mut self, sink: SenseSink) -> Self {
+        self.sense_sink = Some(sink);
         self
     }
 
@@ -386,6 +415,23 @@ impl Tools {
                 obj(json!({"query": s("what to search for")}), &["query"]),
             ),
             spec(
+                "last30days",
+                "What people actually said and did about a topic in the last days (30 by default): posts, threads, issues, new repositories, papers and prediction markets from Hacker News, GitHub, Polymarket, dev.to, arXiv and Reddit (with the user's Reddit API app), searched at the same time and ranked by engagement (points, reactions, comments, money traded). Use it for \"what's new with X\", \"what do people think of Y\", reactions to a launch, or before choosing a library. Then write a brief that links every claim.",
+                obj(
+                    json!({
+                        "topic": s("the topic, in a few words"),
+                        "days": {"type": "integer", "description": "how far back, 1-365 (default 30)"},
+                        "sources": {"type": "array", "items": {"type": "string", "enum": ["hackernews", "reddit", "github", "polymarket", "devto", "arxiv"]}, "description": "only these (default: all)"}
+                    }),
+                    &["topic"],
+                ),
+            ),
+            spec(
+                "wifi_sense",
+                "Sense people through WiFi, natively: whether someone is moving or still in the room, and their breathing rate when an ESP32 CSI node streams to this machine (UDP 5005). Without a node it uses this computer's or phone's own WiFi signal, which shows movement near the path to the router but not breathing. The user watches it live in a full-screen view and may close it early. Report the result as estimates.",
+                obj(json!({"seconds": {"type": "integer", "description": "how long to measure, 10-300 (default 30)"}}), &[]),
+            ),
+            spec(
                 "web_fetch",
                 "Read a web page as plain text (headings, paragraphs, lists, links), without opening a browser. For documentation, articles, API references and results from web_search. Use browse instead to interact with a page or see how it looks.",
                 obj(json!({"url": s("full http(s) address")}), &["url"]),
@@ -453,11 +499,13 @@ impl Tools {
             ]);
         }
         v.sort_by(|a, b| a.name.cmp(&b.name));
+        let loaded = self.loaded.lock().map(|l| l.clone()).unwrap_or_default();
+        v.retain(|t| !DEFERRED.iter().any(|(n, _)| *n == t.name) || loaded.contains(&t.name));
+        let mut waiting: Vec<String> = DEFERRED.iter().filter(|(n, _)| !loaded.contains(*n)).map(|(n, what)| format!("{n} ({what})")).collect();
         // External servers' tools come after, in a stable order. Many of them
         // are only named, behind tool_search, until the model asks for one.
         if let Some(m) = self.mcp.get() {
             let all = m.tools();
-            let loaded = self.loaded.lock().map(|l| l.clone()).unwrap_or_default();
             let eager = all.len() <= EAGER_EXTERNAL;
             let mut ext: Vec<ToolSpec> = all
                 .iter()
@@ -466,18 +514,19 @@ impl Tools {
                 .collect();
             ext.sort_by(|a, b| a.name.cmp(&b.name));
             v.extend(ext);
-            let mut waiting: Vec<String> = all.iter().map(|t| t.qualified()).filter(|q| !eager && !loaded.contains(q)).collect();
-            waiting.sort();
-            if !waiting.is_empty() {
-                v.push(spec(
-                    "tool_search",
-                    &format!(
-                        "Load external tools before calling them: only their names are listed here, to save tokens. Pass exact names (select) or words to search their names and descriptions; their full definitions are available from the next step on. Not loaded yet: {}",
-                        waiting.join(", ")
-                    ),
-                    obj(json!({"query": s("words to search, or select:name1,name2 for exact names")}), &["query"]),
-                ));
-            }
+            let mut external: Vec<String> = all.iter().map(|t| t.qualified()).filter(|q| !eager && !loaded.contains(q)).collect();
+            external.sort();
+            waiting.extend(external);
+        }
+        if !waiting.is_empty() {
+            v.push(spec(
+                "tool_search",
+                &format!(
+                    "Load tools before calling them: only their names are listed here, to save tokens. Pass exact names (select) or words to search their names and descriptions; their full definitions are available from the next step on. Not loaded yet: {}",
+                    waiting.join(", ")
+                ),
+                obj(json!({"query": s("words to search, or select:name1,name2 for exact names")}), &["query"]),
+            ));
         }
         v
     }
@@ -493,7 +542,28 @@ impl Tools {
     /// `tool_search`: marks the matching external tools as loaded.
     fn tool_search(&self, input: &Value) -> Res {
         let query = arg(input, "query")?.trim().to_lowercase();
-        let m = self.mcp.get().ok_or("no external tool servers are connected")?;
+        // Built-in tools first: by exact name, or by words in their line.
+        let words: Vec<String> = match query.strip_prefix("select:") {
+            Some(names) => names.split(',').map(|n| n.trim().to_string()).collect(),
+            None => query.split_whitespace().map(str::to_string).collect(),
+        };
+        let exact = query.starts_with("select:");
+        let own: Vec<&(&str, &str)> = DEFERRED
+            .iter()
+            .filter(|(n, what)| if exact { words.iter().any(|w| w == n) } else { words.iter().any(|w| n.contains(w.as_str()) || what.contains(w.as_str())) })
+            .collect();
+        if !own.is_empty() {
+            if let Ok(mut l) = self.loaded.lock() {
+                l.extend(own.iter().map(|(n, _)| n.to_string()));
+            }
+            let list: Vec<String> = own.iter().map(|(n, what)| format!("{n}: {what}")).collect();
+            if exact || self.mcp.get().is_none() {
+                return Ok(ToolOutput::ok(format!("Loaded; call them from the next step:
+{}", list.join("
+"))));
+            }
+        }
+        let Some(m) = self.mcp.get() else { return Err(format!("no tool matches `{query}`")) };
         let found: Vec<&coturbo_mcp::Tool> = if let Some(names) = query.strip_prefix("select:") {
             let want: Vec<&str> = names.split(',').map(str::trim).collect();
             m.tools().iter().filter(|t| want.contains(&t.qualified().to_lowercase().as_str())).collect()
@@ -511,13 +581,14 @@ impl Tools {
             scored.sort_by_key(|s| std::cmp::Reverse(s.0));
             scored.into_iter().take(8).map(|(_, t)| t).collect()
         };
-        if found.is_empty() {
-            return Err(format!("no external tool matches `{query}`"));
+        if found.is_empty() && own.is_empty() {
+            return Err(format!("no tool matches `{query}`"));
         }
         if let Ok(mut l) = self.loaded.lock() {
             l.extend(found.iter().map(|t| t.qualified()));
         }
-        let list: Vec<String> = found.iter().map(|t| format!("{}: {}", t.qualified(), t.description.chars().take(160).collect::<String>())).collect();
+        let mut list: Vec<String> = own.iter().map(|(n, what)| format!("{n}: {what}")).collect();
+        list.extend(found.iter().map(|t| format!("{}: {}", t.qualified(), t.description.chars().take(160).collect::<String>())));
         Ok(ToolOutput::ok(format!("Loaded; call them from the next step:\n{}", list.join("\n"))))
     }
 
@@ -783,9 +854,9 @@ impl Tools {
              with its empty, loading and error states.\n\
              Layout idea: {}.\nSignature element to build around: {}.\n\
              A composition you could follow or diverge from (make it yours):\n{}\n\
-             Classes: .container (centered, with side padding), .section, .grid (responsive), .cluster, .btn/.btn--primary/.btn--secondary, .panel, .card (hover lift), .tag.\n\
+             Classes: .container (centered, with side padding), .section, .grid (responsive), .cluster, .btn/.btn--primary/.btn--secondary, .panel, .card, .tag.\n\
              Animate sections: add class `reveal` and this script once per page: \
-             <script>addEventListener('DOMContentLoaded',()=>{{const o=new IntersectionObserver(es=>es.forEach(e=>e.isIntersecting&&e.target.classList.add('in')),{{threshold:0.12}});document.querySelectorAll('.reveal').forEach(el=>o.observe(el))}})</script> \
+             <script>document.documentElement.classList.add('js');addEventListener('DOMContentLoaded',()=>{{const o=new IntersectionObserver(es=>es.forEach(e=>e.isIntersecting&&e.target.classList.add('in')),{{threshold:0.12}});document.querySelectorAll('.reveal').forEach(el=>o.observe(el))}})</script> \
              Also `float`, `link-underline`, `data-animate=\"rise\"`.\n\
              For tables on small screens, wrap them so they stack or fit — never let content run off the edge.\n\
              Project ornament (inline SVG, colored by `color`, keep it behind content with the .ornament class):\n{}\nSection divider:\n{}\n\
@@ -968,6 +1039,17 @@ impl Tools {
             "recall" => memory::recall(&self.root, input),
             "forget" => memory::forget(&self.root, input),
             "web_fetch" => web::fetch(input).await,
+            "last30days" => research::tool(input).await,
+            "wifi_sense" => {
+                let secs = input["seconds"].as_u64().unwrap_or(30).clamp(10, 300) as f64;
+                let sink = self.sense_sink.clone();
+                let on = move |e: coturbo_net::sense::Event| {
+                    if let Some(s) = &sink {
+                        s(e);
+                    }
+                };
+                coturbo_net::sense::run(Some(secs), &on).await.map(|r| ToolOutput::ok(r.summary()))
+            }
             "name_device" => devices::name_device(input),
             _ => Err(format!("unknown tool: {name}")),
         };

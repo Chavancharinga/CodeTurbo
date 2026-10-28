@@ -2,7 +2,8 @@
 //! interface file. It flags what makes a page look machine-made (default
 //! fonts and palettes, emoji icons, identical card grids, the template
 //! section order, one radius everywhere) and what breaks the contract or
-//! accessibility. P0 and P1 block the task; P2 are advice.
+//! accessibility, plus Hallmark's gates ([`crate::hallmark`]). P0 and P1
+//! block the task; P2 are advice.
 
 use crate::color::{Rgb, contrast, hue_sat, parse_hex};
 use crate::contract::Contract;
@@ -476,6 +477,12 @@ pub fn check(path: &str, text: &str, contract: Option<&Contract>) -> Vec<Finding
         if order.len() >= 5 {
             add(Severity::P2, "template-sequence", 1, format!("sections in template order ({}): reorganise around the signature element", order.join(" → ")));
         }
+    }
+    let pieces: Vec<(usize, String)> = regions.iter().map(|r| (r.start, r.css.clone())).collect();
+    crate::hallmark::check_css(text, &pieces, &mut out);
+    if let Some(m) = markup(path, text) {
+        crate::hallmark::check_markup(text, &m, &mut out);
+        crate::hallmark::check_script(text, &mut out);
     }
     out.sort_by_key(|f| (f.severity, f.line));
     out

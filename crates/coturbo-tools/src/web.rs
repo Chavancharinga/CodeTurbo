@@ -7,7 +7,7 @@ use std::time::Duration;
 
 const MAX_PAGE: usize = 24_000;
 
-fn client() -> Result<reqwest::Client, String> {
+pub(crate) fn client() -> Result<reqwest::Client, String> {
     coturbo_providers::dns::client_builder()
         .timeout(Duration::from_secs(20))
         .user_agent("Mozilla/5.0 (compatible; CodeTurbo; +https://github.com/Chavancharinga/CodeTurbo)")
@@ -38,13 +38,13 @@ pub fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-fn percent_encode(s: &str) -> String {
+pub(crate) fn percent_encode(s: &str) -> String {
     s.bytes()
         .map(|b| if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") })
         .collect()
 }
 
-fn entities(s: &str) -> String {
+pub(crate) fn entities(s: &str) -> String {
     s.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&#39;", "'").replace("&#x27;", "'").replace("&nbsp;", " ")
 }
 
