@@ -22,6 +22,8 @@ pub const CSI_PORT: u16 = 5005;
 const CSI_MAGIC: u32 = 0xC511_0001;
 /// Seconds of samples kept.
 const KEEP: f64 = 60.0;
+/// What the machine sensing is called on screen.
+const HOST: &str = if cfg!(target_os = "android") { "phone" } else { "computer" };
 
 /// Set to stop a running sensing loop (the screen's `x`).
 static STOP: AtomicBool = AtomicBool::new(false);
@@ -519,9 +521,9 @@ impl Analyzer {
         let level = if csi { None } else { self.rssi.back().map(|s| s.value) };
         let source = match (csi, self.heard(now)) {
             (true, _) => format!("ESP32 CSI ({} node{})", self.nodes.len(), if self.nodes.len() == 1 { "" } else { "s" }),
-            (false, 0) => "this computer's WiFi".to_string(),
-            (false, 1) => "this computer's WiFi + 1 access point".to_string(),
-            (false, n) => format!("this computer's WiFi + {n} access points"),
+            (false, 0) => format!("this {HOST}'s WiFi"),
+            (false, 1) => format!("this {HOST}'s WiFi + 1 access point"),
+            (false, n) => format!("this {HOST}'s WiFi + {n} access points"),
         };
 
         let raw = self.raw_motion(now, csi);

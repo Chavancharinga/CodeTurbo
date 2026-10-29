@@ -1,7 +1,9 @@
 //! WiFi sensing in a window of its own on a desktop: a 3D view of the link
 //! and what disturbs it, served from this process and opened in the
 //! browser's app mode (maximized, but it can be minimized and dragged).
-//! Phones and machines without a browser keep the terminal view only.
+//! On a phone (Termux) the same view opens in the phone's browser, at a
+//! fixed address, while the terminal view stays; elsewhere without a
+//! browser, the terminal view only.
 
 use coturbo_net::sense::{self, Event, Reading};
 use serde_json::json;
@@ -19,11 +21,14 @@ struct State {
     /// When the page last asked for a reading.
     polled: Option<Instant>,
     map_file: std::path::PathBuf,
+    /// Whether the page going away ends the run: a desktop window, not a
+    /// phone's browser, which the user leaves and reloads freely.
+    closing_stops: bool,
 }
 
 impl State {
     fn new(map_file: std::path::PathBuf) -> Self {
-        State { reading: None, ended: false, polled: None, map_file }
+        State { reading: None, ended: false, polled: None, map_file, closing_stops: true }
     }
 }
 
@@ -93,7 +98,9 @@ async fn answer(mut sock: tokio::net::TcpStream, state: Arc<Mutex<State>>) {
             ("application/json", json!({ "reading": s.reading, "ended": s.ended }).to_string())
         }
         "/stop" | "/closed" => {
-            sense::stop();
+            if path == "/stop" || state.lock().map(|s| s.closing_stops).unwrap_or(true) {
+                sense::stop();
+            }
             ("application/json", "{}".to_string())
         }
         _ => ("text/plain", "not found".to_string()),
@@ -103,9 +110,15 @@ async fn answer(mut sock: tokio::net::TcpStream, state: Arc<Mutex<State>>) {
     let _ = sock.write_all(msg.as_bytes()).await;
 }
 
-/// Serves the view on a free local port; the task ends with the listener.
-async fn serve(state: Arc<Mutex<State>>) -> std::io::Result<(u16, tokio::task::JoinHandle<()>)> {
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await?;
+/// The address a phone's browser can keep: this port when it is free.
+const PHONE_PORT: u16 = 5006;
+
+/// Serves the view on `port` (0 for any free one); the task ends with the listener.
+async fn serve(state: Arc<Mutex<State>>, port: u16) -> std::io::Result<(u16, tokio::task::JoinHandle<()>)> {
+    let listener = match tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
+        Ok(l) => l,
+        Err(_) => tokio::net::TcpListener::bind(("127.0.0.1", 0)).await?,
+    };
     let port = listener.local_addr()?.port();
     let task = tokio::spawn(async move {
         while let Ok((sock, _)) = listener.accept().await {
@@ -121,6 +134,20 @@ fn desktop() -> bool {
         return false;
     }
     cfg!(any(windows, target_os = "macos")) || std::env::var_os("DISPLAY").is_some() || std::env::var_os("WAYLAND_DISPLAY").is_some()
+}
+
+/// Termux on Android: the view opens in the phone's browser.
+fn phone() -> bool {
+    std::env::var_os("CODETURBO_NO_WINDOW").is_none() && (cfg!(target_os = "android") || std::env::var_os("TERMUX_VERSION").is_some())
+}
+
+/// Opens the view in the phone's browser: Termux:API's opener, or Android's own.
+fn open_on_phone(port: u16) {
+    let url = format!("http://127.0.0.1:{port}/");
+    let quiet = |c: &mut std::process::Command| c.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status().is_ok_and(|s| s.success());
+    if !quiet(std::process::Command::new("termux-open-url").arg(&url)) {
+        quiet(std::process::Command::new("am").args(["start", "-a", "android.intent.action.VIEW", "-d", &url]));
+    }
 }
 
 fn launch(port: u16) -> Option<std::process::Child> {
@@ -143,12 +170,20 @@ fn launch(port: u16) -> Option<std::process::Child> {
 /// window on a desktop. Closing the window stops the measurement; the end
 /// of the measurement closes the window.
 pub async fn run(seconds: Option<f64>, on: &(dyn Fn(Event) + Send + Sync)) -> Result<Reading, String> {
-    if !desktop() {
+    let phone = phone();
+    if !desktop() && !phone {
         return sense::run(seconds, on).await;
     }
-    let state = Arc::new(Mutex::new(State::new(map_file())));
-    let Ok((port, server)) = serve(state.clone()).await else { return sense::run(seconds, on).await };
-    let mut child = launch(port);
+    let state = Arc::new(Mutex::new(State { closing_stops: !phone, ..State::new(map_file()) }));
+    let Ok((port, server)) = serve(state.clone(), if phone { PHONE_PORT } else { 0 }).await else { return sense::run(seconds, on).await };
+    // On a phone the browser is another app the user switches to and from,
+    // so only the terminal view ends the run; a desktop window ends it too.
+    let mut child = if phone {
+        tokio::task::spawn_blocking(move || open_on_phone(port));
+        None
+    } else {
+        launch(port)
+    };
     let watch = {
         let state = state.clone();
         tokio::spawn(async move {
@@ -172,13 +207,17 @@ pub async fn run(seconds: Option<f64>, on: &(dyn Fn(Event) + Send + Sync)) -> Re
             }
         })
     };
-    let feed = |e: Event| {
+    let feed = |mut e: Event| {
         if let Ok(mut s) = state.lock() {
             match &e {
                 Event::Reading(r) => s.reading = Some(reading_json(r)),
                 Event::End => s.ended = true,
                 Event::Start => {}
             }
+        }
+        // The terminal says where the view is, for a browser that did not open.
+        if phone && let Event::Reading(r) = &mut e {
+            r.source = format!("3D view: 127.0.0.1:{port} · {}", r.source);
         }
         on(e);
     };
@@ -208,7 +247,7 @@ mod tests {
         let map = std::env::temp_dir().join(format!("codeturbo-sense-map-{}.json", std::process::id()));
         let _ = std::fs::remove_file(&map);
         let state = Arc::new(Mutex::new(State::new(map.clone())));
-        let (port, server) = serve(state.clone()).await.unwrap();
+        let (port, server) = serve(state.clone(), 0).await.unwrap();
         let page = get(port, "/").await;
         assert!(page.starts_with("HTTP/1.1 200") && page.contains("<canvas id=\"scene\""));
         assert!(get(port, "/reading").await.ends_with("{\"ended\":false,\"reading\":null}"));

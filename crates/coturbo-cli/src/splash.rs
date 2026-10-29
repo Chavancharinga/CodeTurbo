@@ -523,6 +523,18 @@ pub fn pixels_mood(snail: usize, typed: usize, width: usize, mood: Mood) -> Vec<
     canvas_mood(SNAIL, snail, track_for(SNAIL, width), (typed / 2).min(NAME.len()), mood)
 }
 
+/// "Turbo" in a 4×7 pixel font: the big letters' height on a narrower phone.
+fn narrow_glyph(c: char) -> [&'static str; 7] {
+    match c.to_ascii_lowercase() {
+        't' => ["####", ".##.", ".##.", ".##.", ".##.", ".##.", ".##."],
+        'u' => ["....", "....", "#..#", "#..#", "#..#", "#..#", ".###"],
+        'r' => ["....", "....", "#.##", "##..", "#...", "#...", "#..."],
+        'b' => ["#...", "#...", "###.", "#..#", "#..#", "#..#", "###."],
+        'o' => ["....", "....", ".##.", "#..#", "#..#", "#..#", ".##."],
+        _ => ["...."; 7],
+    }
+}
+
 /// "codeturbo" in a 3×5 pixel font, for the phone-sized logo.
 fn mini_glyph(c: char) -> [&'static str; 5] {
     match c.to_ascii_lowercase() {
@@ -540,16 +552,18 @@ fn mini_glyph(c: char) -> [&'static str; 5] {
 
 
 /// The phone-sized logo (and always on Termux): only "turbo", with the
-/// snail running ahead of it. The big letters when they fit, small ones on a
-/// very narrow screen. `None` when even that does not fit.
+/// snail running ahead of it. The big letters when they fit, then narrower
+/// ones of the same height, small ones on a very narrow screen. `None` when
+/// even that does not fit.
 pub fn compact_pixels(snail: usize, width: usize, mood: Mood) -> Option<Vec<Vec<Option<Rgb>>>> {
     let word: Vec<char> = NAME.chars().skip(SPLIT).collect();
-    let big_w = word.len() * 6 - 1;
-    let small_w = word.len() * 4 - 1;
+    // Pitch per letter for each font, widest first.
+    let fonts = [6, 5, 4];
     // The trail starts with empty pixels, so one column is enough between them.
-    let big = width >= 2 + big_w + 1 + SNAIL.width;
-    let gap = if big { 1 } else { 2 };
-    let name_w = if big { big_w } else { small_w };
+    let fits = |pitch: usize, gap: usize| width >= 2 + word.len() * pitch - 1 + gap + SNAIL.width;
+    let pitch = fonts.into_iter().find(|&p| fits(p, if p == 4 { 2 } else { 1 })).unwrap_or(4);
+    let gap = if pitch == 4 { 2 } else { 1 };
+    let name_w = word.len() * pitch - 1;
     let room = width.checked_sub(2 + name_w + gap)?;
     if room < SNAIL.width {
         return None;
@@ -560,8 +574,11 @@ pub fn compact_pixels(snail: usize, width: usize, mood: Mood) -> Option<Vec<Vec<
     let color = mood.body();
     for (n, &ch) in word.iter().enumerate() {
         // The word sits on the snail's foot line, like the full logo.
-        let rows: Vec<&str> = if big { glyph(ch).to_vec() } else { mini_glyph(ch).to_vec() };
-        let pitch = if big { 6 } else { 4 };
+        let rows: Vec<&str> = match pitch {
+            6 => glyph(ch).to_vec(),
+            5 => narrow_glyph(ch).to_vec(),
+            _ => mini_glyph(ch).to_vec(),
+        };
         let top = (h - 2 + 1).saturating_sub(rows.len());
         for (gy, row) in rows.iter().enumerate() {
             for (gx, c) in row.bytes().enumerate() {
