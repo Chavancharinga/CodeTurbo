@@ -57,7 +57,7 @@
 </style>
 </head>
 <body>
-<canvas id="scene" aria-label="3D view of the room as the WiFi sees it"></canvas>
+<canvas id="scene" aria-label="3D view of the room and the movement the WiFi measured"></canvas>
 <header><h1><b>~</b> CodeTurbo</h1><p class="mono">WIFI SENSING OBSERVATORY</p></header>
 <div class="top"><span class="chip mono" id="live"><i></i>LIVE</span><span class="chip mono" id="demo" hidden style="color: var(--amber); border-color: var(--amber)">DEMO: simulated</span><span class="chip" id="src">listening</span><button id="mapbtn" type="button">Map the room</button><button id="stop" type="button">Stop</button></div>
 <div class="mapbar" id="mapbar"><p id="maptext"></p><button id="mapclear" type="button">Clear map</button><button id="mapdone" type="button">Done</button></div>
@@ -92,7 +92,7 @@
   <div class="badge mono" id="badge">LEARNING</div>
 </section>
 
-<p class="note">Estimates from WiFi: coarse, not a camera, not a medical measurement. This computer's WiFi tells how much moves; where you stand only shows once the room is mapped: stand still at a few spots and the figure goes to the spot whose signal matches best (a few metres off, seconds late). The pose is drawn, not measured: that needs three or more ESP32 nodes. The router moves closer or farther as its signal changes; the distance is not in metres.</p>
+<p class="note">Estimates from WiFi: coarse, not a camera, not a medical measurement. This computer's WiFi tells how much moves, not a body's shape: the green cloud is that movement, spread along the link. Map the room (stand still at a few spots) and it sits at the spot whose signal matches best, a few metres off and seconds late. A shape needs ESP32 CSI nodes around the room and a trained model, and even then gives a stick skeleton, not an exact body. The router moves closer or farther as its signal changes; the distance is not in metres.</p>
 <div class="keys mono"><span>[drag] orbit</span><span>[scroll] zoom</span><span>[m] map</span><span>[space] pause</span><span>[d] demo</span><span>[x] stop</span></div>
 <div class="tag" id="tag-pc">this computer</div><div class="tag" id="tag-rt">router</div><div class="tag" id="tag-me" style="color: var(--green)"></div>
 <div class="toast" id="toast">The link changed: the computer or the router moved</div>
@@ -170,37 +170,14 @@ const linkGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), n
 scene.add(new THREE.Line(linkGeo, new THREE.LineBasicMaterial({ color: 0x4d8dff, transparent: true, opacity: 0.8 })));
 const packets = [0, 1, 2, 3, 4].map(() => { const p = new THREE.Mesh(new THREE.SphereGeometry(0.035), new THREE.MeshBasicMaterial({ color: 0x8fb4ff })); scene.add(p); return p; });
 
-// The person: a plain smooth mannequin, jointed so it can walk and breathe.
-const skin = new THREE.MeshStandardMaterial({ color: 0xd9dee8, roughness: 0.38, metalness: 0.05, transparent: true });
-const joint = (parent, x, y, z) => { const g = new THREE.Group(); g.position.set(x, y, z); parent.add(g); return g; };
-const limb = (parent, r, len, y) => add(parent, new THREE.CapsuleGeometry(r, len, 6, 16), skin, 0, y, 0);
-const person = new THREE.Group(); scene.add(person);
-const pelvis = joint(person, 0, 0.94, 0);
-add(pelvis, new THREE.SphereGeometry(0.15, 24, 16), skin).scale.set(1.15, 0.75, 0.8);
-const spine = joint(pelvis, 0, 0.06, 0);
-const chest = add(spine, new THREE.CapsuleGeometry(0.15, 0.26, 8, 20), skin, 0, 0.26, 0);
-chest.scale.set(1.2, 1, 0.75);
-add(spine, new THREE.CylinderGeometry(0.045, 0.05, 0.1, 16), skin, 0, 0.53, 0);
-const head = add(spine, new THREE.SphereGeometry(0.105, 32, 24), skin, 0, 0.67, 0.01);
-head.scale.set(0.9, 1.12, 0.98);
-const arm = side => {
-  const sh = joint(spine, side * 0.22, 0.44, 0);
-  limb(sh, 0.048, 0.22, -0.14);
-  const el = joint(sh, 0, -0.29, 0);
-  limb(el, 0.04, 0.2, -0.12);
-  add(el, new THREE.SphereGeometry(0.045, 16, 12), skin, 0, -0.27, 0.01).scale.set(0.8, 1.2, 0.6);
-  return [sh, el];
-};
-const leg = side => {
-  const hip = joint(pelvis, side * 0.095, -0.04, 0);
-  limb(hip, 0.068, 0.3, -0.2);
-  const knee = joint(hip, 0, -0.43, 0);
-  limb(knee, 0.052, 0.3, -0.2);
-  add(knee, new THREE.BoxGeometry(0.09, 0.05, 0.22, 2, 2, 2), skin, 0, -0.42, 0.05);
-  return [hip, knee];
-};
-const [shL, elL] = arm(-1), [shR, elR] = arm(1), [hipL, kneeL] = leg(-1), [hipR, kneeR] = leg(1);
-const setOpacity = o => { skin.opacity = o; skin.depthWrite = o > 0.98; person.visible = o > 0.01; };
+// What the WiFi measured: not a body (a computer's WiFi cannot see one) but
+// a cloud of disturbance, as big and bright as the measured motion.
+const CLOUD = 700;
+const cloudPos = new Float32Array(CLOUD * 3), seeds = Float32Array.from({ length: CLOUD * 3 }, () => Math.random() * 2 - 1);
+const cloudGeo = new THREE.BufferGeometry();
+cloudGeo.setAttribute('position', new THREE.BufferAttribute(cloudPos, 3));
+const cloudMat = new THREE.PointsMaterial({ color: 0xb4ffd2, size: 0.1, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
+const cloud = new THREE.Points(cloudGeo, cloudMat); scene.add(cloud);
 
 // Orbit: drag to turn, scroll to zoom.
 let yaw = -0.45, pitch = 0.42, zoom = 1, drag = false, lx = 0, ly = 0, idle = 0, paused = false, demo = false;
@@ -230,13 +207,8 @@ const START = 5;
 let base = null;
 const distanceFrom = dbm => { base ??= dbm; return Math.min(14, Math.max(1.5, START * Math.pow(10, (base - dbm) / 30))); };
 
-let r = null, t = 0, walk = 0, heading = 0, amp = 0, shown = 0, dist = START, slow = START, toastUntil = 0;
-const pos = new THREE.Vector3(), tmp = new THREE.Vector3(), to = new THREE.Vector3(), goal = new THREE.Vector3(1.5, 0, 1.5);
-// Somewhere else in the room, all around, clear of the desk and the router.
-const pickGoal = () => {
-  do goal.set((Math.random() * 2 - 1) * 6, 0, (Math.random() * 2 - 1) * 4);
-  while (Math.abs(Math.abs(goal.x) - dist / 2) < 1.1 && Math.abs(goal.z) < 1.1);
-};
+let r = null, t = 0, shown = 0, level = 0, dist = START, slow = START, toastUntil = 0;
+const pos = new THREE.Vector3(), tmp = new THREE.Vector3();
 const label = (id, v, text) => {
   tmp.copy(v).project(camera);
   const el = $(id);
@@ -253,7 +225,7 @@ const sample = () => {
 };
 
 // The room map: spots the user stood still at and each path's level there.
-// Live, the figure goes to the spots whose levels match the current ones best
+// Live, the cloud sits at the spots whose levels match the current ones best
 // (the nearest three, weighted): a body in the room bends and blocks the
 // paths differently at each spot. Coarse: a few metres, and seconds behind.
 let map = { points: [] }, mapping = false, capture = null, found = null;
@@ -318,7 +290,7 @@ const frame = () => {
   const dt = Math.min(0.1, clock.getDelta());
   if (!paused) { t += dt; idle += dt; if (!drag && idle > 5 && !reduce) yaw += dt * 0.05; }
   const s = sample(), motion = s ? s.motion : 0, pres = s ? s.presence : 'learning';
-  const here = pres === 'moving' || pres === 'still', moving = pres === 'moving';
+  const moving = pres === 'moving';
 
   // Where the computer and router stand, from the measured level.
   // While mapped, the router stays where it stood when the spots were taken.
@@ -342,59 +314,34 @@ const frame = () => {
   });
   led.material.color.setHex((t * 4 | 0) % 3 ? 0x54e08a : 0x1a3a26);
 
-  // The person: wanders the whole room while there is movement, the pace
-  // following the measured motion; stands and breathes when still. Where
-  // they walk is illustrative: one computer's WiFi cannot place anyone.
-  // With a room map it heads for the matched spot instead, walking while it
-  // has ground to cover; on the ring while a spot is being mapped.
-  shown += ((here || capture || (mapped && found) ? 1 : 0) - shown) * Math.min(1, dt * 2.5);
-  const target = capture ? fixed.set(capture.x, 0, capture.z) : mapped && found ? fixed.set(found.x, 0, found.z) : null;
-  if (target) {
-    to.copy(target).sub(pos);
-    const left = to.length(), going = left > 0.25;
-    amp += ((going ? Math.min(1, 0.4 + left * 0.4) : Math.min(0.25, motion)) - amp) * Math.min(1, dt * 3);
-    if (!paused && going) {
-      pos.add(to.setLength(Math.min(left, dt * 1.4)));
-      let turn = Math.atan2(target.x - pos.x, target.z - pos.z) - heading;
-      turn = Math.atan2(Math.sin(turn), Math.cos(turn));
-      heading += turn * Math.min(1, dt * 5);
-    }
-    if (!paused) walk += dt * (0.4 + amp) * 5.5;
-  } else amp += ((moving ? Math.min(1, 0.3 + motion * 3) : 0) - amp) * Math.min(1, dt * 3);
-  const speed = 0.4 + amp * 1.0;
-  if (!target && !paused && !reduce && amp > 0.02) {
-    to.copy(goal).sub(pos);
-    if (to.length() < 0.3) pickGoal();
-    else pos.add(to.setLength(Math.min(to.length(), dt * speed * amp)));
-    let turn = Math.atan2(goal.x - pos.x, goal.z - pos.z) - heading;
-    turn = Math.atan2(Math.sin(turn), Math.cos(turn));
-    heading += turn * Math.min(1, dt * 4);
-    walk += dt * speed * 5.5;
+  // The cloud: with a room map, at the matched spot; without one, spread
+  // along the link, since that is all a single link can say. It shows only
+  // while something moves; an empty room stays dark.
+  level += ((moving ? Math.max(0.15, motion) : 0) - level) * Math.min(1, dt * 3);
+  shown += ((moving || capture ? 1 : 0) - shown) * Math.min(1, dt * 2.5);
+  const placed = capture ? [capture.x, capture.z] : mapped && found ? [found.x, found.z] : null;
+  if (placed) pos.lerp(tmp.set(placed[0], 0, placed[1]), Math.min(1, dt * 1.5));
+  else pos.lerp(tmp.set(0, 0, 0), Math.min(1, dt * 1.5));
+  const wide = placed ? 0.5 + level * 0.6 : dist / 2, deep = 0.5 + level * 0.6;
+  for (let i = 0; i < CLOUD; i++) {
+    const jx = seeds[i * 3], jy = seeds[i * 3 + 1], jz = seeds[i * 3 + 2];
+    const wob = reduce || paused ? 0 : Math.sin(t * (2 + level * 6) + i) * 0.08 * level;
+    cloudPos[i * 3] = pos.x + jx * wide + wob;
+    cloudPos[i * 3 + 1] = 0.15 + (jy * 0.5 + 0.5) * (0.6 + level * 1.4);
+    cloudPos[i * 3 + 2] = pos.z + jz * deep * Math.sqrt(1 - Math.min(1, jx * jx) * (placed ? 0.6 : 0)) + wob;
   }
-  person.position.copy(pos);
-  person.rotation.y = heading;
-  const sw = Math.sin(walk) * amp;
-  hipL.rotation.x = -sw * 0.5; hipR.rotation.x = sw * 0.5;
-  kneeL.rotation.x = Math.max(0, Math.sin(walk + 1.4)) * 0.9 * amp;
-  kneeR.rotation.x = Math.max(0, Math.sin(walk + 1.4 + Math.PI)) * 0.9 * amp;
-  shL.rotation.x = sw * 0.45; shR.rotation.x = -sw * 0.45;
-  shL.rotation.z = -0.08; shR.rotation.z = 0.08;
-  elL.rotation.x = -0.25 - amp * 0.2; elR.rotation.x = -0.25 - amp * 0.2;
-  pelvis.position.y = 0.94 + Math.abs(Math.cos(walk)) * 0.025 * amp;
-  const bpm = s && s.breathing ? s.breathing[0] : 14;
-  const breath = reduce ? 0 : Math.sin(t * Math.PI * 2 * bpm / 60);
-  chest.scale.set(1.2 + breath * 0.025, 1 + breath * 0.01, 0.75 + breath * 0.035);
-  spine.rotation.x = 0.04 * amp;
-  setOpacity(shown);
-  glow.position.set(pos.x, 1.2, pos.z); glow.intensity = shown * (1 + motion * 6);
+  cloudGeo.attributes.position.needsUpdate = true;
+  cloudMat.opacity = shown * (capture ? 0.35 : 0.25 + level * 0.75);
+  cloud.visible = shown > 0.01;
+  glow.position.set(pos.x, 1.2, pos.z); glow.intensity = shown * level * 6;
 
-  // Tiles light near the path, and most around the person while they move.
+  // Tiles light near the path, and most where the movement is.
   for (let i = 0; i < NX; i++) for (let k = 0; k < NZ; k++) {
     const x = (i - (NX - 1) / 2) * STEP, z = (k - (NZ - 1) / 2) * STEP;
     const nearPath = Math.abs(x) < dist / 2 ? Math.exp(-z * z / 1.6) : Math.exp(-(z * z + (Math.abs(x) - dist / 2) ** 2) / 1.6);
-    const nearMe = Math.exp(-((x - pos.x) ** 2 + (z - pos.z) ** 2) / 0.9);
+    const nearMe = placed ? Math.exp(-((x - pos.x) ** 2 + (z - pos.z) ** 2) / 0.9) : 0;
     const ripple = reduce ? 0.5 : 0.5 + 0.5 * Math.sin(t * 4 - Math.hypot(x - pos.x, z - pos.z) * 2.2);
-    const heat = Math.min(1, nearPath * 0.12 + shown * (nearPath * motion * 0.6 + nearMe * (0.25 + motion) * (0.55 + 0.45 * ripple)));
+    const heat = Math.min(1, nearPath * 0.12 + shown * (nearPath * level * (placed ? 0.3 : 0.9) + nearMe * (0.25 + level) * (0.55 + 0.45 * ripple)));
     tiles.setColorAt(i * NZ + k, col.copy(dark).lerp(lit, heat));
   }
   tiles.instanceColor.needsUpdate = true;
@@ -408,7 +355,7 @@ const frame = () => {
   label('tag-pc', tmp.set(-dist / 2, 1.35, 0), s && s.csi ? 'ESP32 node' : 'this computer');
   label('tag-rt', tmp.set(dist / 2, 1.45, 0), (s && s.csi ? 'transmitter' : 'router') + (Math.abs(dist - START) > 0.4 ? (dist < START ? ' · closer than at the start' : ' · farther than at the start') : ''));
   $('tag-me').style.opacity = shown;
-  label('tag-me', tmp.set(pos.x, 2.05, pos.z), capture ? 'mapping this spot' : mapped && found ? 'you, by the room map · best match ' + found.d.toFixed(1) + ' dB off' : moving ? 'movement detected · place illustrative (map the room)' : 'someone still');
+  label('tag-me', tmp.set(pos.x, 1.9 + level, pos.z), capture ? 'mapping this spot' : mapped && found ? 'movement near this mapped spot · ' + found.d.toFixed(1) + ' dB off' : 'movement on the link · where is unknown (map the room)');
   requestAnimationFrame(frame);
 };
 requestAnimationFrame(frame);

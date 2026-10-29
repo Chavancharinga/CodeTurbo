@@ -302,8 +302,10 @@ pub struct Analyzer {
     aps: std::collections::BTreeMap<[u8; 6], VecDeque<(f64, f64)>>,
     csi: VecDeque<Sample>,
     nodes: std::collections::BTreeSet<u8>,
-    /// The quietest motion seen: the empty room.
+    /// The empty room's raw motion, from `raws`.
     floor: Option<f64>,
+    /// Raw motion over the last two minutes: `(time, value)`.
+    raws: VecDeque<(f64, f64)>,
     motions: VecDeque<(f64, f64)>,
     last_motion_at: Option<f64>,
 }
@@ -472,14 +474,20 @@ impl Analyzer {
         };
 
         let raw = self.raw_motion(now, csi);
-        // The floor rises slowly (a room changes) and drops at once to a quieter reading.
+        // The empty room: the lower quarter of the last two minutes, so a few
+        // minutes of movement do not become the floor. Never under the noise
+        // of 1 dB steps: drivers round RSSI to whole dB, and a level flipping
+        // between two values (-42, -43) spreads up to 0.58 dB with no one there.
         if let Some(r) = raw {
-            self.floor = Some(match self.floor {
-                Some(f) if r < f => r,
-                Some(f) => f + (r - f) * 0.002,
-                None => r,
-            });
+            self.raws.push_back((now, r));
         }
+        while self.raws.front().is_some_and(|x| now - x.0 > 120.0) {
+            self.raws.pop_front();
+        }
+        let mut sorted: Vec<f64> = self.raws.iter().map(|x| x.1).collect();
+        sorted.sort_by(f64::total_cmp);
+        let noise = if csi { 0.0 } else { 0.6 };
+        self.floor = (!sorted.is_empty()).then(|| sorted[sorted.len() / 4].max(noise));
         // How far above the empty room: CSI in relative change, RSSI in dB.
         let scale = if csi { 0.05 } else { 1.5 };
         let motion = match (raw, self.floor) {
@@ -501,7 +509,7 @@ impl Analyzer {
         };
         let presence = if seconds < 5.0 || raw.is_none() {
             Presence::Learning
-        } else if self.last_motion_at.is_some_and(|t| now - t < 15.0) {
+        } else if self.last_motion_at.is_some_and(|t| now - t < 8.0) {
             Presence::Moving
         } else if breath.is_some() {
             Presence::Still
@@ -698,6 +706,23 @@ mod tests {
     }
 
     #[test]
+    fn whole_db_flips_of_an_empty_room_are_not_movement() {
+        // Recorded in an empty room: the driver's level flips between -42 and
+        // -43 and the scans between -54 and -55, nobody there.
+        let mut a = Analyzer::default();
+        let ap = [1; 6];
+        for i in 0..360 {
+            let t = f64::from(i) * 0.25;
+            a.push_rssi(t, if (i / 7) % 2 == 0 { -42.0 } else { -43.0 });
+            if i % 8 == 0 {
+                a.push_scan(t, &[(ap, if (i / 16) % 2 == 0 { -54.0 } else { -55.0 })]);
+            }
+            let r = a.reading(t, t);
+            assert_ne!(r.presence, Presence::Moving, "at {t}: {r:?}");
+        }
+    }
+
+    #[test]
     fn breathing_is_found_in_a_still_signal() {
         // 15 breaths a minute (0.25 Hz), sampled at 10 Hz for 30 s, with noise.
         let pts: Vec<(f64, f64)> = (0..300).map(|i| {
@@ -728,6 +753,28 @@ mod tests {
         assert_eq!(r.presence, Presence::Moving, "{r:?}");
         assert!(r.motion > 0.5 && r.summary().contains("someone is moving"));
         assert!(r.summary().contains("needs CSI"));
+    }
+
+    /// An empty room through the WLAN API for 90 s, a line a second:
+    /// `cargo test -p coturbo-net live_empty_room -- --ignored --nocapture`.
+    #[cfg(windows)]
+    #[test]
+    #[ignore]
+    fn live_empty_room() {
+        let an = std::sync::Arc::new(std::sync::Mutex::new(Analyzer::default()));
+        let t0 = Instant::now();
+        let native = native_wifi(an.clone(), t0).expect("WLAN API");
+        while t0.elapsed().as_secs_f64() < 90.0 {
+            std::thread::sleep(Duration::from_secs(1));
+            let now = t0.elapsed().as_secs_f64();
+            let mut a = an.lock().unwrap();
+            let raw = a.raw_motion(now, false);
+            let r = a.reading(now, now);
+            let fp: Vec<String> = r.fingerprint.iter().map(|(k, v)| format!("{}={v:.1}", &k[k.len().saturating_sub(2)..])).collect();
+            println!("{now:5.1} raw {raw:?} motion {:.2} {:?} {}", r.motion, r.presence, fp.join(" "));
+        }
+        STOP.store(true, Ordering::SeqCst);
+        native.join().unwrap();
     }
 
     /// This machine's WiFi for 12 s: `cargo test -p coturbo-net live_wifi -- --ignored --nocapture`.
