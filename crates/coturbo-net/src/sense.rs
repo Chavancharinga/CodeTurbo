@@ -217,15 +217,21 @@ fn bounded(cmd: &str, args: &[&str], secs: u64) -> Result<Option<String>, bool> 
         .args(args)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
         .spawn()
         .map_err(|e| e.kind() == std::io::ErrorKind::NotFound)?;
     let until = Instant::now() + Duration::from_secs(secs);
     loop {
         match child.try_wait() {
             Ok(Some(_)) => {
+                // Both streams: some tools explain themselves on either.
                 let mut out = String::new();
-                let _ = std::io::Read::read_to_string(&mut child.stdout.take().ok_or(false)?, &mut out);
+                if let Some(mut o) = child.stdout.take() {
+                    let _ = std::io::Read::read_to_string(&mut o, &mut out);
+                }
+                if let Some(mut e) = child.stderr.take() {
+                    let _ = std::io::Read::read_to_string(&mut e, &mut out);
+                }
                 return Ok(Some(out));
             }
             Ok(None) if Instant::now() < until => std::thread::sleep(Duration::from_millis(50)),
@@ -249,6 +255,9 @@ pub fn host_wifi() -> Result<f64, String> {
     let termux = std::env::var_os("TERMUX_VERSION").is_some() || cfg!(target_os = "android");
     // Termux on Android: the Termux:API app and its `termux-api` package.
     match bounded("termux-wifi-connectioninfo", &[], 6) {
+        // Termux from Google Play has no Termux:API yet, and the API app only
+        // pairs with a Termux from the same source (F-Droid or GitHub).
+        Ok(Some(out)) if out.contains("Google Play") => Err("Termux from Google Play cannot read the WiFi yet (no Termux:API there): install Termux and Termux:API both from F-Droid or both from GitHub".to_string()),
         Ok(Some(out)) => {
             let j: serde_json::Value = serde_json::from_str(&out).map_err(|_| "Termux:API gave no WiFi reading".to_string())?;
             j["rssi"].as_f64().filter(|r| *r < 0.0 && *r > -127.0).ok_or_else(|| "this phone is not on WiFi".to_string())
