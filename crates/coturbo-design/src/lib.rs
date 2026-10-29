@@ -9,6 +9,7 @@ pub mod compiler;
 pub mod contract;
 pub mod extract;
 pub mod fiscal;
+pub mod grid;
 pub mod hallmark;
 pub mod kit;
 pub mod render;

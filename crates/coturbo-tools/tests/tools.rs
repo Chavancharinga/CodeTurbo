@@ -590,3 +590,23 @@ async fn background_jobs_are_listed_read_and_stopped() {
     assert!(!stop.is_error, "{}", stop.content);
     assert_eq!(tools.call("jobs", &serde_json::json!({"action": "list"})).await.content, "No background jobs.");
 }
+
+#[tokio::test]
+async fn layout_grid_places_the_elements_on_every_screen() {
+    let dir = tempfile::tempdir().unwrap();
+    let t = Tools::new(dir.path(), Mode::Ast);
+    assert_eq!(coturbo_tools::tier("layout_grid"), coturbo_tools::Tier::Write);
+    let page = json!({"elements": [
+        {"id": "title", "kind": "title"},
+        {"id": "intro", "kind": "text"},
+        {"id": "photo", "kind": "image"},
+        {"id": "buy", "kind": "button", "new_row": true}
+    ]});
+    let out = t.call("layout_grid", &page).await;
+    assert!(!out.is_error, "{}", out.content);
+    assert!(out.content.contains("phone 390px: 4 columns") && out.content.contains("desktop 1440px: 16 columns"), "{}", out.content);
+    let css = read(dir.path(), "codeturbo-grid.css");
+    assert!(css.contains(".layout { display: grid;") && css.contains("#photo {") && css.contains("@media (min-width: 1200px)"), "{css}");
+    assert!(read(dir.path(), "layout-preview.html").contains("Layout grid"));
+    assert!(t.call("layout_grid", &json!({"elements": []})).await.is_error);
+}

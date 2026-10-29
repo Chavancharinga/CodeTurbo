@@ -59,7 +59,7 @@ pub fn tier(name: &str) -> Tier {
         "read_file" | "read_symbol" | "list_files" | "grep" | "workspace_diagnostics" | "propose_plan" | "tasks" | "network_scan" | "tool_search" | "web_search" | "web_fetch" | "agent" | "recall" | "skill" | "lsp" | "ask_user" | "ci" | "jobs" | "last30days" | "wifi_sense" => Tier::Read,
         "remember" | "forget" | "schedule" => Tier::Write,
         "name_device" => Tier::Write,
-        n if EDIT_TOOLS.contains(&n) || n == "design_brief" => Tier::Write,
+        n if EDIT_TOOLS.contains(&n) || n == "design_brief" || n == "layout_grid" => Tier::Write,
         "design_review" => Tier::Read,
         _ => Tier::Exec,
     }
@@ -111,13 +111,14 @@ pub struct Tools {
 /// Built-in tools for particular jobs, named with one line until the model
 /// loads them with tool_search: their full definitions stay out of every
 /// request that does not need them.
-pub const DEFERRED: [(&str, &str); 11] = [
+pub const DEFERRED: [(&str, &str); 12] = [
     ("browse", "drive a real browser: open pages, click, type, read, screenshots, console and requests"),
     ("ci", "GitHub Actions of the branch: status, failed logs, wait for a run"),
     ("device", "control a TV, speaker, light, plug, printer or router on the local network"),
     ("device_control", "call a network device's own HTTP or UPnP API"),
     ("investigate", "reverse-engineer a website, JS/Electron app, binary, APK or SQLite database"),
     ("last30days", "what people said about a topic lately: Hacker News, GitHub, Reddit, Polymarket, dev.to, arXiv"),
+    ("layout_grid", "lay a page out on an even grid per screen (phone, tablet, desktop) so nothing overlaps"),
     ("name_device", "remember a name for a network device"),
     ("network_scan", "list the devices on the local network"),
     ("observe_app", "run a desktop program and watch its window"),
@@ -285,6 +286,28 @@ impl Tools {
                         "new_palette": {"type": "boolean", "description": "true only if the user asked to replace the brand colors"}
                     }),
                     &["subject", "audience", "tone", "signature"],
+                ),
+            ),
+            spec(
+                "layout_grid",
+                "Lay a page out on an even grid before writing its HTML: the screen's exact width, less 8 px-multiple side margins, halved until the modules are a finger wide (4 columns on a phone, 8 on a tablet, 16 on a desktop). List the page's elements in reading order; each takes whole cells by its kind and screen, packed into the first free place after the one before, so nothing overlaps. Writes codeturbo-grid.css (one block per screen, each element placed by its id) and layout-preview.html, and returns the map of each screen. Put the elements straight inside <div class=\"layout\">, each with its id.",
+                obj(
+                    json!({
+                        "elements": {
+                            "type": "array",
+                            "description": "the page's pieces in reading order",
+                            "items": obj(
+                                json!({
+                                    "id": s("CSS id, e.g. hero-title"),
+                                    "kind": s("nav, title, text, image, button, card, label or other"),
+                                    "share": {"type": "number", "description": "its share of a row, 0-1, to override the kind's own (e.g. 0.5 for half)"},
+                                    "new_row": {"type": "boolean", "description": "start a new row instead of sitting beside the one before"}
+                                }),
+                                &["id", "kind"],
+                            )
+                        }
+                    }),
+                    &["elements"],
                 ),
             ),
             spec(
@@ -855,6 +878,7 @@ impl Tools {
              with its empty, loading and error states.\n\
              Layout idea: {}.\nSignature element to build around: {}.\n\
              A composition you could follow or diverge from (make it yours):\n{}\n\
+             Lay the page out with layout_grid first (load it with tool_search): an even grid per screen, every element in whole cells, nothing on top of another.\n\
              Classes: .container (centered, with side padding), .section, .grid (responsive), .cluster, .btn/.btn--primary/.btn--secondary, .panel, .card, .tag.\n\
              Animate sections: add class `reveal` and this script once per page: \
              <script>document.documentElement.classList.add('js');addEventListener('DOMContentLoaded',()=>{{const o=new IntersectionObserver(es=>es.forEach(e=>e.isIntersecting&&e.target.classList.add('in')),{{threshold:0.12}});document.querySelectorAll('.reveal').forEach(el=>o.observe(el))}})</script> \
@@ -870,6 +894,42 @@ impl Tools {
             coturbo_design::kit::blueprint(&tokens).iter().enumerate().map(|(i, s)| format!("{}. {s}", i + 1)).collect::<Vec<_>>().join("\n"),
             coturbo_design::kit::ornament_svg(&tokens),
             coturbo_design::kit::divider_svg(&tokens)
+        )))
+    }
+
+    /// Lays the elements out on the grid of each screen and writes the CSS.
+    fn layout_grid(&self, input: &Value) -> Res {
+        use coturbo_design::grid::{self, Element, Grid, Kind, SCREENS};
+        let elements: Vec<Element> = input["elements"]
+            .as_array()
+            .ok_or("elements: a list of {id, kind}")?
+            .iter()
+            .filter_map(|e| {
+                Some(Element {
+                    id: e["id"].as_str()?.to_string(),
+                    kind: Kind::parse(e["kind"].as_str().unwrap_or("other")),
+                    share: e["share"].as_f64(),
+                    break_before: e["new_row"].as_bool() == Some(true),
+                })
+            })
+            .collect();
+        if elements.is_empty() {
+            return Err("elements: give at least one {id, kind}".into());
+        }
+        std::fs::write(self.root.join("codeturbo-grid.css"), grid::css(&elements)).map_err(|e| format!("codeturbo-grid.css: {e}"))?;
+        let _ = std::fs::write(self.root.join("layout-preview.html"), grid::preview_html(&elements));
+        let maps: Vec<String> = SCREENS
+            .iter()
+            .map(|(name, w, h, _)| {
+                let g = Grid::for_viewport(*w, *h);
+                format!("{name} {w}px: {} columns of {:.0}px, gutter {}px, margin {}px, rows {}px\n{}", g.columns, g.column, g.gutter, g.margin, g.row, grid::ascii(&elements, &g))
+            })
+            .collect();
+        Ok(ToolOutput::ok(format!(
+            "wrote codeturbo-grid.css and layout-preview.html. Link the CSS after codeturbo-kit.css and put the elements straight inside \
+             <div class=\"layout\">, each with its id; nothing else positions them (no absolute positions, no fixed widths). \
+             Each letter is one element, `.` a free cell; change a kind, share or new_row and call again until each screen reads well.\n\n{}",
+            maps.join("\n\n")
         )))
     }
 
@@ -1007,6 +1067,7 @@ impl Tools {
             "propose_plan" => Err("plan mode is not active".into()),
             "design_brief" => self.design_brief(input),
             "design_review" => self.design_review(input).await,
+            "layout_grid" => self.layout_grid(input),
             "investigate" => {
                 let question = input["question"].as_str().unwrap_or("");
                 match coturbo_rea::investigate(&self.root, arg(input, "target").unwrap_or(""), question).await {
