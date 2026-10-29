@@ -11,7 +11,7 @@ pub const FILE: &str = "DESIGN.md";
 fn font_stack(name: &str, display: bool, technical: bool) -> String {
     let generic = if name.contains("Mono") {
         "monospace"
-    } else if display && !technical && (name.contains("Serif") || ["Fraunces", "Newsreader", "Cormorant Garamond", "Libre Caslon Display", "Gloock"].contains(&name)) {
+    } else if display && !technical && (name.contains("Serif") || ["Fraunces", "Newsreader", "Cormorant Garamond", "Libre Caslon Display", "Gloock", "Playfair Display", "Young Serif"].contains(&name)) {
         "serif"
     } else {
         "sans-serif"
@@ -63,7 +63,12 @@ pub fn css(t: &Tokens) -> String {
 
 /// `<link>` tags loading the two fonts.
 pub fn font_link(t: &Tokens) -> String {
-    let fam = |f: &str| format!("family={}:wght@400;600;700", f.replace(' ', "+"));
+    // Fonts cut in a single weight: asking Google Fonts for others fails the whole request.
+    const SINGLE: [&str; 8] = ["Archivo Black", "Anton", "Bebas Neue", "DM Serif Display", "Gloock", "Young Serif", "Instrument Serif", "Libre Caslon Display"];
+    let fam = |f: &str| {
+        let name = f.replace(' ', "+");
+        if SINGLE.contains(&f) { format!("family={name}") } else { format!("family={name}:wght@400;600;700") }
+    };
     format!(
         "<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n<link href=\"https://fonts.googleapis.com/css2?{}&{}&display=swap\" rel=\"stylesheet\">",
         fam(&t.font_display),
@@ -146,6 +151,9 @@ pub fn markdown(t: &Tokens) -> String {
          generic patterns of AI-generated interfaces.\n\n\
          ## Visual theme and atmosphere\n\n\
          - Subject: {}\n- Audience: {}\n- Tone: {} ({})\n- Signature element: {}\n- Brand colours kept: {}\n\n\
+         ## Style: {style_name}\n\n\
+         The whole page is in this one style, every section and component; mixing styles reads as visual confusion.\n\n\
+         {style_rules}\n\n\
          ## Palette and roles\n\n| Token | Colour | Role |\n| --- | --- | --- |\n{roles}\n\n\
          ## Colour plan\n\n\
          Colour is the identity, not a button fill. Give whole sections their colour: the opening or the highlight band \
@@ -168,9 +176,21 @@ pub fn markdown(t: &Tokens) -> String {
          - Alternate the layout from section to section: photo left, then right, then full width with the text over a \
          dark overlay; never the same title-then-boxes block twice in a row.\n\
          - Photos and tiles get the large radius; buttons are generous (48 px tall or more); the header is solid and \
-         sticks to the top.\n\
-         - Motion with restraint: elements fade and rise as they enter (`@starting-style` or a scroll-driven \
-         animation, off under `prefers-reduced-motion`), photos zoom a little on hover.\n\n\
+         sticks to the top.\n\n\
+         ## Motion\n\n\
+         `codeturbo-motion.js` animates the page with GSAP and ScrollTrigger in this style's rhythm ({motion}). \
+         Load it at the end of `<body>`:\n\n```html\n\
+         <script src=\"https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js\" defer></script>\n\
+         <script src=\"https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js\" defer></script>\n\
+         <script src=\"codeturbo-motion.js\" defer></script>\n```\n\n\
+         Then mark the elements: `data-intro` on the opening; `data-reveal` on each section (`data-reveal=\"stagger\"` on a \
+         list or grid brings its items in one by one); photos in `<figure class=\"frame\" data-parallax><img …></figure>` drift \
+         as the page scrolls (use it on the opening photo and every large photo); `data-zoom` on a photo that grows as it enters; \
+         a gallery strip as `<div class=\"marquee\"><div data-marquee>…photos…</div></div>`. Content stays visible without \
+         the script, and it does nothing under `prefers-reduced-motion`.\n\n\
+         ## Icons\n\n\
+         Drawn for this style; colour through `color`. Copy the `<svg>` you need into the HTML; never emoji or icon fonts.\n\n\
+         ```html\n{icons}\n```\n\n\
          ## Copy\n\n\
          Write like a conversion copywriter, in the page's language:\n\n\
          - Headline: the outcome the audience wants, concrete (what they will be able to do or earn, and how soon), \
@@ -208,6 +228,13 @@ pub fn markdown(t: &Tokens) -> String {
         crate::kit::base_css(t),
         crate::kit::ornament_svg(t),
         crate::kit::divider_svg(t),
+        style_name = t.style.name(),
+        style_rules = t.style.rules(),
+        motion = {
+            let m = t.style.motion();
+            format!("{}s, {}, rising {}px, parallax {}", m.duration, m.ease, m.rise, m.parallax)
+        },
+        icons = crate::kit::icons(t).iter().map(|(n, svg)| format!("<!-- {n} -->\n{svg}")).collect::<Vec<_>>().join("\n"),
         roles = color_roles(t).iter().map(|(n, hx, role)| format!("| `--color-{n}` | {hx} | {role} |")).collect::<Vec<_>>().join("\n")
     )
 }

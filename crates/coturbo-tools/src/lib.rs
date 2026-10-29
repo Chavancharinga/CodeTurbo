@@ -282,10 +282,11 @@ impl Tools {
                         "audience": s("who it is for"),
                         "tone": s("tone in a few words, e.g. editorial and calm, playful, technical"),
                         "signature": s("the one distinctive visual element of this interface"),
+                        "style": {"type": "string", "enum": ["brutalist", "neo-brutalist", "editorial-luxury", "swiss", "soft-organic", "cinematic"], "description": "the one visual style the whole page commits to, chosen for the audience: brutalist (raw, square, thick borders, mono), neo-brutalist (bold flat colour, ink borders, offset shadows), editorial-luxury (big serif, large photos, hairlines, slow motion), swiss (strict grid, grotesk, rules), soft-organic (rounded, soft shadows, warm), cinematic (dark, full-bleed photos, strong parallax)"},
                         "brand_colors": {"type": "array", "items": {"type": "string"}, "description": "the brand's existing colors as #rrggbb, most important first; omit to detect them from the project's files"},
                         "new_palette": {"type": "boolean", "description": "true only if the user asked to replace the brand colors"}
                     }),
-                    &["subject", "audience", "tone", "signature"],
+                    &["subject", "audience", "tone", "signature", "style"],
                 ),
             ),
             spec(
@@ -841,6 +842,7 @@ impl Tools {
             brand,
             fonts: existing.fonts.iter().take(2).cloned().collect(),
             radii: existing.radii.clone(),
+            style: input["style"].as_str().unwrap_or("").to_string(),
         };
         let tokens = compiler::compile(&brief);
         let path = self.root.join(contract::FILE);
@@ -853,6 +855,7 @@ impl Tools {
             coturbo_design::kit::base_css(&tokens)
         );
         std::fs::write(self.root.join("codeturbo-kit.css"), kit_css).map_err(|e| format!("codeturbo-kit.css: {e}"))?;
+        std::fs::write(self.root.join("codeturbo-motion.js"), coturbo_design::kit::motion_js(&tokens)).map_err(|e| format!("codeturbo-motion.js: {e}"))?;
         // A visual catalogue the user can open in a browser.
         let _ = std::fs::write(self.root.join("design-preview.html"), contract::preview_html(&tokens));
         let kept = if existing.is_empty() && brief.brand.is_empty() {
@@ -870,7 +873,9 @@ impl Tools {
             )
         };
         Ok(ToolOutput::ok(format!(
-            "wrote {} and codeturbo-kit.css (tone: {}).{kept}\n\
+            "wrote {}, codeturbo-kit.css and codeturbo-motion.js (style: {style}, tone: {}).{kept}\n\
+             The page commits to the {style} style in every section and component: follow its rules in DESIGN.md (Style); \
+             mixing looks is what makes a page a visual mess.\n\
              Design boldly and make this interface unmistakably its own — the kit is a starting point to build ON, not a mold to fit into. \
              Link it in every page's <head>: {}\n\
              and <link rel=\"stylesheet\" href=\"codeturbo-kit.css\">. It handles side margins, focus, fluid type and motion so you don't have to. \
@@ -885,12 +890,12 @@ impl Tools {
              A composition you could follow or diverge from (make it yours):\n{}\n\
              Lay the page out with layout_grid next: an even grid per screen, every element in whole cells, nothing on top of another.\n\
              Classes: .container (centered, with side padding), .section, .grid (responsive), .cluster, .btn/.btn--primary/.btn--secondary, .panel, .card, .tag.\n\
-             Animate sections: add class `reveal` and this script once per page: \
-             <script>document.documentElement.classList.add('js');addEventListener('DOMContentLoaded',()=>{{const o=new IntersectionObserver(es=>es.forEach(e=>e.isIntersecting&&e.target.classList.add('in')),{{threshold:0.12}});document.querySelectorAll('.reveal').forEach(el=>o.observe(el))}})</script> \
-             Also `float`, `link-underline`, `data-animate=\"rise\"`.\n\
+             Motion: GSAP and ScrollTrigger through codeturbo-motion.js (DESIGN.md, Motion): data-intro on the opening, data-reveal \
+             on every section, photos in <figure class=\"frame\" data-parallax>, data-marquee for a gallery strip.\n\
+             Icons: the inline SVG set in DESIGN.md (Icons), never emoji.\n\
              For tables on small screens, wrap them so they stack or fit — never let content run off the edge.\n\
              Project ornament (inline SVG, colored by `color`, keep it behind content with the .ornament class):\n{}\nSection divider:\n{}\n\
-             No stock imagery: draw product screens and illustrations in HTML/CSS or SVG.",
+             Photos: call find_images for real photos of the subject (DESIGN.md, Imagery).",
             contract::FILE,
             tokens.tone.name(),
             contract::font_link(&tokens).replace('\n', " "),
@@ -898,7 +903,8 @@ impl Tools {
             brief.signature,
             coturbo_design::kit::blueprint(&tokens).iter().enumerate().map(|(i, s)| format!("{}. {s}", i + 1)).collect::<Vec<_>>().join("\n"),
             coturbo_design::kit::ornament_svg(&tokens),
-            coturbo_design::kit::divider_svg(&tokens)
+            coturbo_design::kit::divider_svg(&tokens),
+            style = tokens.style.name(),
         )))
     }
 

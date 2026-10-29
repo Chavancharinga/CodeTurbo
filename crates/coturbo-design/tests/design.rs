@@ -13,6 +13,7 @@ fn brief(tone: &str) -> Brief {
         brand: Vec::new(),
         fonts: Vec::new(),
         radii: Vec::new(),
+        style: String::new(),
     }
 }
 
@@ -51,7 +52,8 @@ fn compiled_tokens_are_readable_and_not_the_defaults() {
             assert!(!["Inter", "Roboto", "Poppins", "Open Sans", "Montserrat", "Lato"].contains(&f.as_str()), "{f}");
         }
         let radii: std::collections::BTreeSet<u32> = t.radius.iter().map(|(_, r)| *r).collect();
-        assert_eq!(radii.len(), 3, "{tone}: three distinct radii");
+        // Square on purpose only in the brutalist style.
+        assert!(radii.len() >= 2 || t.style == coturbo_design::style::Style::Brutalist, "{tone}: distinct radii");
         // Same brief, same tokens.
         assert_eq!(compile(&brief(tone)), t);
     }
@@ -560,4 +562,42 @@ fn a_full_row_of_the_grid_runs_to_the_screen_edges() {
     ];
     let out = css(&els);
     assert!(out.contains(":where(#hero) { margin-inline: -16px; padding-inline: 16px; }"), "{out}");
+}
+
+#[test]
+fn a_named_style_fixes_the_look_of_the_whole_page() {
+    use coturbo_design::style::{ALL, Style};
+    for st in ALL {
+        let mut b = brief("editorial");
+        b.style = st.name().into();
+        let t = compile(&b);
+        assert_eq!(t.style, st);
+        let radii: Vec<u32> = t.radius.iter().map(|(_, r)| *r).collect();
+        assert_eq!(radii, st.radii().to_vec(), "{}", st.name());
+        assert!(st.fonts().iter().any(|(d, _)| *d == t.font_display), "{}: {}", st.name(), t.font_display);
+        assert!(contrast(t.color("ink"), t.color("bg")) >= 7.0, "{}", st.name());
+        let md = contract::markdown(&t);
+        assert!(md.contains(&format!("## Style: {}", st.name())) && md.contains("## Motion") && md.contains("## Icons"), "{}", st.name());
+        assert!(md.contains("gsap/3.12.5/ScrollTrigger.min.js") && md.contains("<svg class=\"icon\""));
+        assert!(!md.to_lowercase().contains("emoji icons") || md.contains("never emoji"));
+        let js = coturbo_design::kit::motion_js(&t);
+        assert!(js.contains("registerPlugin") && js.contains("prefers-reduced-motion") && js.contains("Headless"));
+        assert!(js.contains(st.motion().ease));
+    }
+    let mut b = brief("editorial");
+    b.style = "cinematic".into();
+    assert!(coturbo_design::color::luminance(compile(&b).color("bg")) < 0.1, "cinematic is dark");
+    b.style = "brutalist".into();
+    let t = compile(&b);
+    assert!(coturbo_design::kit::base_css(&t).contains("border: 3px solid var(--color-ink)"));
+    assert_eq!(Style::parse("Neo Brutalism"), Some(Style::NeoBrutalist));
+    assert_eq!(Style::parse("suíço"), Some(Style::Swiss));
+}
+
+#[test]
+fn single_weight_fonts_are_linked_without_weights() {
+    let mut b = brief("editorial");
+    b.fonts = vec!["Archivo Black".into(), "JetBrains Mono".into()];
+    let link = contract::font_link(&compile(&b));
+    assert!(link.contains("family=Archivo+Black&") && link.contains("family=JetBrains+Mono:wght@400;600;700"), "{link}");
 }

@@ -388,7 +388,9 @@ pub fn check(path: &str, text: &str, contract: Option<&Contract>) -> Vec<Finding
         add(Severity::P1, "not-responsive", 1, "grid/flex layout with no @media, clamp() or auto-fit: it breaks on the phone".into());
     }
     let uniform = |v: &[(String, usize)]| v.iter().map(|(s, _)| s.as_str()).collect::<std::collections::HashSet<_>>().len() == 1;
-    if radii.len() >= 4 && uniform(&radii) {
+    // A style with one radius on purpose (brutalist: all square) is not a tell.
+    let one_radius = contract.is_some_and(|c| c.radii().windows(2).all(|w| w[0] == w[1]));
+    if radii.len() >= 4 && uniform(&radii) && !one_radius {
         add(Severity::P2, "single-radius", radii[0].1, format!("{} elements with the same radius `{}`: vary between the contract radii", radii.len(), radii[0].0));
     }
     if shadows.len() >= 3 && uniform(&shadows) {

@@ -4,6 +4,7 @@
 //! contrast checked and the usual AI defaults ruled out.
 
 use crate::color::{Rgb, contrast, hex, hue_sat, luminance, oklch, parse_hex, to_oklch};
+use crate::style::Style;
 
 /// What the model decides before any UI code.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -20,6 +21,8 @@ pub struct Brief {
     pub fonts: Vec<String>,
     /// Corner radii the project already uses, in px; kept when present.
     pub radii: Vec<u32>,
+    /// The named style the page commits to (see [`Style`]); empty picks one from the tone.
+    pub style: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,18 +63,6 @@ impl Tone {
     }
 }
 
-/// Display and body font pairs per tone, from Google Fonts. None of the
-/// fonts every generated page uses (Inter, Roboto, Poppins, ...).
-fn font_pairs(t: Tone) -> &'static [(&'static str, &'static str)] {
-    match t {
-        Tone::Editorial => &[("Fraunces", "Newsreader"), ("Instrument Serif", "Instrument Sans"), ("Cormorant Garamond", "Karla"), ("Libre Caslon Display", "Libre Franklin")],
-        Tone::Playful => &[("Bricolage Grotesque", "Figtree"), ("Syne", "Hanken Grotesk"), ("Unbounded", "Onest"), ("Darker Grotesque", "Be Vietnam Pro")],
-        Tone::Technical => &[("JetBrains Mono", "IBM Plex Sans"), ("Space Mono", "Archivo"), ("Chivo Mono", "Chivo"), ("IBM Plex Mono", "Instrument Sans")],
-        Tone::Warm => &[("Fraunces", "Nunito Sans"), ("DM Serif Display", "DM Sans"), ("Young Serif", "Atkinson Hyperlegible"), ("Gloock", "Mulish")],
-        Tone::Balanced => &[("Sora", "Public Sans"), ("Epilogue", "Albert Sans"), ("Schibsted Grotesk", "Source Sans 3"), ("Familjen Grotesk", "Red Hat Text")],
-    }
-}
-
 /// OKLCH hues of the colors generated pages reach for (Tailwind indigo,
 /// violet, blue, emerald, green): the compiler steers away from them.
 const DEFAULT_HUES: [f64; 5] = [264.0, 277.0, 293.0, 150.0, 163.0];
@@ -95,6 +86,7 @@ fn hash(s: &str) -> u64 {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Tokens {
     pub tone: Tone,
+    pub style: Style,
     pub brief: Brief,
     /// `(name, color)`: bg, surface, ink, muted, line, primary, on-primary, accent.
     pub colors: Vec<(&'static str, Rgb)>,
@@ -227,7 +219,8 @@ pub fn compile(b: &Brief) -> Tokens {
             None => break,
         }
     }
-    let dark = tone == Tone::Technical && seed.is_multiple_of(2);
+    let style = Style::parse(&b.style).unwrap_or_else(|| Style::for_tone(tone, seed));
+    let dark = style.dark();
     let (bg_l, surface_l) = if dark { (0.18, 0.23) } else { (0.975, 0.945) };
     let bg = oklch(bg_l, 0.012, hue);
     let surface = oklch(surface_l, 0.016, hue);
@@ -244,7 +237,7 @@ pub fn compile(b: &Brief) -> Tokens {
     let accent = oklch(if dark { 0.8 } else { 0.72 }, chroma * 1.1, (hue + offset) % 360.0);
     let deep = oklch(if dark { 0.3 } else { 0.27 }, chroma * 0.8, hue);
     let tint = oklch(if dark { 0.27 } else { 0.92 }, chroma * 0.35, hue);
-    let pairs = font_pairs(tone);
+    let pairs = style.fonts();
     let (picked_display, picked_body) = pairs[(seed / 7) as usize % pairs.len()];
     // The project's own fonts win over the catalog.
     let display = b.fonts.first().map(String::as_str).unwrap_or(picked_display);
@@ -265,24 +258,12 @@ pub fn compile(b: &Brief) -> Tokens {
         let pick = |i: usize| own[(i * (own.len() - 1)) / 2];
         vec![("sm", pick(0)), ("md", pick(1)), ("lg", pick(2))]
     } else {
-        match tone {
-        Tone::Editorial => vec![("sm", 2), ("md", 8), ("lg", 20)],
-        Tone::Technical => vec![("sm", 2), ("md", 6), ("lg", 12)],
-        Tone::Playful => vec![("sm", 6), ("md", 14), ("lg", 32)],
-        Tone::Warm => vec![("sm", 6), ("md", 14), ("lg", 28)],
-        Tone::Balanced => vec![("sm", 6), ("md", 12), ("lg", 24)],
-        }
+        let [sm, md, lg] = style.radii();
+        vec![("sm", sm), ("md", md), ("lg", lg)]
     };
     let ink_hex = hex(ink);
-    let shadows = match tone {
-        Tone::Editorial => vec![("1", "none".to_string()), ("2", format!("0 0 0 1px {}", hex(line)))],
-        Tone::Technical => vec![("1", format!("0 0 0 1px {}", hex(line))), ("2", format!("4px 4px 0 {}", hex(line)))],
-        Tone::Playful => vec![("1", format!("3px 3px 0 {ink_hex}")), ("2", format!("6px 6px 0 {ink_hex}"))],
-        Tone::Warm | Tone::Balanced => vec![
-            ("1", "0 1px 2px rgb(0 0 0 / 0.06)".to_string()),
-            ("2", "0 18px 40px -24px rgb(0 0 0 / 0.35)".to_string()),
-        ],
-    };
+    let [s1, s2] = style.shadows();
+    let shadows = vec![("1", s1.replace("{ink}", &ink_hex)), ("2", s2.replace("{ink}", &ink_hex))];
     let layout = match tone {
         Tone::Editorial => "a narrow reading column (60–70 characters), large left-aligned headings, thin dividers, numerals and quotes in the spotlight; no card grid",
         Tone::Playful => "asymmetric composition, flat colour blocks, slightly overlapping and rotated elements, very large display type",
@@ -293,6 +274,7 @@ pub fn compile(b: &Brief) -> Tokens {
     let brand = brand_roles(&b.brand).and_then(|r| brand_palette(&r, chroma));
     Tokens {
         tone,
+        style,
         brief: b.clone(),
         colors: if let Some(p) = brand { p } else { vec![
             ("bg", bg),
