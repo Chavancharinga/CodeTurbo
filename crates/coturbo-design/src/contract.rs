@@ -57,12 +57,42 @@ pub fn css(t: &Tokens) -> String {
     for (n, v) in &t.shadows {
         s.push_str(&format!("  --shadow-{n}: {v};\n"));
     }
+    if let Some(th) = t.theme {
+        // The theme's own tokens, which its rules name, and the shared steps
+        // of Hallmark's scale they lean on.
+        s.push_str(&format!("  /* Hallmark theme: {} */\n", th.name));
+        for (n, v) in &th.vars {
+            if !n.starts_with("--font-") {
+                s.push_str(&format!("  {n}: {v};\n"));
+            }
+        }
+        for (n, v) in [
+            ("--text-display-s", "clamp(2.5rem, 4.2vw, 3.75rem)"),
+            ("--text-section", "clamp(2.25rem, 3.6vw, 3.25rem)"),
+            ("--text-title", "1.5625rem"),
+            ("--text-lead", "1.3125rem"),
+            ("--text-md", "1rem"),
+            ("--dur-short", "160ms"),
+            ("--dur-long", "700ms"),
+            ("--ease-out", "cubic-bezier(0.22, 1, 0.36, 1)"),
+        ] {
+            if th.var(n).is_none() {
+                s.push_str(&format!("  {n}: {v};\n"));
+            }
+        }
+    }
     s.push('}');
     s
 }
 
 /// `<link>` tags loading the two fonts.
 pub fn font_link(t: &Tokens) -> String {
+    if let Some(th) = t.theme
+        && !th.font_links.is_empty()
+        && t.brief.fonts.is_empty()
+    {
+        return th.font_links.clone();
+    }
     // Fonts cut in a single weight: asking Google Fonts for others fails the whole request.
     const SINGLE: [&str; 8] = ["Archivo Black", "Anton", "Bebas Neue", "DM Serif Display", "Gloock", "Young Serif", "Instrument Serif", "Libre Caslon Display"];
     let fam = |f: &str| {
@@ -151,9 +181,7 @@ pub fn markdown(t: &Tokens) -> String {
          generic patterns of AI-generated interfaces.\n\n\
          ## Visual theme and atmosphere\n\n\
          - Subject: {}\n- Audience: {}\n- Tone: {} ({})\n- Signature element: {}\n- Brand colours kept: {}\n\n\
-         ## Style: {style_name}\n\n\
-         The whole page is in this one style, every section and component; mixing styles reads as visual confusion.\n\n\
-         {style_rules}\n\n\
+         {direction}\n\n\
          ## Palette and roles\n\n| Token | Colour | Role |\n| --- | --- | --- |\n{roles}\n\n\
          ## Colour plan\n\n\
          Colour is the identity, not a button fill. Give whole sections their colour: the opening or the highlight band \
@@ -165,18 +193,7 @@ pub fn markdown(t: &Tokens) -> String {
          photographs: the user's own, or free ones from `find_images` (call it once per motif before writing the page). \
          Use them in `<img>` with `aspect-ratio`, `object-fit: cover` and an alt saying what each shows. Line drawings \
          and icons do not replace a photo; the check refuses a long page with none.\n\n\
-         ## Art direction\n\n\
-         The page must look current, not like a 2010 template of stacked boxes:\n\n\
-         - Opening: a photo that fills at least half the width (or a collage of two or three overlapping photos of \
-         different sizes) beside a very large headline; the headline is the biggest thing on the screen.\n\
-         - Scale contrast: one huge element per section (a photo, a numeral, a quote) against small, quiet text.\n\
-         - At least one bento grid: tiles of different sizes in one block (a large photo tile, a number tile, a quote tile, \
-         a short list tile), not a row of equal cards.\n\
-         - A gallery band of the work (photos edge to edge, or a horizontal strip that scrolls with snap points).\n\
-         - Alternate the layout from section to section: photo left, then right, then full width with the text over a \
-         dark overlay; never the same title-then-boxes block twice in a row.\n\
-         - Photos and tiles get the large radius; buttons are generous (48 px tall or more); the header is solid and \
-         sticks to the top.\n\
+         {art}\
          - Scrollbars are invisible (the kit hides them on the page and on every strip, which still scrolls by \
          swipe, wheel and drag); never style or bring them back.\n\n\
          ## Motion\n\n\
@@ -233,8 +250,8 @@ pub fn markdown(t: &Tokens) -> String {
         crate::kit::base_css(t),
         crate::kit::ornament_svg(t),
         crate::kit::divider_svg(t),
-        style_name = t.style.name(),
-        style_rules = t.style.rules(),
+        direction = direction(t),
+        art = art(t),
         motion = {
             let m = t.style.motion();
             format!("{}s, {}, rising {}px, parallax {}", m.duration, m.ease, m.rise, m.parallax)
@@ -287,4 +304,63 @@ impl Contract {
     pub fn radii(&self) -> Vec<u32> {
         self.px("--radius-")
     }
+}
+
+/// The visual language the page commits to: the Hallmark theme, whole, or
+/// the named style when there is none.
+fn direction(t: &Tokens) -> String {
+    let Some(th) = t.theme else {
+        return format!(
+            "## Style: {}\n\nThe whole page is in this one style, every section and component; mixing styles reads as visual confusion.\n\n{}",
+            t.style.name(),
+            t.style.rules()
+        );
+    };
+    let picks = crate::theme::picks(t.seed, true).iter().map(|(k, v)| format!("- **{k}:** {v}")).collect::<Vec<_>>().join("\n");
+    format!(
+        "## Theme: {name} (Hallmark, {genre})\n\n\
+         The page is built in this one material from the first pixel to the footer: its paper, ink, faces, rules, \
+         radius, depth, controls, motion and voice, exactly as written below. Its tokens are in the contract (`--color-paper`, \
+         `--color-ink`, `--color-accent`, `--radius-card`, `--shadow-card`...); the build hint's CSS is already in the base kit. \
+         A section that drifts back to soft rounded cards, pill badges and drop shadows the theme does not have is the generic \
+         look this theme replaces.\n\n\
+         Material: {material}\n\n\
+         {body}\n\n\
+         ## The floor (Hallmark)\n\n\
+         Every page, without exception (numbers are Hallmark's gates):\n\n{floor}\n\n\
+         ## Picks\n\n\
+         Dealt for this page; take them unless the content refuses one.\n\n{picks}\n\n\
+         ## Layout (Hallmark)\n\n\
+         Six to nine sections, each one idea at the right size, three to six different compositions, never the same twice in a row.\n\n\
+         {layout}",
+        name = th.name,
+        genre = th.genre,
+        material = th.material,
+        body = th.body.trim(),
+        floor = crate::theme::floor(),
+        layout = crate::theme::layout_rules().replace("\n## ", "\n### "),
+    )
+}
+
+/// Art direction for a page without a theme; with one, the theme and its
+/// layout say it.
+fn art(t: &Tokens) -> String {
+    if t.theme.is_some() {
+        return "## Art direction\n\nThe theme and the layout above lead. Besides them:\n\n\
+                - Buttons are 48 px tall or more; the nav stays on one line.\n"
+            .into();
+    }
+    "## Art direction\n\n\
+     The page must look current, not like a 2010 template of stacked boxes:\n\n\
+     - Opening: a photo that fills at least half the width (or a collage of two or three overlapping photos of \
+     different sizes) beside a very large headline; the headline is the biggest thing on the screen.\n\
+     - Scale contrast: one huge element per section (a photo, a numeral, a quote) against small, quiet text.\n\
+     - At least one bento grid: tiles of different sizes in one block (a large photo tile, a number tile, a quote tile, \
+     a short list tile), not a row of equal cards.\n\
+     - A gallery band of the work (photos edge to edge, or a horizontal strip that scrolls with snap points).\n\
+     - Alternate the layout from section to section: photo left, then right, then full width with the text over a \
+     dark overlay; never the same title-then-boxes block twice in a row.\n\
+     - Photos and tiles get the large radius; buttons are generous (48 px tall or more); the header is solid and \
+     sticks to the top.\n"
+        .into()
 }

@@ -79,6 +79,20 @@ fn native_note(rel: &str, diags: &[coturbo_verify::Diag]) -> String {
 
 type Res = Result<ToolOutput, String>;
 
+/// The `theme` parameter of `design_brief`: Hallmark's themes by genre.
+static THEME_HELP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    let themes = &*coturbo_design::theme::THEMES;
+    let by = |g: &str| themes.iter().filter(|t| t.genre == g).map(|t| t.slug).collect::<Vec<_>>().join(", ");
+    format!(
+        "the Hallmark theme the whole page is built in (paper, ink, faces, radius, rules, controls, voice); omit it and one is dealt \
+         from the subject. editorial: {}. modern-minimal: {}. playful: {}. atmospheric: {}",
+        by("editorial"),
+        by("modern-minimal"),
+        by("playful"),
+        by("atmospheric")
+    )
+});
+
 /// What `design_review` asks next. `passes` counts the reviews of the page
 /// with nothing blocking (0: something blocks). Without this the model
 /// keeps "polishing" a page that passes until it runs out of rounds.
@@ -299,11 +313,12 @@ impl Tools {
                         "audience": s("who it is for"),
                         "tone": s("tone in a few words, e.g. editorial and calm, playful, technical"),
                         "signature": s("the one distinctive visual element of this interface"),
-                        "style": {"type": "string", "enum": ["brutalist", "neo-brutalist", "editorial-luxury", "swiss", "soft-organic", "cinematic"], "description": "the one visual style the whole page commits to, chosen for the audience: brutalist (raw, square, thick borders, mono), neo-brutalist (bold flat colour, ink borders, offset shadows), editorial-luxury (big serif, large photos, hairlines, slow motion), swiss (strict grid, grotesk, rules), soft-organic (rounded, soft shadows, warm), cinematic (dark, full-bleed photos, strong parallax)"},
+                        "theme": {"type": "string", "description": THEME_HELP.as_str()},
+                        "style": {"type": "string", "enum": ["brutalist", "neo-brutalist", "editorial-luxury", "swiss", "soft-organic", "cinematic"], "description": "only the motion rhythm, when no theme fits; the theme sets everything else"},
                         "brand_colors": {"type": "array", "items": {"type": "string"}, "description": "the brand's existing colors as #rrggbb, most important first; omit to detect them from the project's files"},
                         "new_palette": {"type": "boolean", "description": "true only if the user asked to replace the brand colors"}
                     }),
-                    &["subject", "audience", "tone", "signature", "style"],
+                    &["subject", "audience", "tone", "signature"],
                 ),
             ),
             spec(
@@ -860,6 +875,7 @@ impl Tools {
             fonts: existing.fonts.iter().take(2).cloned().collect(),
             radii: existing.radii.clone(),
             style: input["style"].as_str().unwrap_or("").to_string(),
+            theme: input["theme"].as_str().unwrap_or("").to_string(),
         };
         let tokens = compiler::compile(&brief);
         let path = self.root.join(contract::FILE);
@@ -889,10 +905,21 @@ impl Tools {
                 brief.brand.join(", ")
             )
         };
+        let look = match tokens.theme {
+            Some(th) => format!(
+                "Theme: {} (Hallmark, {}): {}.\nRead DESIGN.md (Theme, Picks, Layout) in full before writing a line: the page is built in this \
+                 one material from the hero to the footer, with its radius, rules, depth, controls and voice, and the dealt hero, nav and \
+                 footer. Never fall back to soft rounded cards, pill badges or drop shadows the theme does not have.",
+                th.name, th.genre, th.material
+            ),
+            None => format!(
+                "The page commits to the {} style in every section and component: follow its rules in DESIGN.md (Style); \
+                 mixing looks is what makes a page a visual mess.",
+                tokens.style.name()
+            ),
+        };
         Ok(ToolOutput::ok(format!(
-            "wrote {}, codeturbo-kit.css and codeturbo-motion.js (style: {style}, tone: {}).{kept}\n\
-             The page commits to the {style} style in every section and component: follow its rules in DESIGN.md (Style); \
-             mixing looks is what makes a page a visual mess.\n\
+            "wrote {}, codeturbo-kit.css and codeturbo-motion.js (tone: {}).{kept}\n{look}\n\
              Design boldly and make this interface unmistakably its own — the kit is a starting point to build ON, not a mold to fit into. \
              Link it in every page's <head>: {}\n\
              and <link rel=\"stylesheet\" href=\"codeturbo-kit.css\">. It handles side margins, focus, fluid type and motion so you don't have to. \
@@ -921,7 +948,6 @@ impl Tools {
             coturbo_design::kit::blueprint(&tokens).iter().enumerate().map(|(i, s)| format!("{}. {s}", i + 1)).collect::<Vec<_>>().join("\n"),
             coturbo_design::kit::ornament_svg(&tokens),
             coturbo_design::kit::divider_svg(&tokens),
-            style = tokens.style.name(),
         )))
     }
 

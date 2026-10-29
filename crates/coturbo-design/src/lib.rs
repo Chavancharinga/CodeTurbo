@@ -14,6 +14,7 @@ pub mod hallmark;
 pub mod kit;
 pub mod render;
 pub mod style;
+pub mod theme;
 
 use contract::Contract;
 use fiscal::Finding;

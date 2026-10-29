@@ -242,6 +242,15 @@ h4, h5, h6 {{ text-wrap: balance; }}
 /// script drives (parallax photos and marquee strips).
 pub fn style_css(t: &Tokens) -> String {
     let st = t.style;
+    if let Some(th) = t.theme {
+        let mut s = format!("/* Hallmark theme: {} */\n{}\n", th.name, th.css);
+        let filter = th.photo_filter();
+        if !filter.is_empty() {
+            s.push_str(&format!(".frame img, img.photo, figure img {{ filter: {filter}; }}\n"));
+        }
+        s.push_str(FRAMES);
+        return s;
+    }
     let mut s = format!("/* Style: {} */\n", st.name());
     let b = st.border();
     if b > 0 {
@@ -260,16 +269,17 @@ pub fn style_css(t: &Tokens) -> String {
         crate::style::Style::EditorialLuxury => s.push_str("h1 { font-weight: 400; }\n.panel { border: 1px solid var(--color-line); }\n"),
         _ => {}
     }
-    s.push_str(
-        ".frame { position: relative; overflow: hidden; border-radius: var(--radius-lg); }\n\
-         .frame > img, .frame > video { width: 100%; height: 100%; object-fit: cover; }\n\
-         .motion [data-parallax] > img, .motion [data-parallax] > video { transform: scale(1.15); will-change: transform; }\n\
-         .marquee { overflow: hidden; }\n\
-         .marquee > [data-marquee] { display: flex; gap: var(--space-4); width: max-content; }\n\
-         .marquee > [data-marquee] > * { flex: none; }\n",
-    );
+    s.push_str(FRAMES);
     s
 }
+
+/// The frames the motion script drives: parallax photos and marquee strips.
+const FRAMES: &str = ".frame { position: relative; overflow: hidden; border-radius: var(--radius-lg); }\n\
+     .frame > img, .frame > video { width: 100%; height: 100%; object-fit: cover; }\n\
+     .motion [data-parallax] > img, .motion [data-parallax] > video { transform: scale(1.15); will-change: transform; }\n\
+     .marquee { overflow: hidden; }\n\
+     .marquee > [data-marquee] { display: flex; gap: var(--space-4); width: max-content; }\n\
+     .marquee > [data-marquee] > * { flex: none; }\n";
 
 /// `codeturbo-motion.js`: scroll animation with GSAP and ScrollTrigger in the
 /// style's rhythm, driven by data attributes. Without GSAP, with reduced

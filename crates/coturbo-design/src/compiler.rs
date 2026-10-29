@@ -5,6 +5,7 @@
 
 use crate::color::{Rgb, contrast, hex, hue_sat, luminance, oklch, parse_hex, to_oklch};
 use crate::style::Style;
+use crate::theme::Theme;
 
 /// What the model decides before any UI code.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -23,6 +24,9 @@ pub struct Brief {
     pub radii: Vec<u32>,
     /// The named style the page commits to (see [`Style`]); empty picks one from the tone.
     pub style: String,
+    /// The Hallmark theme (see [`crate::theme`]) by slug; empty deals one
+    /// from the brief, `none` builds the palette from the tone instead.
+    pub theme: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,6 +105,10 @@ pub struct Tokens {
     pub shadows: Vec<(&'static str, String)>,
     /// Layout guidance for the tone.
     pub layout: &'static str,
+    /// The Hallmark theme the page is built in.
+    pub theme: Option<&'static Theme>,
+    /// Deals the theme's picks (hero, nav, footer).
+    pub seed: u64,
 }
 
 impl Tokens {
@@ -219,7 +227,12 @@ pub fn compile(b: &Brief) -> Tokens {
             None => break,
         }
     }
-    let style = Style::parse(&b.style).unwrap_or_else(|| Style::for_tone(tone, seed));
+    let theme = if b.theme.trim().eq_ignore_ascii_case("none") || !b.brand.is_empty() {
+        None
+    } else {
+        crate::theme::by_slug(&b.theme).or_else(|| Some(crate::theme::deal(&format!("{} {} {} {}", b.subject, b.audience, b.tone, b.signature), seed)))
+    };
+    let style = Style::parse(&b.style).unwrap_or_else(|| theme.map_or_else(|| Style::for_tone(tone, seed), style_of));
     let dark = style.dark();
     let (bg_l, surface_l) = if dark { (0.18, 0.23) } else { (0.975, 0.945) };
     let bg = oklch(bg_l, 0.012, hue);
@@ -272,30 +285,98 @@ pub fn compile(b: &Brief) -> Tokens {
         Tone::Balanced => "left alignment, one highlighted section breaking the grid, alternating widths between sections",
     };
     let brand = brand_roles(&b.brand).and_then(|r| brand_palette(&r, chroma));
+    let (colors, display, body, radius, shadows) = match theme {
+        Some(th) => (
+            theme_palette(th),
+            th.font("--font-display").unwrap_or(display.to_string()),
+            th.font("--font-body").unwrap_or(body.to_string()),
+            if own.len() >= 2 { radius } else { theme_radius(th) },
+            {
+                let s = th.var("--shadow-card").unwrap_or("none").to_string();
+                vec![("1", s.clone()), ("2", s)]
+            },
+        ),
+        None => (
+            brand.unwrap_or_else(|| vec![
+                ("bg", bg),
+                ("surface", surface),
+                ("ink", ink),
+                ("muted", muted),
+                ("line", line),
+                ("primary", primary),
+                ("on-primary", on_primary),
+                ("accent", accent),
+                ("deep", deep),
+                ("on-deep", on(deep)),
+                ("tint", tint),
+            ]),
+            display.to_string(),
+            body.to_string(),
+            radius,
+            shadows,
+        ),
+    };
+    // The project's own fonts win over the theme's.
+    let display = b.fonts.first().cloned().unwrap_or(display);
+    let body = b.fonts.get(1).or(b.fonts.first()).cloned().unwrap_or(body);
     Tokens {
         tone,
         style,
         brief: b.clone(),
-        colors: if let Some(p) = brand { p } else { vec![
-            ("bg", bg),
-            ("surface", surface),
-            ("ink", ink),
-            ("muted", muted),
-            ("line", line),
-            ("primary", primary),
-            ("on-primary", on_primary),
-            ("accent", accent),
-            ("deep", deep),
-            ("on-deep", on(deep)),
-            ("tint", tint),
-        ] },
-        font_display: display.to_string(),
-        font_body: body.to_string(),
+        colors,
+        font_display: display,
+        font_body: body,
         type_ratio: ratio,
         type_scale,
         space: vec![4, 8, 12, 16, 24, 32, 48, 64, 96, 128],
         radius,
         shadows,
         layout,
+        theme,
+        seed,
     }
+}
+
+/// The motion and icon stroke that suit a theme.
+fn style_of(th: &Theme) -> Style {
+    match (th.slug, th.genre.as_str()) {
+        ("brutal" | "formwork" | "broadside" | "manifesto", _) => Style::Brutalist,
+        (_, "atmospheric") => Style::Cinematic,
+        (_, "playful") => Style::NeoBrutalist,
+        (_, "modern-minimal") => Style::Swiss,
+        _ => Style::EditorialLuxury,
+    }
+}
+
+/// The contract's colour roles from a theme's tokens.
+fn theme_palette(th: &Theme) -> Vec<(&'static str, Rgb)> {
+    let get = |names: &[&str], or: Rgb| names.iter().find_map(|n| th.color(n)).unwrap_or(or);
+    let bg = get(&["--color-paper"], if th.dark() { (20, 20, 22) } else { (250, 248, 244) });
+    let ink = get(&["--color-ink"], if th.dark() { (240, 238, 232) } else { (24, 22, 20) });
+    let surface = get(&["--color-paper-2", "--color-card"], bg);
+    let tint = get(&["--color-paper-3", "--color-paper-2"], surface);
+    let primary = get(&["--color-accent"], ink);
+    let on_primary = get(&["--color-accent-ink"], on(primary));
+    // A bold band: the ink on a light paper, a lighter paper on a dark one.
+    let deep = if th.dark() { get(&["--color-paper-3", "--color-paper-2"], surface) } else { ink };
+    vec![
+        ("bg", bg),
+        ("surface", surface),
+        ("ink", ink),
+        ("muted", get(&["--color-muted", "--color-ink-2"], ink)),
+        ("line", get(&["--color-rule"], tint)),
+        ("primary", primary),
+        ("on-primary", on_primary),
+        ("accent", get(&["--color-focus", "--color-accent"], primary)),
+        ("deep", deep),
+        ("on-deep", if th.dark() { ink } else { bg }),
+        ("tint", tint),
+    ]
+}
+
+/// Radii sm (controls), md and lg (surfaces) from a theme.
+fn theme_radius(th: &Theme) -> Vec<(&'static str, u32)> {
+    let card = th.px("--radius-card").unwrap_or(0);
+    let pill = th.px("--radius-pill").unwrap_or(card);
+    vec![("sm", pill), ("md", card), ("lg", card)]
 }

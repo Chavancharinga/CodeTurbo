@@ -14,6 +14,8 @@ fn brief(tone: &str) -> Brief {
         fonts: Vec::new(),
         radii: Vec::new(),
         style: String::new(),
+        // These tests are about the palette the compiler builds from the tone.
+        theme: "none".into(),
     }
 }
 
@@ -668,4 +670,41 @@ fn the_request_is_kept_for_the_review() {
     let r = coturbo_design::request(&dir).unwrap();
     assert!(r.contains("R$ 297") && r.contains("depoimentos"));
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn every_hallmark_theme_is_built_in_and_readable() {
+    use coturbo_design::color::contrast;
+    use coturbo_design::theme::THEMES;
+    assert_eq!(THEMES.len(), 50);
+    for th in THEMES.iter() {
+        assert!(!th.name.is_empty() && !th.genre.is_empty() && th.keywords.len() >= 5, "{}", th.slug);
+        let (paper, ink) = (th.color("--color-paper"), th.color("--color-ink"));
+        assert!(paper.is_some() && ink.is_some(), "{} paper and ink", th.slug);
+        assert!(contrast(paper.unwrap(), ink.unwrap()) >= 4.5, "{} ink reads on paper", th.slug);
+        assert!(th.font("--font-display").is_some() && th.font("--font-body").is_some(), "{} fonts", th.slug);
+        assert!(th.font_links.contains("<link"), "{} font links", th.slug);
+        assert!(!th.css.is_empty() && th.body.contains("## Do-nots"), "{} body", th.slug);
+    }
+}
+
+#[test]
+fn a_brief_is_dealt_a_theme_that_becomes_the_contract() {
+    use coturbo_design::compiler::{Brief, compile};
+    let b = |subject: &str, tone: &str| Brief { subject: subject.into(), audience: "visitors".into(), tone: tone.into(), signature: "the work".into(), ..Default::default() };
+    let shop = compile(&b("newspaper and longform journalism publication", "editorial"));
+    assert_eq!(shop.theme.map(|t| t.slug), Some("newsprint"), "keywords route");
+    let nails = compile(&b("curso de manicure, unhas em gel e nail art", "elegante"));
+    let th = nails.theme.expect("a theme is always dealt");
+    assert_eq!(nails.font_display, th.font("--font-display").unwrap());
+    assert_eq!(nails.radius.iter().find(|(n, _)| *n == "lg").map(|(_, r)| *r), Some(th.px("--radius-card").unwrap_or(0)));
+    let md = contract::markdown(&nails);
+    assert!(md.contains(&format!("## Theme: {}", th.name)) && md.contains("## Picks") && md.contains("Never an invented metric") && md.contains("### 6. The hero"), "the theme and layout in DESIGN.md");
+    assert!(!md.contains("Photos and tiles get the large radius"), "no generic rounded direction");
+    assert!(contract::css(&nails).contains("--color-paper"));
+    assert!(coturbo_design::kit::base_css(&nails).contains(&format!("/* Hallmark theme: {} */", th.name)));
+    let none = compile(&Brief { theme: "none".into(), ..b("curso de manicure", "elegante") });
+    assert!(none.theme.is_none());
+    let picked = compile(&Brief { theme: "brutal".into(), ..b("curso de manicure", "elegante") });
+    assert_eq!(picked.theme.map(|t| t.slug), Some("brutal"));
 }
