@@ -968,7 +968,7 @@ impl Tools {
         let abs = self.resolve(rel)?;
         let text = std::fs::read_to_string(&abs).map_err(|e| format!("{rel}: {e}"))?;
         let rel = self.display(&abs);
-        let mut findings = fiscal::check(&rel, &text, Contract::load(&self.root).as_ref());
+        let mut findings = fiscal::check_against(&rel, &text, Contract::load(&self.root).as_ref(), coturbo_design::request(&self.root).as_deref());
         let browser = render::find_browser().ok_or_else(coturbo_design::render::no_browser_help)?;
         let stem = abs.file_stem().map_or("page".into(), |s| s.to_string_lossy().into_owned());
         let shot = self.root.join(".codeturbo/design").join(format!("{stem}.png"));
@@ -1176,7 +1176,7 @@ impl Tools {
             if coturbo_design::fiscal::is_ui_file(&rel) {
                 let contract = coturbo_design::contract::Contract::load(&self.root);
                 let checked = coturbo_design::with_linked_css(&self.root, &rel, &text);
-                let findings = coturbo_design::fiscal::check(&rel, &checked, contract.as_ref());
+                let findings = coturbo_design::fiscal::check_against(&rel, &checked, contract.as_ref(), coturbo_design::request(&self.root).as_deref());
                 out.content.push('\n');
                 out.content.push_str(&coturbo_design::fiscal::render(&rel, &findings));
             }

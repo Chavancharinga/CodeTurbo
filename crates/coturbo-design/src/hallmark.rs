@@ -43,6 +43,92 @@ static FORM: LazyLock<Regex> = LazyLock::new(|| re(r"(?is)<form\b[^>]*>(.*?)</fo
 static THANKS: LazyLock<Regex> =
     LazyLock::new(|| re(r#"(?i)["'`>][^"'`<]{0,30}\b(thanks|thank you|you're on the list|you are on the list|sent!|subscribed|reserved|obrigad[oa]|enviado)\b"#));
 
+static PRICE: LazyLock<Regex> =
+    LazyLock::new(|| re(r"(?i)(?:r\$|us\$|€|£|\$)\s*\d[\d.,]*|\b\d[\d.,]*\s*(?:reais|euros|dólares|dollars)\b"));
+static NUMBER: LazyLock<Regex> = LazyLock::new(|| re(r"\d[\d.,]*\d|\d"));
+/// Two or more capitalised words: a person's name.
+static PERSON: LazyLock<Regex> = LazyLock::new(|| re(r"\b\p{Lu}\p{Ll}+(?:\s+(?:d[aeo]s?\s+)?\p{Lu}\p{Ll}+)+\b"));
+static NAME_SLOT: LazyLock<Regex> = LazyLock::new(|| {
+    re(r#"(?is)<cite\b[^>]*>(.*?)</cite>|<figcaption\b[^>]*>(.*?)</figcaption>|<[a-z][a-z0-9]*\b[^>]*\bclass\s*=\s*["']([^"']*\b(?:[a-z-]*name|author|autor[a-z]*|nome)\b[^"']*)["'][^>]*>([^<]{3,60})<"#)
+});
+static SECTION: LazyLock<Regex> = LazyLock::new(|| re(r"(?is)<section\b.*?(?:</section>|$)"));
+static WHO: LazyLock<Regex> =
+    LazyLock::new(|| re(r"(?i)\b(professora|professor|instrutora|instrutor|mentora|instructor|teacher|quem sou|sobre mim|about me|meet your|founder|fundadora)\b"));
+static FOUND_IMG: LazyLock<Regex> = LazyLock::new(|| re(r#"(?is)<img\b[^>]*\bsrc\s*=\s*["'][^"']*assets/images/[^"']*["']"#));
+
+/// Each number in a text, without separators: with the cents and without.
+fn numbers(text: &str) -> Vec<Vec<String>> {
+    NUMBER
+        .find_iter(text)
+        .map(|m| {
+            let s = m.as_str();
+            let digits: String = s.chars().filter(char::is_ascii_digit).collect();
+            let mut forms = vec![digits.clone()];
+            if s.len() > 3 && s[s.len() - 3..].starts_with([',', '.']) {
+                forms.push(digits[..digits.len() - 2].to_string());
+            }
+            forms
+        })
+        .collect()
+}
+
+/// A claim the user's own words carry (every number in it is theirs).
+fn given(claim: &str, facts: &str) -> bool {
+    let theirs: Vec<String> = numbers(facts).into_iter().flatten().collect();
+    let ours = numbers(claim);
+    !ours.is_empty() && ours.iter().all(|forms| forms.iter().any(|n| theirs.contains(n)))
+}
+
+fn plain(html: &str) -> String {
+    let tags = re(r"(?s)<[^>]*>");
+    tags.replace_all(html, " ").split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Claims only the user can make, checked against what the user wrote:
+/// prices, named people and the person behind the course. Skipped when
+/// the request is not known.
+fn check_facts(text: &str, markup: &str, facts: &str, out: &mut Vec<Finding>) {
+    let mut add = |severity, rule, line, message: String| out.push(Finding { severity, rule, line, message });
+    let lower_facts = facts.to_lowercase();
+    if let Some(m) = PRICE.find_iter(markup).find(|m| !given(m.as_str(), facts)) {
+        add(Severity::P1, "invented-price", line_of(text, m.start()), format!(
+            "\"{}\": the user gave no such price; never invent one. Write the slot as [preço] for the user to fill, or keep the button and leave the price out",
+            m.as_str().trim()
+        ));
+    }
+    let mut people = Vec::new();
+    for c in NAME_SLOT.captures_iter(markup) {
+        if c.get(3).is_some_and(|k| re(r"(?i)brand|logo|site|course|curso|product|produto|plan|plano|module|modulo|módulo|file").is_match(k.as_str())) {
+            continue;
+        }
+        let inner = c.get(1).or(c.get(2)).or(c.get(4)).map_or("", |m| m.as_str());
+        let at = c.get(0).expect("match").start();
+        people.extend(PERSON.find_iter(&plain(inner)).map(|p| (at, p.as_str().to_string())));
+    }
+    for h in HEADING.captures_iter(markup) {
+        let words = plain(&h[2]);
+        if WHO.is_match(&words) {
+            let at = h.get(0).expect("match").start();
+            people.extend(PERSON.find_iter(&words).map(|p| (at, p.as_str().to_string())));
+        }
+    }
+    if let Some((at, name)) = people.into_iter().find(|(_, n)| !lower_facts.contains(&n.to_lowercase()) && n.split_whitespace().all(|w| !WHO.is_match(w))) {
+        add(Severity::P1, "invented-person", line_of(text, at), format!(
+            "\"{name}\" is a person the user never named: an invented student, client or teacher is fake proof. Use the real ones the user gives; without them leave a marked slot ([nome da professora], [depoimento real]) or drop the quote"
+        ));
+    }
+    for s in SECTION.find_iter(markup) {
+        let heads: String = HEADING.captures_iter(s.as_str()).map(|h| plain(&h[2])).collect::<Vec<_>>().join(" ");
+        if WHO.is_match(&heads)
+            && let Some(img) = FOUND_IMG.find(s.as_str())
+        {
+            add(Severity::P1, "stand-in-portrait", line_of(text, s.start() + img.start()), 
+                "a found photo stands for the person who teaches: it is not them. Use the user's own photo, or a marked frame ([foto da professora]) until they send it; keep the found photos for the work itself".into());
+            break;
+        }
+    }
+}
+
 const PLACEHOLDER_NAMES: [&str; 6] = ["jane doe", "john doe", "john smith", "acme", "lorem corp", "example inc"];
 const BUZZWORDS: [&str; 14] = [
     "robust", "empower", "effortless", "unleash", "next-generation", "next generation", "world-class", "best-in-class", "cutting-edge",
@@ -181,7 +267,10 @@ pub(crate) fn check_css(text: &str, regions: &[(usize, String)], out: &mut Vec<F
 }
 
 /// Markup, with scripts and styles blanked (offsets kept).
-pub(crate) fn check_markup(text: &str, markup: &str, out: &mut Vec<Finding>) {
+pub(crate) fn check_markup(text: &str, markup: &str, facts: Option<&str>, out: &mut Vec<Finding>) {
+    if let Some(f) = facts {
+        check_facts(text, markup, f, out);
+    }
     let mut add = |severity, rule, line, message: String| out.push(Finding { severity, rule, line, message });
     let lower = markup.to_lowercase();
 
@@ -213,7 +302,7 @@ pub(crate) fn check_markup(text: &str, markup: &str, out: &mut Vec<Finding>) {
     if let Some(m) = MIDDOTS.find(markup) {
         add(Severity::P2, "middot-meta", line_of(text, m.start()), "meta joined with middle dots (`A · B · C`), template punctuation (Hallmark gate 63)".into());
     }
-    if let Some(m) = PROOF.find(markup) {
+    if let Some(m) = PROOF.find_iter(markup).find(|m| !facts.is_some_and(|f| given(m.as_str(), f))) {
         add(Severity::P1, "invented-proof", line_of(text, m.start()), format!("\"{}\": a metric, rating, income or student count must be the user's real one (Hallmark gate 46a); the user gave none, so leave it out or write what the offer includes instead", m.as_str().trim()));
     }
     if let Some((i, name)) = PLACEHOLDER_NAMES.iter().filter_map(|n| lower.find(n).map(|i| (i, *n))).min() {

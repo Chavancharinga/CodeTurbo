@@ -87,7 +87,14 @@ const H=Math.max(1,document.documentElement.scrollHeight);const spans=[];for(con
 spans.sort((a,b)=>a[0]-b[0]);let cov=0,end=-1e9;for(const [a,b] of spans){if(b<=end)continue;cov+=b-Math.max(a,end);end=b;}
 const colour=(bold(document.body)||bold(document.documentElement))?100:Math.round(cov/H*100);const screens=Math.round(H/innerHeight*10);
 const photos=[...document.querySelectorAll('img,picture,video,body *')].filter(e=>{const r=R(e);if(r.width<240||r.height<160||!vis(e))return false;if(e.tagName==='IMG')return e.naturalWidth>=400;if(/^(VIDEO|PICTURE)$/.test(e.tagName))return true;return /url\(/.test(getComputedStyle(e).backgroundImage);}).length;
-const out=JSON.stringify({colour,screens,photos,rounded,radii:radii.size,shadowed,shadows:shadows.size,centered,text,rows,tiny,overlaps,tight,broken,hscroll,scrollers,small,cut,edge,under,contrast,noalt,unlabeled,nolang,noviewport,longlines,sizes:sizes.size,inks:inks.size,fills:fills.size});host.setAttribute('data-codeturbo',out);console.log('CT_PROBE:'+out);};
+const lineBoxes=e=>{const r=document.createRange();r.selectNodeContents(e);const fs=parseFloat(getComputedStyle(e).fontSize)||16;const ls=[];for(const x of [...r.getClientRects()].filter(x=>x.width>1&&x.height>1).sort((a,b)=>a.top-b.top)){const l=ls[ls.length-1];if(l&&x.top-l.top<=fs*0.6)l.w+=x.width;else ls.push({top:x.top,w:x.width});}return ls;};
+const oneLine=e=>{const t=(e.innerText||'').trim();return t.length>0&&t.length<=40&&!t.includes('\n');};
+const wrapped=[...document.querySelectorAll('header a,nav a,header button,button,.btn,[class*="btn"],[class*="button"],[class*="logo"],[class*="brand"]')].filter(e=>vis(e)&&oneLine(e)&&lineBoxes(e).length>1).map(label).slice(0,6);
+const heads=[...document.querySelectorAll('h2,h3,h4,h5,h6')].filter(e=>{const t=(e.innerText||'').trim().replace(/\s+/g,' ');return vis(e)&&t.length>0&&t.length<=24&&lineBoxes(e).length>1;}).map(label).slice(0,6);
+const widows=[...document.querySelectorAll('h1,h2,h3,h4')].filter(e=>{if(!vis(e))return false;const ls=lineBoxes(e);if(ls.length<2)return false;const last=ls[ls.length-1];const top=Math.max(...ls.slice(0,-1).map(l=>l.w));return last.w<top*0.3&&!/\s/.test((e.innerText||'').trim().split('\n').pop().trim());}).map(label).slice(0,5);
+const VH=innerHeight;let heroArea=0;for(const e of document.querySelectorAll('img,video,body *')){if(!vis(e))continue;const pic=e.tagName==='IMG'?e.naturalWidth>=400:(e.tagName==='VIDEO'||/url\(/.test(getComputedStyle(e).backgroundImage));if(!pic)continue;const r=R(e);heroArea+=Math.max(0,Math.min(r.right,W)-Math.max(r.left,0))*Math.max(0,Math.min(r.bottom,VH)-Math.max(r.top,0));}const hero=Math.min(100,Math.round(heroArea/(W*VH)*100));
+const holes=[];for(const p of document.querySelectorAll('body *')){const s=getComputedStyle(p);if(!(s.display.includes('grid')||(s.display.includes('flex')&&s.flexWrap==='wrap')))continue;const k=[...p.children].filter(c=>vis(c)&&R(c).width>120&&R(c).height>40);if(k.length<3)continue;const w=k.map(c=>R(c).width);if(Math.max(...w)-Math.min(...w)>4)continue;const tops=[...new Set(k.map(c=>Math.round(R(c).top)))].sort((a,b)=>a-b);if(tops.length<2)continue;const cols=k.filter(c=>Math.round(R(c).top)===tops[0]).length;const last=k.filter(c=>Math.round(R(c).top)===tops[tops.length-1]).length;if(cols>=2&&last<cols&&holes.length<5)holes.push(label(p)+' '+k.length+' items in '+cols+' columns');}
+const out=JSON.stringify({wrapped,heads,widows,hero,holes,colour,screens,photos,rounded,radii:radii.size,shadowed,shadows:shadows.size,centered,text,rows,tiny,overlaps,tight,broken,hscroll,scrollers,small,cut,edge,under,contrast,noalt,unlabeled,nolang,noviewport,longlines,sizes:sizes.size,inks:inks.size,fills:fills.size});host.setAttribute('data-codeturbo',out);console.log('CT_PROBE:'+out);};
 if(document.readyState==='complete')setTimeout(go,300);else addEventListener('load',()=>setTimeout(go,300));})();</script>"#;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -142,6 +149,16 @@ pub struct Metrics {
     pub screens: usize,
     /// Photos (or videos) drawn at least 240x160.
     pub photos: usize,
+    /// Menu items, buttons and logos broken over two lines.
+    pub wrapped: Vec<String>,
+    /// Short section titles (h2-h6, up to 24 characters) broken over two lines.
+    pub heads: Vec<String>,
+    /// Headings whose last line is one lonely word.
+    pub widows: Vec<String>,
+    /// Share of the first screen (0-100) covered by photos.
+    pub hero: usize,
+    /// Grids of equal cards whose last row leaves empty cells.
+    pub holes: Vec<String>,
 }
 
 /// Measurements at every screen size checked.
@@ -229,6 +246,11 @@ pub fn parse_metrics(dom: &str) -> Option<Metrics> {
         colour: n("colour"),
         screens: n("screens"),
         photos: n("photos"),
+        wrapped: list("wrapped"),
+        heads: list("heads"),
+        widows: list("widows"),
+        hero: n("hero"),
+        holes: list("holes"),
     })
 }
 
@@ -257,6 +279,12 @@ pub fn judge(p: &Page) -> Vec<Finding> {
             add(Severity::P0, "render-cut-off", format!(
                 "text cut off by the screen edge {at}: {}; use fluid widths (max-width: 100%, clamp() for font sizes) instead of hiding the overflow",
                 sample(&m.cut)
+            ));
+        }
+        if !m.wrapped.is_empty() {
+            add(Severity::P1, "render-wrapped-label", format!(
+                "menu item, button or logo broken over two lines {at}: {}; keep each on one line (white-space: nowrap, shorter words: \"Professora\" not \"A Professora\", fewer items, or a menu button on small screens)",
+                sample(&m.wrapped)
             ));
         }
         if !m.scrollers.is_empty() {
@@ -347,6 +375,36 @@ pub fn judge(p: &Page) -> Vec<Finding> {
             "{} photograph(s) on a long page: it reads as a dated template; show the subject in at least three real photos (the user's, or find_images) in the opening, a gallery and the bento tiles (DESIGN.md, imagery and art direction)",
             d.photos
         ));
+    }
+    for (m, at) in [(&p.desktop, "on desktop"), (&p.laptop, "on a laptop"), (&p.tablet, "on a tablet")] {
+        if !m.heads.is_empty() {
+            add(Severity::P1, "render-wrapped-heading", format!(
+                "short title broken over two lines {at}: {}; a title this short reads on one line: widen its column or lower its size",
+                sample(&m.heads)
+            ));
+            break;
+        }
+    }
+    if !d.widows.is_empty() {
+        add(Severity::P2, "render-widow", format!(
+            "a title ends on one lonely word: {}; text-wrap: balance, or rewrite it so the lines are even",
+            sample(&d.widows)
+        ));
+    }
+    if d.photos >= 3 && d.hero < 20 {
+        add(Severity::P1, "render-small-hero", format!(
+            "photos cover only {}% of the first screen: the opening is the page's strongest picture; give it one big photo (half the width or more, or full-bleed under the text) or a collage, not small thumbnails",
+            d.hero
+        ));
+    }
+    for (m, at) in [(&p.desktop, "on desktop"), (&p.laptop, "on a laptop")] {
+        if !m.holes.is_empty() {
+            add(Severity::P1, "render-grid-hole", format!(
+                "a grid of equal cards leaves empty cells in its last row {at}: {}; make the count fit the columns (add or merge a card, change the columns) or let one tile span the gap",
+                sample(&m.holes)
+            ));
+            break;
+        }
     }
     let m = &p.desktop;
     if m.rows >= 3 {

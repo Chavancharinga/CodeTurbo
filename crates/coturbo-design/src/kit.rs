@@ -207,6 +207,9 @@ body {{ overflow-x: clip; }}
 .grid {{ display: grid; gap: var(--space-6); grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); }}
 .stack > * + * {{ margin-top: var(--space-4); }}
 .cluster {{ display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: center; }}
+/* Menu items, buttons and the logo stay on one line. */
+:where(header a, nav a, .btn, button, .logo, .brand) {{ white-space: nowrap; }}
+h4, h5, h6 {{ text-wrap: balance; }}
 .btn {{ display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); min-height: 48px; padding: var(--space-3) var(--space-6); border: 2px solid transparent; border-radius: var(--radius-sm); font: 600 var(--text-base)/1 var(--font-body); text-transform: {button_case}; text-decoration: none; cursor: pointer; transition: transform 0.15s ease, background-color 0.15s ease; }}
 .btn--primary {{ background: var(--color-primary); color: var(--color-on-primary); box-shadow: var(--shadow-1); }}
 .btn--secondary {{ background: transparent; color: var(--color-ink); border-color: var(--color-ink); }}

@@ -557,6 +557,10 @@ impl<'a> Agent<'a> {
         self.checkpoints.push(Vec::new());
         let root = self.tools.root().to_path_buf();
         hooks::event(&self.config.hooks, &root, "task_start", &serde_json::json!({"prompt": prompt})).await;
+        if self.depth == 0 {
+            // The user's own words: the design review holds prices and names to them.
+            coturbo_design::remember_request(&root, prompt);
+        }
         let r = self.run_inner(prompt, host).await;
         let detail = match &r {
             Ok(rep) => serde_json::json!({"ok": true, "answer": rep.final_text}),

@@ -210,6 +210,12 @@ pub fn brand_colors(texts: &[(String, String)]) -> Vec<String> {
 
 /// Every finding for one file. `contract` is the project's `DESIGN.md`.
 pub fn check(path: &str, text: &str, contract: Option<&Contract>) -> Vec<Finding> {
+    check_against(path, text, contract, None)
+}
+
+/// [`check`], also holding prices, people and figures on the page to what
+/// the user wrote (`facts`, see [`crate::request`]).
+pub fn check_against(path: &str, text: &str, contract: Option<&Contract>, facts: Option<&str>) -> Vec<Finding> {
     let mut out = Vec::new();
     let mut add = |severity, rule, line, message: String| out.push(Finding { severity, rule, line, message });
     let regions = css_regions(path, text);
@@ -483,7 +489,7 @@ pub fn check(path: &str, text: &str, contract: Option<&Contract>) -> Vec<Finding
     let pieces: Vec<(usize, String)> = regions.iter().map(|r| (r.start, r.css.clone())).collect();
     crate::hallmark::check_css(text, &pieces, &mut out);
     if let Some(m) = markup(path, text) {
-        crate::hallmark::check_markup(text, &m, &mut out);
+        crate::hallmark::check_markup(text, &m, facts, &mut out);
         crate::hallmark::check_script(text, &mut out);
     }
     out.sort_by_key(|f| (f.severity, f.line));

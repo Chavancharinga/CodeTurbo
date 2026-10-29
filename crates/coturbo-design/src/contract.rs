@@ -199,7 +199,10 @@ pub fn markdown(t: &Tokens) -> String {
          not the name of the product's category. Subheading: for whom and how, in one sentence.\n\
          - Each section heading states a benefit or answers an objection; plain labels (\"Modules\", \"About\") only as small navigation.\n\
          - Specifics over adjectives: what is included, how long it takes, what they have at the end. Never invent \
-         results, ratings or student counts the user did not give.\n\
+         results, ratings, student counts, prices, testimonials or people (students, the teacher's name or photo) the user \
+         did not give: leave a marked slot ([preço], [depoimento real], [foto da professora]) for the user to fill.\n\
+         - Menu items are one or two short words (\"Módulos\", \"Professora\", \"Preço\") and, like buttons and the logo, \
+         stay on one line; short titles fit on one line and longer ones break into even lines, never one lonely word.\n\
          - Calls to action name the result with a verb (\"Quero minha vaga\", \"Start the first lesson\"), never \
          \"Learn more\" or \"Click here\"; repeat the main one after the opening, after the proof and at the close.\n\
          - The FAQ answers the real objections: time, price, no experience, materials, certificate, guarantee.\n\

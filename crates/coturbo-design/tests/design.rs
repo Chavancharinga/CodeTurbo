@@ -615,3 +615,56 @@ fn scrollbars_are_invisible() {
     assert!(css.contains("scrollbar-width: none"));
     assert!(css.contains("::-webkit-scrollbar { display: none"));
 }
+
+#[test]
+fn prices_people_and_portraits_must_come_from_the_user() {
+    let page = "<!doctype html><html lang=\"pt\"><body>\
+        <section><h2>Conheça sua professora</h2><img src=\"assets/images/nails-3.jpg\" alt=\"\"></section>\
+        <blockquote>Aprendi muito.<cite>Juliana Santos</cite></blockquote>\
+        <p class=\"price\">R$ 497,00</p></body></html>";
+    let rules = |facts: &str| -> Vec<&str> {
+        fiscal::check_against("index.html", page, None, Some(facts)).iter().filter(|f| f.blocking()).map(|f| f.rule).collect()
+    };
+    let invented = rules("Crie uma landing page para um curso de manicure.");
+    for r in ["stand-in-portrait", "invented-person", "invented-price"] {
+        assert!(invented.contains(&r), "{r} in {invented:?}");
+    }
+    let given = rules("Curso de manicure por R$ 497. Depoimento da aluna Juliana Santos: aprendi muito.");
+    assert!(!given.contains(&"invented-person") && !given.contains(&"invented-price"), "{given:?}");
+    // Unknown request: no guessing.
+    assert!(!fiscal::check("index.html", page, None).iter().any(|f| f.rule == "invented-price"));
+    // A marked slot is honest.
+    let slot = "<!doctype html><html lang=\"pt\"><body><p class=\"price\">[preço]</p><cite>[nome da aluna]</cite></body></html>";
+    assert!(fiscal::check_against("index.html", slot, None, Some("curso")).iter().all(|f| !f.rule.starts_with("invented")));
+}
+
+#[test]
+fn small_openings_holes_and_broken_labels_block() {
+    let bad = Metrics {
+        photos: 6,
+        hero: 4,
+        holes: vec!["div.grid 5 items in 3 columns".into()],
+        wrapped: vec!["a.nav \"A Professora\"".into()],
+        heads: vec!["h2 \"Perguntas\"".into()],
+        ..Default::default()
+    };
+    let page = Page { desktop: bad.clone(), mobile: Metrics::default(), tablet: Metrics::default(), laptop: Metrics::default() };
+    let f = judge(&page);
+    for r in ["render-small-hero", "render-grid-hole", "render-wrapped-label", "render-wrapped-heading"] {
+        assert!(f.iter().any(|x| x.rule == r && x.blocking()), "{r}");
+    }
+    let good = Metrics { photos: 6, hero: 45, ..Default::default() };
+    let page = Page { desktop: good.clone(), mobile: good.clone(), tablet: good.clone(), laptop: good };
+    assert!(judge(&page).iter().all(|x| !x.blocking()));
+}
+
+#[test]
+fn the_request_is_kept_for_the_review() {
+    let dir = std::env::temp_dir().join(format!("ct-request-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    coturbo_design::remember_request(&dir, "curso por R$ 297");
+    coturbo_design::remember_request(&dir, "agora com depoimentos");
+    let r = coturbo_design::request(&dir).unwrap();
+    assert!(r.contains("R$ 297") && r.contains("depoimentos"));
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -19,6 +19,38 @@ use contract::Contract;
 use fiscal::Finding;
 use std::path::Path;
 
+/// What the user asked for, in their own words, task after task: the
+/// only source of prices, names and figures a page may show.
+pub const REQUEST_FILE: &str = ".codeturbo/request.md";
+
+/// Keeps the user's request (the newest 32 KB of them).
+pub fn remember_request(root: &Path, prompt: &str) {
+    let path = root.join(REQUEST_FILE);
+    let mut all = std::fs::read_to_string(&path).unwrap_or_default();
+    all.push_str(prompt.trim());
+    all.push_str("
+
+---
+
+");
+    if all.len() > 32_000 {
+        let mut cut = all.len() - 32_000;
+        while !all.is_char_boundary(cut) {
+            cut += 1;
+        }
+        all.drain(..cut);
+    }
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = std::fs::write(path, all);
+}
+
+/// The user's requests, when CodeTurbo recorded them.
+pub fn request(root: &Path) -> Option<String> {
+    std::fs::read_to_string(root.join(REQUEST_FILE)).ok()
+}
+
 /// Result of reviewing a task's interface files.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Review {
@@ -56,6 +88,7 @@ pub async fn review(root: &Path, files: &[String]) -> Option<Review> {
         return None;
     }
     let contract = Contract::load(root);
+    let facts = request(root);
     let browser = render::find_browser();
     let mut blocking = 0;
     let mut report = Vec::new();
@@ -63,7 +96,7 @@ pub async fn review(root: &Path, files: &[String]) -> Option<Review> {
     for rel in ui {
         let Ok(text) = std::fs::read_to_string(root.join(rel)) else { continue };
         let checked = with_linked_css(root, rel, &text);
-        let mut findings: Vec<Finding> = fiscal::check(rel, &checked, contract.as_ref());
+        let mut findings: Vec<Finding> = fiscal::check_against(rel, &checked, contract.as_ref(), facts.as_deref());
         let lower = rel.to_ascii_lowercase();
         if let Some(b) = &browser
             && (lower.ends_with(".html") || lower.ends_with(".htm"))
