@@ -114,8 +114,29 @@ fn apply(mut c: Config, o: &Opts) -> Config {
     c
 }
 
-#[tokio::main]
-async fn main() -> ExitCode {
+/// Stack for the thread that drives the agent and for tokio's workers. The
+/// agent's futures are large (in a debug build above all) and Windows gives
+/// the main thread only 1 MiB, so a session could overflow it mid-task.
+const STACK: usize = 32 * 1024 * 1024;
+
+fn main() -> ExitCode {
+    let run = || {
+        let rt = tokio::runtime::Builder::new_multi_thread().enable_all().thread_stack_size(STACK).build();
+        match rt {
+            Ok(rt) => rt.block_on(start()),
+            Err(e) => {
+                eprintln!("error: {e}");
+                ExitCode::FAILURE
+            }
+        }
+    };
+    match std::thread::Builder::new().name("codeturbo".into()).stack_size(STACK).spawn(run) {
+        Ok(t) => t.join().unwrap_or(ExitCode::FAILURE),
+        Err(_) => run(),
+    }
+}
+
+async fn start() -> ExitCode {
     let cli = Cli::parse();
     match real_main(cli).await {
         Ok(code) => code,

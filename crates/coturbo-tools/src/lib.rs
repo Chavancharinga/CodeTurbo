@@ -111,14 +111,13 @@ pub struct Tools {
 /// Built-in tools for particular jobs, named with one line until the model
 /// loads them with tool_search: their full definitions stay out of every
 /// request that does not need them.
-pub const DEFERRED: [(&str, &str); 12] = [
+pub const DEFERRED: [(&str, &str); 11] = [
     ("browse", "drive a real browser: open pages, click, type, read, screenshots, console and requests"),
     ("ci", "GitHub Actions of the branch: status, failed logs, wait for a run"),
     ("device", "control a TV, speaker, light, plug, printer or router on the local network"),
     ("device_control", "call a network device's own HTTP or UPnP API"),
     ("investigate", "reverse-engineer a website, JS/Electron app, binary, APK or SQLite database"),
     ("last30days", "what people said about a topic lately: Hacker News, GitHub, Reddit, Polymarket, dev.to, arXiv"),
-    ("layout_grid", "lay a page out on an even grid per screen (phone, tablet, desktop) so nothing overlaps"),
     ("name_device", "remember a name for a network device"),
     ("network_scan", "list the devices on the local network"),
     ("observe_app", "run a desktop program and watch its window"),
@@ -878,7 +877,7 @@ impl Tools {
              with its empty, loading and error states.\n\
              Layout idea: {}.\nSignature element to build around: {}.\n\
              A composition you could follow or diverge from (make it yours):\n{}\n\
-             Lay the page out with layout_grid first (load it with tool_search): an even grid per screen, every element in whole cells, nothing on top of another.\n\
+             Lay the page out with layout_grid next: an even grid per screen, every element in whole cells, nothing on top of another.\n\
              Classes: .container (centered, with side padding), .section, .grid (responsive), .cluster, .btn/.btn--primary/.btn--secondary, .panel, .card, .tag.\n\
              Animate sections: add class `reveal` and this script once per page: \
              <script>document.documentElement.classList.add('js');addEventListener('DOMContentLoaded',()=>{{const o=new IntersectionObserver(es=>es.forEach(e=>e.isIntersecting&&e.target.classList.add('in')),{{threshold:0.12}});document.querySelectorAll('.reveal').forEach(el=>o.observe(el))}})</script> \
