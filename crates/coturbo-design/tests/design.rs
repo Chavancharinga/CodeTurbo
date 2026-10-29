@@ -568,6 +568,7 @@ fn a_full_row_of_the_grid_runs_to_the_screen_edges() {
     ];
     let out = css(&els);
     assert!(out.contains(":where(#hero) { margin-inline: -16px; padding-inline: 16px; }"), "{out}");
+    assert!(out.contains("min-width: 0; width: auto; max-width: none; }"), "a page's width: 100% must not cut the bleed: {out}");
 }
 
 #[test]

@@ -205,10 +205,14 @@ pub fn css(elements: &[Element]) -> String {
             g.columns, g.gutter, UNIT, g.margin
         );
         for p in place(elements, &g) {
-            let _ = writeln!(block, "#{} {{ grid-column: {} / span {}; grid-row: {} / span {}; min-width: 0; }}", css_id(&p.id), p.col, p.span, p.row, p.rows);
-            // A full row reaches the screen edges, so its colour band does too;
-            // the padding (which the page may override) keeps the content on the margin.
-            if p.span == g.columns {
+            // A full row reaches the screen edges, so its colour band does too:
+            // its width follows the bleed (a page's `width: 100%` would stop it a
+            // margin short), and the padding (which the page may override) keeps
+            // the content on the margin.
+            let full = p.span == g.columns;
+            let width = if full { " width: auto; max-width: none;" } else { "" };
+            let _ = writeln!(block, "#{} {{ grid-column: {} / span {}; grid-row: {} / span {}; min-width: 0;{width} }}", css_id(&p.id), p.col, p.span, p.row, p.rows);
+            if full {
                 let _ = writeln!(block, ":where(#{}) {{ margin-inline: -{m}px; padding-inline: {m}px; }}", css_id(&p.id), m = g.margin);
             }
         }
