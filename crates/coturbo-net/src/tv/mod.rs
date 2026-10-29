@@ -52,10 +52,15 @@ impl Brand {
 pub enum Action {
     Info,
     Apps,
-    Launch { app: String, content: Option<String> },
+    Launch {
+        app: String,
+        content: Option<String>,
+    },
     Key(String),
     PowerOff,
-    PowerOn { mac: Option<String> },
+    PowerOn {
+        mac: Option<String>,
+    },
     VolumeUp(u8),
     VolumeDown(u8),
     SetVolume(u8),
@@ -67,9 +72,14 @@ pub(crate) fn state_dir() -> PathBuf {
     let base = if cfg!(windows) {
         std::env::var_os("APPDATA").map(PathBuf::from)
     } else {
-        std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
+        std::env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
     };
-    let dir = base.unwrap_or_else(std::env::temp_dir).join("codeturbo").join("tv");
+    let dir = base
+        .unwrap_or_else(std::env::temp_dir)
+        .join("codeturbo")
+        .join("tv");
     let _ = std::fs::create_dir_all(&dir);
     dir
 }
@@ -83,7 +93,10 @@ pub(crate) fn load_secret(kind: &str, ip: IpAddr) -> Option<String> {
 
 pub(crate) fn save_secret(kind: &str, ip: IpAddr, value: &str) {
     let path = state_dir().join(format!("{kind}.json"));
-    let mut v: serde_json::Value = std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_else(|| serde_json::json!({}));
+    let mut v: serde_json::Value = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
     v[ip.to_string()] = serde_json::Value::String(value.to_string());
     let _ = std::fs::write(path, serde_json::to_string_pretty(&v).unwrap_or_default());
 }
@@ -109,7 +122,12 @@ impl rustls::client::danger::ServerCertVerifier for AnyCert {
         cert: &rustls::pki_types::CertificateDer<'_>,
         dss: &rustls::DigitallySignedStruct,
     ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        rustls::crypto::verify_tls12_signature(message, cert, dss, &self.0.signature_verification_algorithms)
+        rustls::crypto::verify_tls12_signature(
+            message,
+            cert,
+            dss,
+            &self.0.signature_verification_algorithms,
+        )
     }
     fn verify_tls13_signature(
         &self,
@@ -117,7 +135,12 @@ impl rustls::client::danger::ServerCertVerifier for AnyCert {
         cert: &rustls::pki_types::CertificateDer<'_>,
         dss: &rustls::DigitallySignedStruct,
     ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        rustls::crypto::verify_tls13_signature(message, cert, dss, &self.0.signature_verification_algorithms)
+        rustls::crypto::verify_tls13_signature(
+            message,
+            cert,
+            dss,
+            &self.0.signature_verification_algorithms,
+        )
     }
     fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
         self.0.signature_verification_algorithms.supported_schemes()
@@ -135,11 +158,17 @@ pub(crate) fn lan_tls() -> Arc<rustls::ClientConfig> {
     Arc::new(config)
 }
 
-pub(crate) type Socket = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+pub(crate) type Socket =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
 /// Opens a WebSocket to a TV (`ws://` or `wss://` with its own certificate).
 pub(crate) async fn websocket(url: &str) -> Result<Socket, String> {
-    let connect = tokio_tungstenite::connect_async_tls_with_config(url, None, false, Some(tokio_tungstenite::Connector::Rustls(lan_tls())));
+    let connect = tokio_tungstenite::connect_async_tls_with_config(
+        url,
+        None,
+        false,
+        Some(tokio_tungstenite::Connector::Rustls(lan_tls())),
+    );
     let (ws, _) = tokio::time::timeout(Duration::from_secs(6), connect)
         .await
         .map_err(|_| format!("{url} did not answer"))?
@@ -148,17 +177,36 @@ pub(crate) async fn websocket(url: &str) -> Result<Socket, String> {
 }
 
 pub(crate) fn http() -> reqwest::Client {
-    reqwest::Client::builder().timeout(Duration::from_secs(5)).no_proxy().danger_accept_invalid_certs(true).build().unwrap_or_default()
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .no_proxy()
+        .danger_accept_invalid_certs(true)
+        .build()
+        .unwrap_or_default()
 }
 
 async fn open(ip: IpAddr, port: u16) -> bool {
-    matches!(tokio::time::timeout(Duration::from_millis(700), tokio::net::TcpStream::connect((ip, port))).await, Ok(Ok(_)))
+    matches!(
+        tokio::time::timeout(
+            Duration::from_millis(700),
+            tokio::net::TcpStream::connect((ip, port))
+        )
+        .await,
+        Ok(Ok(_))
+    )
 }
 
 /// Finds out what kind of TV answers at `ip`.
 pub async fn detect(ip: IpAddr) -> Brand {
-    let (s8001, s8002, lg3000, lg3001, roku, adb, cast) =
-        tokio::join!(open(ip, 8001), open(ip, 8002), open(ip, 3000), open(ip, 3001), open(ip, 8060), open(ip, 5555), open(ip, 8009));
+    let (s8001, s8002, lg3000, lg3001, roku, adb, cast) = tokio::join!(
+        open(ip, 8001),
+        open(ip, 8002),
+        open(ip, 3000),
+        open(ip, 3001),
+        open(ip, 8060),
+        open(ip, 5555),
+        open(ip, 8009)
+    );
     if (s8001 || s8002) && samsung::info(ip).await.is_ok() {
         return Brand::Samsung;
     }
@@ -186,10 +234,13 @@ pub async fn control(ip: IpAddr, action: Action) -> Result<String, String> {
     if let Action::PowerOn { mac } = &action {
         let mac = match mac {
             Some(m) => m.clone(),
-            None => known_mac(ip).ok_or("give the TV's MAC address (network_scan shows it) to wake it")?,
+            None => known_mac(ip)
+                .ok_or("give the TV's MAC address (network_scan shows it) to wake it")?,
         };
         let woke = crate::wake(&mac, None).await?;
-        return Ok(format!("{woke}. Most TVs need \"Turn on via network\" / \"Wake on LAN\" on in their settings."));
+        return Ok(format!(
+            "{woke}. Most TVs need \"Turn on via network\" / \"Wake on LAN\" on in their settings."
+        ));
     }
     let brand = detect(ip).await;
     let done = match brand {
@@ -201,7 +252,9 @@ pub async fn control(ip: IpAddr, action: Action) -> Result<String, String> {
         Brand::Unknown => match &action {
             Action::Launch { app, content } => dial::launch(ip, app, content.as_deref()).await,
             Action::Info => dial::info(ip).await,
-            _ => Err(format!("{ip} does not look like a TV this engine knows (Samsung, LG, Android TV / Google TV, Roku)")),
+            _ => Err(format!(
+                "{ip} does not look like a TV this engine knows (Samsung, LG, Android TV / Google TV, Roku)"
+            )),
         },
     };
     done.map(|text| format!("{} · {text}", brand.label()))
@@ -211,7 +264,11 @@ pub async fn control(ip: IpAddr, action: Action) -> Result<String, String> {
 /// it was last on (a TV that is off is not in the cache).
 fn known_mac(ip: IpAddr) -> Option<String> {
     let IpAddr::V4(v4) = ip else { return None };
-    crate::arp_table().into_iter().find(|(a, _)| *a == v4).map(|(_, m)| m).or_else(|| crate::registry::resolve(&ip.to_string()).and_then(|(_, m)| m))
+    crate::arp_table()
+        .into_iter()
+        .find(|(a, _)| *a == v4)
+        .map(|(_, m)| m)
+        .or_else(|| crate::registry::resolve(&ip.to_string()).and_then(|(_, m)| m))
 }
 
 /// Common app names to their usual package or id, per platform.

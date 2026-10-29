@@ -7,8 +7,16 @@ async fn main() {
     let shot = page.with_extension("png");
     let t = std::time::Instant::now();
     let r = coturbo_design::render::measure(&browser, &page, &shot).await;
-    println!("measure: {:?} in {:.1}s", r.as_ref().map(|_| "ok"), t.elapsed().as_secs_f32());
+    println!(
+        "measure: {:?} in {:.1}s",
+        r.as_ref().map(|_| "ok"),
+        t.elapsed().as_secs_f32()
+    );
     for e in std::fs::read_dir(page.parent().unwrap()).unwrap().flatten() {
-        println!("  {} {}", e.file_name().to_string_lossy(), e.metadata().map(|m| m.len()).unwrap_or(0));
+        println!(
+            "  {} {}",
+            e.file_name().to_string_lossy(),
+            e.metadata().map(|m| m.len()).unwrap_or(0)
+        );
     }
 }

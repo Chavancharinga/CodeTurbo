@@ -1,4 +1,4 @@
-use coturbo_ast::{AstError, list_symbols, read_symbol, replace_symbol, insert_symbol, skeleton};
+use coturbo_ast::{AstError, insert_symbol, list_symbols, read_symbol, replace_symbol, skeleton};
 
 const SRC: &str = r#"use std::fmt;
 
@@ -55,7 +55,14 @@ fn skeleton_survives_syntax_errors() {
 #[test]
 fn lists_symbol_paths() {
     let names: Vec<String> = list_symbols(SRC).into_iter().map(|s| s.path).collect();
-    for p in ["Point", "Point::new", "Point::norm", "add", "inner", "inner::helper"] {
+    for p in [
+        "Point",
+        "Point::new",
+        "Point::norm",
+        "add",
+        "inner",
+        "inner::helper",
+    ] {
         assert!(names.contains(&p.to_string()), "missing {p} in {names:?}");
     }
 }
@@ -66,7 +73,10 @@ fn reads_exact_symbol() {
     assert!(body.starts_with("fn norm(&self) -> i32 {"));
     assert!(body.trim_end().ends_with('}'));
     assert!(!body.contains("pub fn new"));
-    assert_eq!(read_symbol(SRC, "nope"), Err(AstError::SymbolNotFound("nope".into())));
+    assert_eq!(
+        read_symbol(SRC, "nope"),
+        Err(AstError::SymbolNotFound("nope".into()))
+    );
 }
 
 #[test]
@@ -77,7 +87,12 @@ fn read_symbol_includes_doc_comments() {
 
 #[test]
 fn replaces_symbol_in_place() {
-    let out = replace_symbol(SRC, "add", "pub fn add(a: i32, b: i32) -> i32 {\n    a.wrapping_add(b)\n}").unwrap();
+    let out = replace_symbol(
+        SRC,
+        "add",
+        "pub fn add(a: i32, b: i32) -> i32 {\n    a.wrapping_add(b)\n}",
+    )
+    .unwrap();
     assert!(out.contains("a.wrapping_add(b)"));
     assert!(!out.contains("    a + b\n"));
     assert!(out.contains("fn norm(&self)"));
@@ -92,7 +107,12 @@ fn rejects_replacement_that_breaks_syntax() {
 
 #[test]
 fn inserts_after_symbol() {
-    let out = insert_symbol(SRC, "Point::norm", "fn dbl(&self) -> i32 {\n    self.x * 2\n}").unwrap();
+    let out = insert_symbol(
+        SRC,
+        "Point::norm",
+        "fn dbl(&self) -> i32 {\n    self.x * 2\n}",
+    )
+    .unwrap();
     let norm = out.find("fn norm").unwrap();
     let dbl = out.find("fn dbl").unwrap();
     assert!(dbl > norm);

@@ -39,13 +39,43 @@ impl Tone {
     pub fn from_words(words: &str) -> Tone {
         let w = words.to_lowercase();
         let any = |keys: &[&str]| keys.iter().any(|k| w.contains(k));
-        if any(&["editorial", "elegan", "luxo", "luxury", "sofistic", "sério", "serio", "serious", "clássic", "classic", "premium", "institucional"]) {
+        if any(&[
+            "editorial",
+            "elegan",
+            "luxo",
+            "luxury",
+            "sofistic",
+            "sério",
+            "serio",
+            "serious",
+            "clássic",
+            "classic",
+            "premium",
+            "institucional",
+        ]) {
             Tone::Editorial
-        } else if any(&["divert", "playful", "jovem", "young", "vibrant", "energ", "ousad", "bold", "lúdic", "fun", "criativ"]) {
+        } else if any(&[
+            "divert", "playful", "jovem", "young", "vibrant", "energ", "ousad", "bold", "lúdic",
+            "fun", "criativ",
+        ]) {
             Tone::Playful
-        } else if any(&["técnic", "tecnic", "technical", "minimal", "precis", "dev", "engenh", "dados", "data", "brutal"]) {
+        } else if any(&[
+            "técnic",
+            "tecnic",
+            "technical",
+            "minimal",
+            "precis",
+            "dev",
+            "engenh",
+            "dados",
+            "data",
+            "brutal",
+        ]) {
             Tone::Technical
-        } else if any(&["acolhed", "warm", "calm", "natural", "orgân", "organic", "human", "suave", "gentle", "confi", "trust", "familiar"]) {
+        } else if any(&[
+            "acolhed", "warm", "calm", "natural", "orgân", "organic", "human", "suave", "gentle",
+            "confi", "trust", "familiar",
+        ]) {
             Tone::Warm
         } else {
             Tone::Balanced
@@ -80,7 +110,9 @@ fn hue_range(t: Tone) -> (f64, f64, f64) {
 }
 
 fn hash(s: &str) -> u64 {
-    s.bytes().fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ b as u64).wrapping_mul(0x0100_0000_01b3))
+    s.bytes().fold(0xcbf2_9ce4_8422_2325, |h, b| {
+        (h ^ b as u64).wrapping_mul(0x0100_0000_01b3)
+    })
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -105,7 +137,11 @@ pub struct Tokens {
 
 impl Tokens {
     pub fn color(&self, name: &str) -> Rgb {
-        self.colors.iter().find(|(n, _)| *n == name).map(|(_, c)| *c).unwrap_or((0, 0, 0))
+        self.colors
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map(|(_, c)| *c)
+            .unwrap_or((0, 0, 0))
     }
 }
 
@@ -133,7 +169,11 @@ fn brand_roles(colors: &[String]) -> Option<BrandRoles> {
     if parsed.is_empty() {
         return None;
     }
-    let mut roles = BrandRoles { light: None, dark: None, chromatic: Vec::new() };
+    let mut roles = BrandRoles {
+        light: None,
+        dark: None,
+        chromatic: Vec::new(),
+    };
     for c in parsed {
         let (_, sat) = hue_sat(c);
         let lum = luminance(c);
@@ -164,7 +204,11 @@ fn on(c: Rgb) -> Rgb {
     let (_, _, h) = to_oklch(c);
     let light = oklch(0.97, 0.012, h);
     let dark = oklch(0.16, 0.02, h);
-    if contrast(light, c) >= contrast(dark, c) { light } else { dark }
+    if contrast(light, c) >= contrast(dark, c) {
+        light
+    } else {
+        dark
+    }
 }
 
 /// The palette built around the brand's own colors.
@@ -177,7 +221,10 @@ fn brand_palette(roles: &BrandRoles, chroma_hint: f64) -> Option<Vec<(&'static s
         _ => reach(0.22, 0.02, hue, bg, 10.0, true),
     };
     let white = (255, 255, 255);
-    let on_primary = [ink, white, (0, 0, 0)].into_iter().max_by(|a, b| contrast(*a, primary).total_cmp(&contrast(*b, primary))).unwrap_or(ink);
+    let on_primary = [ink, white, (0, 0, 0)]
+        .into_iter()
+        .max_by(|a, b| contrast(*a, primary).total_cmp(&contrast(*b, primary)))
+        .unwrap_or(ink);
     let accent = roles.chromatic.get(1).copied().unwrap_or_else(|| {
         let (l, c, h) = to_oklch(primary);
         oklch((l - 0.25).max(0.3), (c * 0.9).max(chroma_hint * 0.5), h)
@@ -209,12 +256,18 @@ fn brand_palette(roles: &BrandRoles, chroma_hint: f64) -> Option<Vec<(&'static s
 
 pub fn compile(b: &Brief) -> Tokens {
     let tone = Tone::from_words(&format!("{} {}", b.tone, b.signature));
-    let seed = hash(&format!("{}|{}|{}|{}", b.subject, b.audience, b.tone, b.signature));
+    let seed = hash(&format!(
+        "{}|{}|{}|{}",
+        b.subject, b.audience, b.tone, b.signature
+    ));
     let (lo, hi, chroma) = hue_range(tone);
     // A hue in the tone's window, nudged out of the default ones.
     let mut hue = lo + (seed % 1000) as f64 / 1000.0 * (hi - lo);
     for _ in 0..12 {
-        match DEFAULT_HUES.iter().find(|d| ((hue - **d + 540.0) % 360.0 - 180.0).abs() < 14.0) {
+        match DEFAULT_HUES
+            .iter()
+            .find(|d| ((hue - **d + 540.0) % 360.0 - 180.0).abs() < 14.0)
+        {
             Some(d) => hue = (d + 28.0) % 360.0,
             None => break,
         }
@@ -229,19 +282,36 @@ pub fn compile(b: &Brief) -> Tokens {
     let line = oklch(if dark { 0.32 } else { 0.87 }, 0.02, hue);
     let primary = reach(if dark { 0.72 } else { 0.52 }, chroma, hue, bg, 3.2, !dark);
     let white = (255, 255, 255);
-    let on_primary = if contrast(primary, white) >= 4.5 { white } else { reach(0.18, 0.02, hue, primary, 4.5, true) };
+    let on_primary = if contrast(primary, white) >= 4.5 {
+        white
+    } else {
+        reach(0.18, 0.02, hue, primary, 4.5, true)
+    };
     let offset = match tone {
         Tone::Editorial | Tone::Warm => 35.0 + (seed % 30) as f64,
         _ => 150.0 + (seed % 60) as f64,
     };
-    let accent = oklch(if dark { 0.8 } else { 0.72 }, chroma * 1.1, (hue + offset) % 360.0);
+    let accent = oklch(
+        if dark { 0.8 } else { 0.72 },
+        chroma * 1.1,
+        (hue + offset) % 360.0,
+    );
     let deep = oklch(if dark { 0.3 } else { 0.27 }, chroma * 0.8, hue);
     let tint = oklch(if dark { 0.27 } else { 0.92 }, chroma * 0.35, hue);
     let pairs = style.fonts();
     let (picked_display, picked_body) = pairs[(seed / 7) as usize % pairs.len()];
     // The project's own fonts win over the catalog.
-    let display = b.fonts.first().map(String::as_str).unwrap_or(picked_display);
-    let body = b.fonts.get(1).or(b.fonts.first()).map(String::as_str).unwrap_or(picked_body);
+    let display = b
+        .fonts
+        .first()
+        .map(String::as_str)
+        .unwrap_or(picked_display);
+    let body = b
+        .fonts
+        .get(1)
+        .or(b.fonts.first())
+        .map(String::as_str)
+        .unwrap_or(picked_body);
     let ratio: f64 = match tone {
         Tone::Editorial => 1.414,
         Tone::Playful => 1.333,
@@ -250,7 +320,11 @@ pub fn compile(b: &Brief) -> Tokens {
         Tone::Balanced => 1.25,
     };
     let names = ["sm", "base", "lg", "xl", "2xl", "3xl", "display"];
-    let type_scale = names.iter().enumerate().map(|(i, n)| (*n, (ratio.powi(i as i32 - 1) * 1000.0).round() / 1000.0)).collect();
+    let type_scale = names
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (*n, (ratio.powi(i as i32 - 1) * 1000.0).round() / 1000.0))
+        .collect();
     let mut own: Vec<u32> = b.radii.clone();
     own.sort_unstable();
     own.dedup();
@@ -263,32 +337,49 @@ pub fn compile(b: &Brief) -> Tokens {
     };
     let ink_hex = hex(ink);
     let [s1, s2] = style.shadows();
-    let shadows = vec![("1", s1.replace("{ink}", &ink_hex)), ("2", s2.replace("{ink}", &ink_hex))];
+    let shadows = vec![
+        ("1", s1.replace("{ink}", &ink_hex)),
+        ("2", s2.replace("{ink}", &ink_hex)),
+    ];
     let layout = match tone {
-        Tone::Editorial => "a narrow reading column (60–70 characters), large left-aligned headings, thin dividers, numerals and quotes in the spotlight; no card grid",
-        Tone::Playful => "asymmetric composition, flat colour blocks, slightly overlapping and rotated elements, very large display type",
-        Tone::Technical => "a visible rigid grid, monospace for data and labels, dense tables and lists instead of cards, high contrast",
-        Tone::Warm => "sections with generous breathing room, images or illustrations with soft corners, left-aligned text, varied rhythm between sections",
-        Tone::Balanced => "left alignment, one highlighted section breaking the grid, alternating widths between sections",
+        Tone::Editorial => {
+            "a narrow reading column (60–70 characters), large left-aligned headings, thin dividers, numerals and quotes in the spotlight; no card grid"
+        }
+        Tone::Playful => {
+            "asymmetric composition, flat colour blocks, slightly overlapping and rotated elements, very large display type"
+        }
+        Tone::Technical => {
+            "a visible rigid grid, monospace for data and labels, dense tables and lists instead of cards, high contrast"
+        }
+        Tone::Warm => {
+            "sections with generous breathing room, images or illustrations with soft corners, left-aligned text, varied rhythm between sections"
+        }
+        Tone::Balanced => {
+            "left alignment, one highlighted section breaking the grid, alternating widths between sections"
+        }
     };
     let brand = brand_roles(&b.brand).and_then(|r| brand_palette(&r, chroma));
     Tokens {
         tone,
         style,
         brief: b.clone(),
-        colors: if let Some(p) = brand { p } else { vec![
-            ("bg", bg),
-            ("surface", surface),
-            ("ink", ink),
-            ("muted", muted),
-            ("line", line),
-            ("primary", primary),
-            ("on-primary", on_primary),
-            ("accent", accent),
-            ("deep", deep),
-            ("on-deep", on(deep)),
-            ("tint", tint),
-        ] },
+        colors: if let Some(p) = brand {
+            p
+        } else {
+            vec![
+                ("bg", bg),
+                ("surface", surface),
+                ("ink", ink),
+                ("muted", muted),
+                ("line", line),
+                ("primary", primary),
+                ("on-primary", on_primary),
+                ("accent", accent),
+                ("deep", deep),
+                ("on-deep", on(deep)),
+                ("tint", tint),
+            ]
+        },
         font_display: display.to_string(),
         font_body: body.to_string(),
         type_ratio: ratio,

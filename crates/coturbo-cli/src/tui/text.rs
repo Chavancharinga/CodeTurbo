@@ -7,8 +7,16 @@ use ratatui::text::{Line, Span};
 use unicode_width::UnicodeWidthChar;
 
 fn basic(n: u16) -> Color {
-    const COLORS: [Color; 8] =
-        [Color::Black, Color::Red, Color::Green, Color::Yellow, Color::Blue, Color::Magenta, Color::Cyan, Color::Gray];
+    const COLORS: [Color; 8] = [
+        Color::Black,
+        Color::Red,
+        Color::Green,
+        Color::Yellow,
+        Color::Blue,
+        Color::Magenta,
+        Color::Cyan,
+        Color::Gray,
+    ];
     const BRIGHT: [Color; 8] = [
         Color::DarkGray,
         Color::LightRed,
@@ -129,7 +137,12 @@ pub fn ansi_lines(s: &str) -> Vec<Line<'static>> {
 /// `body` in a dashed box `width` columns wide, two columns in from the edge:
 /// the text is wrapped to fit inside it and every row is padded to the same
 /// width, so the right edge is a straight line. `title` sits in the top edge.
-pub fn boxed(body: &[Line<'static>], width: usize, edge: Color, title: Vec<Span<'static>>) -> Vec<Line<'static>> {
+pub fn boxed(
+    body: &[Line<'static>],
+    width: usize,
+    edge: Color,
+    title: Vec<Span<'static>>,
+) -> Vec<Line<'static>> {
     let width = width.max(12);
     let inner = width.saturating_sub(2 + 4);
     let edge_style = Style::new().fg(edge);
@@ -148,7 +161,10 @@ pub fn boxed(body: &[Line<'static>], width: usize, edge: Color, title: Vec<Span<
             out.push(Line::from(spans));
         }
     }
-    out.push(Line::styled(format!("  └{}┘", "┄".repeat(width.saturating_sub(2 + 2))), edge_style));
+    out.push(Line::styled(
+        format!("  └{}┘", "┄".repeat(width.saturating_sub(2 + 2))),
+        edge_style,
+    ));
     out
 }
 
@@ -158,7 +174,11 @@ fn width_of(line: &Line) -> usize {
 }
 
 pub fn width(line: &Line) -> usize {
-    line.spans.iter().flat_map(|s| s.content.chars()).map(|c| c.width().unwrap_or(0)).sum()
+    line.spans
+        .iter()
+        .flat_map(|s| s.content.chars())
+        .map(|c| c.width().unwrap_or(0))
+        .sum()
 }
 
 fn build(cells: &[(char, Style)]) -> Line<'static> {
@@ -176,7 +196,14 @@ fn build(cells: &[(char, Style)]) -> Line<'static> {
 /// and diffs stay one row per line however narrow the room.
 pub fn clip(line: &Line, width: usize) -> Line<'static> {
     if width_of(line) <= width {
-        return Line { spans: line.spans.iter().map(|s| Span::styled(s.content.to_string(), s.style)).collect(), ..Line::default() };
+        return Line {
+            spans: line
+                .spans
+                .iter()
+                .map(|s| Span::styled(s.content.to_string(), s.style))
+                .collect(),
+            ..Line::default()
+        };
     }
     let mut left = width.saturating_sub(1);
     let mut spans: Vec<Span<'static>> = Vec::new();
@@ -200,7 +227,9 @@ pub fn wrap(line: &Line, width: usize) -> Vec<Line<'static>> {
         .iter()
         .flat_map(|s| {
             let style = base.patch(s.style);
-            s.content.chars().map(move |c| (if c == '\t' { ' ' } else { c }, style))
+            s.content
+                .chars()
+                .map(move |c| (if c == '\t' { ' ' } else { c }, style))
         })
         .collect();
     let mut rows = Vec::new();
@@ -210,7 +239,11 @@ pub fn wrap(line: &Line, width: usize) -> Vec<Line<'static>> {
         let w = cell.0.width().unwrap_or(0);
         if row_w + w > width && !row.is_empty() {
             // Carry the unfinished word to the next row.
-            let cut = row.iter().rposition(|(c, _)| *c == ' ').map(|i| i + 1).filter(|&i| i < row.len());
+            let cut = row
+                .iter()
+                .rposition(|(c, _)| *c == ' ')
+                .map(|i| i + 1)
+                .filter(|&i| i < row.len());
             let carry = match cut {
                 Some(i) => row.split_off(i),
                 None => Vec::new(),
@@ -307,10 +340,18 @@ pub fn markdown_line(s: &str, code: bool, base: Style) -> Line<'static> {
     let indent = &s[..s.len() - trimmed.len()];
     let hashes = trimmed.chars().take_while(|&c| c == '#').count();
     if (1..=6).contains(&hashes) && trimmed[hashes..].starts_with(' ') {
-        inline(&mut line, trimmed[hashes..].trim(), base.fg(HEADING).add_modifier(Modifier::BOLD));
+        inline(
+            &mut line,
+            trimmed[hashes..].trim(),
+            base.fg(HEADING).add_modifier(Modifier::BOLD),
+        );
         return line;
     }
-    if let Some(rest) = trimmed.strip_prefix("- ").or_else(|| trimmed.strip_prefix("* ")).or_else(|| trimmed.strip_prefix("+ ")) {
+    if let Some(rest) = trimmed
+        .strip_prefix("- ")
+        .or_else(|| trimmed.strip_prefix("* "))
+        .or_else(|| trimmed.strip_prefix("+ "))
+    {
         push(&mut line, &format!("{indent}• "), base);
         inline(&mut line, rest, base);
         return line;

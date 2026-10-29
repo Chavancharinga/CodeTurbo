@@ -45,7 +45,13 @@ fn main() {
         dir.join("src/main.rs"),
         "use std::fs;\n\nfn contar(texto: &str) -> usize {\n    let palavras = texto.split_whitespace().count();\n    let total: usize = palavras +;\n    total\n}\n\nfn main() {\n    println!(\"{}\", contar(\"oi mundo\"));\n}\n",
     );
-    let found = [Finding { error: true, path: "src/main.rs".into(), line: 5, col: 36, message: "expected expression, found `;`".into() }];
+    let found = [Finding {
+        error: true,
+        path: "src/main.rs".into(),
+        line: 5,
+        col: 36,
+        message: "expected expression, found `;`".into(),
+    }];
     app.apply(Out::Lines(render(&found, &dir, w as usize - 4)));
     app.apply(Out::Busy(Some("think · round 3".into())));
     app.apply(Out::Mood(Mood::Hard));
@@ -60,10 +66,22 @@ fn main() {
     app.apply(now("CLIPPY", StageState::Done, "3.1s", Some(3.0)));
     app.apply(now("TEST", StageState::Running, "2/2", Some(6.0)));
     app.apply(Out::Tasks(vec![
-        TaskItem { title: "criar o projeto cargo".into(), state: TaskState::Done },
-        TaskItem { title: "implementar contar() e o main".into(), state: TaskState::Done },
-        TaskItem { title: "escrever 3 testes unitários".into(), state: TaskState::Doing },
-        TaskItem { title: "rodar a verificação".into(), state: TaskState::Pending },
+        TaskItem {
+            title: "criar o projeto cargo".into(),
+            state: TaskState::Done,
+        },
+        TaskItem {
+            title: "implementar contar() e o main".into(),
+            state: TaskState::Done,
+        },
+        TaskItem {
+            title: "escrever 3 testes unitários".into(),
+            state: TaskState::Doing,
+        },
+        TaskItem {
+            title: "rodar a verificação".into(),
+            state: TaskState::Pending,
+        },
     ]));
     std::thread::sleep(Duration::from_millis(1700));
     let mut term = Terminal::new(TestBackend::new(w, h)).expect("terminal");

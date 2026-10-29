@@ -7,8 +7,8 @@ use super::host::TuiHost;
 use super::text::ansi_line;
 use super::{Choice, In, Out, Question, Status};
 use crate::config::{self, Config, Pricer};
-use crate::splash::Mood;
 use crate::settings::{self, Credentials, PROVIDERS};
+use crate::splash::Mood;
 use crate::status::{status_line, stop_note};
 use crate::{models, update};
 use coturbo_agent::Agent;
@@ -25,8 +25,14 @@ use tokio::sync::oneshot;
 
 /// Approval modes offered by `/aprovacao`, with what each one does.
 pub const APPROVAL_MODES: [(&str, &str); 3] = [
-    ("always-ask", "Ask first: confirms every change and every command"),
-    ("write", "Auto-edit: changes files without asking, confirms commands (default)"),
+    (
+        "always-ask",
+        "Ask first: confirms every change and every command",
+    ),
+    (
+        "write",
+        "Auto-edit: changes files without asking, confirms commands (default)",
+    ),
     ("yolo", "Auto: runs everything without asking"),
 ];
 
@@ -97,10 +103,23 @@ fn copy_to_clipboard(text: &str) -> Result<(), String> {
     } else if std::env::var_os("WAYLAND_DISPLAY").is_some() {
         ("wl-copy", &[], text.as_bytes().to_vec())
     } else {
-        ("xclip", &["-selection", "clipboard"], text.as_bytes().to_vec())
+        (
+            "xclip",
+            &["-selection", "clipboard"],
+            text.as_bytes().to_vec(),
+        )
     };
-    let mut child = Command::new(program).args(args).stdin(Stdio::piped()).spawn().map_err(|e| format!("{program}: {e}"))?;
-    child.stdin.take().ok_or("no input")?.write_all(&bytes).map_err(|e| e.to_string())?;
+    let mut child = Command::new(program)
+        .args(args)
+        .stdin(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("{program}: {e}"))?;
+    child
+        .stdin
+        .take()
+        .ok_or("no input")?
+        .write_all(&bytes)
+        .map_err(|e| e.to_string())?;
     child.wait().map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -118,7 +137,12 @@ pub async fn run(launch: Launch) -> Result<ExitCode, String> {
         folder: super::path::folder_text(&launch.root),
     };
     let (screen, rx, cancel) = Screen::spawn(initial, closing.clone());
-    let channels = Channels { out: screen.out.clone(), rx, cancel, closing: closing.clone() };
+    let channels = Channels {
+        out: screen.out.clone(),
+        rx,
+        cancel,
+        closing: closing.clone(),
+    };
     let result = drive(launch, channels).await;
     closing.store(true, Ordering::SeqCst);
     screen.join().map_err(|e| e.to_string())?;
@@ -139,7 +163,12 @@ pub struct Channels {
 /// Runs a session against any screen until the user quits. Returns the
 /// tokens the session used.
 pub async fn drive(launch: Launch, ch: Channels) -> Result<Usage, String> {
-    let Channels { out, mut rx, mut cancel, closing } = ch;
+    let Channels {
+        out,
+        mut rx,
+        mut cancel,
+        closing,
+    } = ch;
     let mut s = Session {
         creds: Credentials::load(launch.dir.as_deref()),
         cfg: launch.cfg,
@@ -175,15 +204,27 @@ impl Session {
     }
 
     fn info(&self, text: impl Into<String>) {
-        self.send(Out::Lines(text.into().lines().map(|l| Line::styled(format!("  {l}"), dim())).collect()));
+        self.send(Out::Lines(
+            text.into()
+                .lines()
+                .map(|l| Line::styled(format!("  {l}"), dim()))
+                .collect(),
+        ));
     }
 
     fn warn(&self, text: impl Into<String>) {
-        self.send(Out::Lines(vec![Line::styled(format!("  ! {}", text.into()), Style::new().fg(Color::Yellow))]));
+        self.send(Out::Lines(vec![Line::styled(
+            format!("  ! {}", text.into()),
+            Style::new().fg(Color::Yellow),
+        )]));
     }
 
     fn pricer(&self) -> Pricer {
-        Pricer { table: self.prices.clone(), model: self.cfg.model.clone(), provider: self.cfg.provider.clone() }
+        Pricer {
+            table: self.prices.clone(),
+            model: self.cfg.model.clone(),
+            provider: self.cfg.provider.clone(),
+        }
     }
 
     fn status(&self, agent_usage: Usage) {
@@ -192,8 +233,16 @@ impl Session {
         // A provider that cannot work yet (no key, program missing) is not shown as if it were in use.
         let ready = self.provider().is_ok();
         self.send(Out::Status(Status {
-            provider: if ready { self.cfg.provider.clone() } else { "no provider".into() },
-            model: if ready { self.cfg.model.clone() } else { "use /provider".into() },
+            provider: if ready {
+                self.cfg.provider.clone()
+            } else {
+                "no provider".into()
+            },
+            model: if ready {
+                self.cfg.model.clone()
+            } else {
+                "use /provider".into()
+            },
             approval: approval_label(&self.cfg.approval_mode),
             plan: self.plan,
             usage: status_line(&total, self.pricer().cost(&total)),
@@ -209,7 +258,16 @@ impl Session {
     }
 
     async fn select(&self, title: String, options: Vec<Choice>, custom: bool) -> Option<String> {
-        self.ask(|reply| Question::Select { title, options, custom, reply }, None).await
+        self.ask(
+            |reply| Question::Select {
+                title,
+                options,
+                custom,
+                reply,
+            },
+            None,
+        )
+        .await
     }
 
     fn save(&self, values: &[(&str, Option<&str>)]) {
@@ -221,15 +279,23 @@ impl Session {
     }
 
     fn provider(&self) -> Result<Box<dyn Provider>, String> {
-        config::make_provider(&self.cfg, settings::api_key(&self.cfg.provider, &self.creds))
+        config::make_provider(
+            &self.cfg,
+            settings::api_key(&self.cfg.provider, &self.creds),
+        )
     }
 
     fn welcome(&self) {
-        let title = Style::new().fg(Color::Rgb(225, 232, 245)).add_modifier(Modifier::BOLD);
+        let title = Style::new()
+            .fg(Color::Rgb(225, 232, 245))
+            .add_modifier(Modifier::BOLD);
         self.send(Out::Lines(vec![
             Line::styled(format!("CodeTurbo {}", update::VERSION), title),
             Line::styled(format!("Project: {}", self.root.display()), dim()),
-            Line::styled("Describe what to build or change. Type /help for the commands.", dim()),
+            Line::styled(
+                "Describe what to build or change. Type /help for the commands.",
+                dim(),
+            ),
         ]));
     }
 
@@ -245,12 +311,18 @@ impl Session {
         if !commands.is_empty() && self.cfg.approval_mode != "yolo" {
             let mut lines = vec![
                 Line::default(),
-                Line::styled("This project's .codeturbo.toml wants the verification gate to run:", Style::new().fg(Color::Yellow)),
+                Line::styled(
+                    "This project's .codeturbo.toml wants the verification gate to run:",
+                    Style::new().fg(Color::Yellow),
+                ),
             ];
             lines.extend(commands.iter().map(|c| Line::raw(format!("    {c}"))));
             self.send(Out::Lines(lines));
             let title = "Allow these commands in this session?".to_string();
-            if !self.ask(|reply| Question::Confirm { title, reply }, false).await {
+            if !self
+                .ask(|reply| Question::Confirm { title, reply }, false)
+                .await
+            {
                 self.warn("the .codeturbo.toml commands were not allowed");
                 return;
             }
@@ -271,8 +343,16 @@ impl Session {
         }
         let mut lines = vec![
             Line::default(),
-            Line::styled(format!("First time in this folder: {}", super::path::folder_text(&self.root)), Style::new().fg(Color::Yellow)),
-            Line::raw("  CodeTurbo will read and change files here and may run commands, depending on the approval mode."),
+            Line::styled(
+                format!(
+                    "First time in this folder: {}",
+                    super::path::folder_text(&self.root)
+                ),
+                Style::new().fg(Color::Yellow),
+            ),
+            Line::raw(
+                "  CodeTurbo will read and change files here and may run commands, depending on the approval mode.",
+            ),
             Line::raw("  Only trust folders whose contents you know."),
         ];
         if settings::too_broad(&self.root) {
@@ -283,8 +363,14 @@ impl Session {
         }
         self.send(Out::Lines(lines));
         // The folder goes in the question itself, so it is the last thing read before answering.
-        let title = format!("Trust this folder? {}", super::path::short_path(&super::path::folder_text(&self.root), 60));
-        if !self.ask(|reply| Question::Confirm { title, reply }, false).await {
+        let title = format!(
+            "Trust this folder? {}",
+            super::path::short_path(&super::path::folder_text(&self.root), 60)
+        );
+        if !self
+            .ask(|reply| Question::Confirm { title, reply }, false)
+            .await
+        {
             self.warn("folder not trusted: nothing will be read or changed. Open CodeTurbo in your project folder.");
             return false;
         }
@@ -295,7 +381,11 @@ impl Session {
         true
     }
 
-    async fn main_loop(&mut self, rx: &mut UnboundedReceiver<In>, cancel: &mut UnboundedReceiver<()>) -> Result<(), String> {
+    async fn main_loop(
+        &mut self,
+        rx: &mut UnboundedReceiver<In>,
+        cancel: &mut UnboundedReceiver<()>,
+    ) -> Result<(), String> {
         self.welcome();
         if !self.trust_folder().await {
             // Wait for the user to quit; nothing runs here.
@@ -326,13 +416,23 @@ impl Session {
             let root = self.root.clone();
             tokio::spawn(async move {
                 let m = coturbo_mcp::Manager::start(&servers, &root).await;
-                let ok: Vec<String> = m.summary().iter().map(|(s, n)| format!("{s} ({n} tools)")).collect();
+                let ok: Vec<String> = m
+                    .summary()
+                    .iter()
+                    .map(|(s, n)| format!("{s} ({n} tools)"))
+                    .collect();
                 let mut lines = Vec::new();
                 if !ok.is_empty() {
-                    lines.push(Line::styled(format!("  MCP connected: {}", ok.join(", ")), Style::new().fg(Color::DarkGray)));
+                    lines.push(Line::styled(
+                        format!("  MCP connected: {}", ok.join(", ")),
+                        Style::new().fg(Color::DarkGray),
+                    ));
                 }
                 for (s, e) in &m.failed {
-                    lines.push(Line::styled(format!("  ! MCP server {s} did not connect: {e}"), Style::new().fg(Color::Yellow)));
+                    lines.push(Line::styled(
+                        format!("  ! MCP server {s} did not connect: {e}"),
+                        Style::new().fg(Color::Yellow),
+                    ));
                 }
                 let _ = slot.set(m);
                 let _ = out.send(Out::Lines(lines));
@@ -354,7 +454,11 @@ impl Session {
                 }
             };
             let mut agent = match &provider {
-                Some(p) => Some(Agent::new(p.as_ref(), &tools, config::agent_config(&self.cfg)?)),
+                Some(p) => Some(Agent::new(
+                    p.as_ref(),
+                    &tools,
+                    config::agent_config(&self.cfg)?,
+                )),
                 None => None,
             };
             if let Some(a) = agent.as_mut() {
@@ -414,14 +518,19 @@ impl Session {
                     Parsed::Unknown(w) => {
                         // The user's own commands and skills (CodeTurbo's and Claude Code's folders).
                         let name = w.trim_start_matches('/');
-                        let rest = text.trim_start().split_once(char::is_whitespace).map_or("", |x| x.1);
+                        let rest = text
+                            .trim_start()
+                            .split_once(char::is_whitespace)
+                            .map_or("", |x| x.1);
                         match coturbo_tools::skills::expand(&self.root, name, rest) {
                             Some(task) if agent.is_some() => {
                                 self.send(Out::Lines(super::app::task_lines(&task)));
                                 self.task(agent.as_mut(), &task, cancel).await;
                             }
                             Some(_) => self.warn("no provider ready. Use /provider to choose one."),
-                            None => self.warn(format!("unknown command: {w}. Type /help for the commands.")),
+                            None => self.warn(format!(
+                                "unknown command: {w}. Type /help for the commands."
+                            )),
                         }
                         false
                     }
@@ -435,7 +544,11 @@ impl Session {
                             let scope = if arg.trim().is_empty() {
                                 "the uncommitted changes (git diff HEAD), or, when there are none, this branch against the main branch (git diff main...HEAD)".to_string()
                             } else {
-                                format!("the changes against `{}` (git diff {}...HEAD)", arg.trim(), arg.trim())
+                                format!(
+                                    "the changes against `{}` (git diff {}...HEAD)",
+                                    arg.trim(),
+                                    arg.trim()
+                                )
                             };
                             let task = format!(
                                 "Review {scope}. First read the diff with bash and split it by area (module, feature or file group). \
@@ -484,7 +597,10 @@ impl Session {
                         Command::Usage => {
                             let mut total = self.spent;
                             total += usage_of(&agent);
-                            self.info(format!("Session: {}", status_line(&total, self.pricer().cost(&total))));
+                            self.info(format!(
+                                "Session: {}",
+                                status_line(&total, self.pricer().cost(&total))
+                            ));
                             false
                         }
                         Command::Retry => {
@@ -508,14 +624,22 @@ impl Session {
                             false
                         }
                         Command::Export => {
-                            let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
-                            self.send(Out::Export(self.root.join(".codeturbo/sessions").join(format!("conversation-{secs}.md"))));
+                            let secs = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map_or(0, |d| d.as_secs());
+                            self.send(Out::Export(
+                                self.root
+                                    .join(".codeturbo/sessions")
+                                    .join(format!("conversation-{secs}.md")),
+                            ));
                             false
                         }
                         Command::Shake => {
                             match agent.as_mut().map(|a| a.shake(2)) {
                                 Some(0) | None => self.info("Nothing to shrink."),
-                                Some(n) => self.info(format!("{n} old result(s) shrunk: fewer tokens on the next message.")),
+                                Some(n) => self.info(format!(
+                                    "{n} old result(s) shrunk: fewer tokens on the next message."
+                                )),
                             }
                             false
                         }
@@ -528,7 +652,10 @@ impl Session {
                                         if let Some(a) = agent.as_mut() {
                                             a.reload_rules(&self.root);
                                         }
-                                        self.info(format!("Rule pinned (applies from the next message): {}", arg.trim()));
+                                        self.info(format!(
+                                            "Rule pinned (applies from the next message): {}",
+                                            arg.trim()
+                                        ));
                                     }
                                     Err(e) => self.warn(e),
                                 }
@@ -575,7 +702,12 @@ impl Session {
         Ok(())
     }
 
-    async fn task(&mut self, agent: Option<&mut Agent<'_>>, text: &str, cancel: &mut UnboundedReceiver<()>) {
+    async fn task(
+        &mut self,
+        agent: Option<&mut Agent<'_>>,
+        text: &str,
+        cancel: &mut UnboundedReceiver<()>,
+    ) {
         let Some(agent) = agent else {
             self.warn("no provider ready. Use /provider to choose one or /key to set the API key.");
             return;
@@ -584,7 +716,13 @@ impl Session {
         while cancel.try_recv().is_ok() {}
         let mut base = self.spent;
         base += agent.session_usage();
-        let mut host = TuiHost::new(self.out.clone(), self.pricer(), self.root.clone(), self.verbose, base);
+        let mut host = TuiHost::new(
+            self.out.clone(),
+            self.pricer(),
+            self.root.clone(),
+            self.verbose,
+            base,
+        );
         self.send(Out::Busy(Some("think".into())));
         let started = std::time::Instant::now();
         let result = tokio::select! {
@@ -610,7 +748,10 @@ impl Session {
                 }
                 if report.verified == Some(false) {
                     self.send(Out::Ended(Mood::Denied));
-                } else if !matches!(report.stop, coturbo_agent::Stop::Done | coturbo_agent::Stop::PlanSaved) {
+                } else if !matches!(
+                    report.stop,
+                    coturbo_agent::Stop::Done | coturbo_agent::Stop::PlanSaved
+                ) {
                     self.send(Out::Ended(Mood::Alert));
                 }
                 agent.compact();
@@ -632,48 +773,89 @@ impl Session {
     /// Picks a provider. `ready`: the current one is actually working.
     async fn choose_provider(&mut self, ready: bool) -> bool {
         // Only what this computer has: installed plans, local servers, keys already given.
-        let here: Vec<&settings::ProviderInfo> =
-            PROVIDERS.iter().filter(|p| settings::detected(p.id, &self.creds) || (ready && p.id == self.cfg.provider)).collect();
+        let here: Vec<&settings::ProviderInfo> = PROVIDERS
+            .iter()
+            .filter(|p| {
+                settings::detected(p.id, &self.creds) || (ready && p.id == self.cfg.provider)
+            })
+            .collect();
         let mut options: Vec<Choice> = here
             .iter()
             .map(|p| {
                 let note = if p.id == self.cfg.provider && ready {
-                    format!("{} · in use ({})", settings::standing(p.id, &self.creds), self.cfg.model)
+                    format!(
+                        "{} · in use ({})",
+                        settings::standing(p.id, &self.creds),
+                        self.cfg.model
+                    )
                 } else {
                     settings::standing(p.id, &self.creds)
                 };
                 Choice::new(p.id, format!("{}{note}", p.label))
             })
             .collect();
-        options.push(Choice::new("__outro", "Connect another provider with an API key…"));
+        options.push(Choice::new(
+            "__outro",
+            "Connect another provider with an API key…",
+        ));
         // Nothing found on this device (a phone, a fresh machine): straight to the full list.
         let picked = if here.is_empty() {
             Some("__outro".to_string())
         } else {
-            self.select("Sign in to your providers · pick one to use".into(), options, false).await
+            self.select(
+                "Sign in to your providers · pick one to use".into(),
+                options,
+                false,
+            )
+            .await
         };
         let Some(mut id) = picked else { return false };
         if id == "__outro" {
             let rest: Vec<Choice> = PROVIDERS
                 .iter()
-                .filter(|p| !here.iter().any(|h| h.id == p.id) && (p.key_var.is_some() || p.base_url.is_some() || p.id == "ollama"))
+                .filter(|p| {
+                    !here.iter().any(|h| h.id == p.id)
+                        && (p.key_var.is_some() || p.base_url.is_some() || p.id == "ollama")
+                })
                 .map(|p| Choice::new(p.id, p.label))
                 .collect();
-            let Some(other) = self.select("Choose your AI provider · your key stays on this device".into(), rest, false).await else { return false };
+            let Some(other) = self
+                .select(
+                    "Choose your AI provider · your key stays on this device".into(),
+                    rest,
+                    false,
+                )
+                .await
+            else {
+                return false;
+            };
             id = other;
         }
-        let Some(info) = settings::provider(&id) else { return false };
-        if info.key_var.is_some() && settings::api_key(&id, &self.creds).is_none() && !self.ask_key(&id).await {
+        let Some(info) = settings::provider(&id) else {
+            return false;
+        };
+        if info.key_var.is_some()
+            && settings::api_key(&id, &self.creds).is_none()
+            && !self.ask_key(&id).await
+        {
             let hint = match id.as_str() {
-                "gemini" => " Create a free one at https://aistudio.google.com/apikey and paste it.",
+                "gemini" => {
+                    " Create a free one at https://aistudio.google.com/apikey and paste it."
+                }
                 "openrouter" => " Create one at https://openrouter.ai/keys and paste it.",
                 _ => "",
             };
-            self.warn(format!("{} was not connected: it needs an API key.{hint}", info.label));
+            self.warn(format!(
+                "{} was not connected: it needs an API key.{hint}",
+                info.label
+            ));
             return false;
         }
         let Some(model) = self.pick_model(&id, "").await else {
-            self.warn(format!("{} was not connected: no model was chosen.", info.label));
+            self.warn(format!(
+                "{} was not connected: no model was chosen.",
+                info.label
+            ));
             return false;
         };
         let changed = id != self.cfg.provider;
@@ -682,7 +864,11 @@ impl Session {
         if changed {
             // An endpoint set for the old provider would point the new one at the wrong place.
             self.cfg.base_url = None;
-            self.save(&[("provider", Some(&id)), ("model", Some(&model)), ("base_url", None)]);
+            self.save(&[
+                ("provider", Some(&id)),
+                ("model", Some(&model)),
+                ("base_url", None),
+            ]);
         } else {
             self.save(&[("provider", Some(&id)), ("model", Some(&model))]);
         }
@@ -692,7 +878,9 @@ impl Session {
 
     async fn choose_model(&mut self, typed: &str) -> bool {
         let provider = self.cfg.provider.clone();
-        let Some(model) = self.pick_model(&provider, typed).await else { return false };
+        let Some(model) = self.pick_model(&provider, typed).await else {
+            return false;
+        };
         self.cfg.model.clone_from(&model);
         self.save(&[("model", Some(&model))]);
         self.info(format!("Model: {model}"));
@@ -707,7 +895,11 @@ impl Session {
         }
         self.send(Out::Busy(Some("listing the available models".into())));
         let key = settings::api_key(provider, &self.creds);
-        let base = if provider == self.cfg.provider { self.cfg.base_url.clone() } else { None };
+        let base = if provider == self.cfg.provider {
+            self.cfg.base_url.clone()
+        } else {
+            None
+        };
         let listed = models::list(provider, key.as_deref(), base.as_deref()).await;
         self.send(Out::Busy(None));
         let mut named = listed.unwrap_or_else(|e| {
@@ -715,7 +907,9 @@ impl Session {
             Vec::new()
         });
         if provider == "anthropic" && named.is_empty() {
-            named = models::ANTHROPIC_FALLBACK.map(|m| (m.to_string(), m.to_string())).to_vec();
+            named = models::ANTHROPIC_FALLBACK
+                .map(|m| (m.to_string(), m.to_string()))
+                .to_vec();
         }
         let labels: std::collections::HashMap<String, String> = named.iter().cloned().collect();
         let mut ids: Vec<String> = named.into_iter().map(|(id, _)| id).collect();
@@ -735,7 +929,11 @@ impl Session {
             .into_iter()
             .map(|id| {
                 let base = labels.get(&id).cloned().unwrap_or_else(|| id.clone());
-                let label = if Some(&id) == current.as_ref() { format!("{base} · in use") } else { base };
+                let label = if Some(&id) == current.as_ref() {
+                    format!("{base} · in use")
+                } else {
+                    base
+                };
                 Choice::new(id, label)
             })
             .collect();
@@ -752,7 +950,11 @@ impl Session {
     /// A click is the user's own action, so nothing asks again.
     async fn devices(&mut self) {
         self.send(Out::Busy(Some("network_scan · whole subnet".into())));
-        let inv = coturbo_net::scan(coturbo_net::ScanOptions { sweep: true, ..Default::default() }).await;
+        let inv = coturbo_net::scan(coturbo_net::ScanOptions {
+            sweep: true,
+            ..Default::default()
+        })
+        .await;
         self.send(Out::Busy(None));
         if inv.devices.is_empty() {
             self.info("No device answered. Turned-off TVs do not show up: turn them on and try /devices again.");
@@ -760,28 +962,62 @@ impl Session {
         }
         let label = |d: &coturbo_net::Device| {
             let id = &d.identity;
-            let what = [id.kind.as_str(), id.brand.as_str(), id.model.as_str()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(" · ");
+            let what = [id.kind.as_str(), id.brand.as_str(), id.model.as_str()]
+                .iter()
+                .filter(|s| !s.is_empty())
+                .copied()
+                .collect::<Vec<_>>()
+                .join(" · ");
             let given = coturbo_net::registry::name_of(d.mac.as_deref());
             let name = match given {
                 Some(n) => format!("  \"{n}\""),
                 None if !id.name.is_empty() => format!("  \"{}\"", id.name),
                 None => String::new(),
             };
-            format!("{}{name}  {}", if what.is_empty() { "unidentified device" } else { &what }, d.ip.map(|i| i.to_string()).unwrap_or_default())
+            format!(
+                "{}{name}  {}",
+                if what.is_empty() {
+                    "unidentified device"
+                } else {
+                    &what
+                },
+                d.ip.map(|i| i.to_string()).unwrap_or_default()
+            )
         };
         loop {
-            let mut options: Vec<Choice> = inv.devices.iter().filter_map(|d| Some(Choice::new(d.ip?.to_string(), label(d)))).collect();
+            let mut options: Vec<Choice> = inv
+                .devices
+                .iter()
+                .filter_map(|d| Some(Choice::new(d.ip?.to_string(), label(d))))
+                .collect();
             let away = coturbo_net::registry::missing(&inv);
             for k in &away {
-                let name = if k.name.is_empty() { String::new() } else { format!("  \"{}\"", k.name) };
-                options.push(Choice::new(format!("off:{}", k.mac), format!("{}{name}  off or asleep", if k.what.is_empty() { "device" } else { &k.what })));
+                let name = if k.name.is_empty() {
+                    String::new()
+                } else {
+                    format!("  \"{}\"", k.name)
+                };
+                options.push(Choice::new(
+                    format!("off:{}", k.mac),
+                    format!(
+                        "{}{name}  off or asleep",
+                        if k.what.is_empty() { "device" } else { &k.what }
+                    ),
+                ));
             }
             let title = format!("{} device(s) on your network · pick one", options.len());
-            let Some(ip) = self.select(title, options, false).await else { return };
+            let Some(ip) = self.select(title, options, false).await else {
+                return;
+            };
             // A known device that is off: wake it, or name it.
             if let Some(mac) = ip.strip_prefix("off:") {
-                let Some(k) = away.iter().find(|k| k.mac == mac).cloned() else { continue };
-                let options = vec![Choice::new("power_on", "Turn on (Wake-on-LAN)"), Choice::new("rename", "Give it a name")];
+                let Some(k) = away.iter().find(|k| k.mac == mac).cloned() else {
+                    continue;
+                };
+                let options = vec![
+                    Choice::new("power_on", "Turn on (Wake-on-LAN)"),
+                    Choice::new("rename", "Give it a name"),
+                ];
                 match self.select(format!("{} · off or asleep", if k.name.is_empty() { &k.what } else { &k.name }), options, false).await.as_deref() {
                     Some("power_on") => match coturbo_net::wake(&k.mac, None).await {
                         Ok(t) => self.info(format!("{t}. The TV needs \"Turn on via network\" (Wake on LAN) on in its settings.")),
@@ -792,13 +1028,25 @@ impl Session {
                 }
                 continue;
             }
-            let Some(device) = inv.devices.iter().find(|d| d.ip.map(|i| i.to_string()) == Some(ip.clone())) else { return };
-            let Ok(addr) = ip.parse::<std::net::IpAddr>() else { return };
+            let Some(device) = inv
+                .devices
+                .iter()
+                .find(|d| d.ip.map(|i| i.to_string()) == Some(ip.clone()))
+            else {
+                return;
+            };
+            let Ok(addr) = ip.parse::<std::net::IpAddr>() else {
+                return;
+            };
             // What it is decides the buttons.
             self.send(Out::Busy(Some(format!("finding how to talk to {ip}"))));
             let kind = coturbo_net::home::detect(addr).await;
             self.send(Out::Busy(None));
-            let mut actions: Vec<(&str, &str)> = vec![("status", "Status"), ("details", "Details"), ("rename", "Give it a name")];
+            let mut actions: Vec<(&str, &str)> = vec![
+                ("status", "Status"),
+                ("details", "Details"),
+                ("rename", "Give it a name"),
+            ];
             use coturbo_net::home::Kind;
             match &kind {
                 Kind::Tv(_) => {
@@ -840,7 +1088,9 @@ impl Session {
                     ("red", "Red"),
                     ("blue", "Blue"),
                 ]),
-                Kind::Shelly { .. } | Kind::Tasmota | Kind::Kasa => actions.extend([("on", "Turn on"), ("off", "Turn off"), ("toggle", "Toggle")]),
+                Kind::Shelly { .. } | Kind::Tasmota | Kind::Kasa => {
+                    actions.extend([("on", "Turn on"), ("off", "Turn off"), ("toggle", "Toggle")])
+                }
                 Kind::Renderer(_) => actions.extend([
                     ("play", "Play"),
                     ("pause", "Pause"),
@@ -859,14 +1109,28 @@ impl Session {
             }
             loop {
                 let options = actions.iter().map(|(id, l)| Choice::new(*id, *l)).collect();
-                let title = format!("{} · {} · choose an action (Esc goes back)", label(device), kind.label());
-                let Some(pick) = self.select(title, options, false).await else { break };
+                let title = format!(
+                    "{} · {} · choose an action (Esc goes back)",
+                    label(device),
+                    kind.label()
+                );
+                let Some(pick) = self.select(title, options, false).await else {
+                    break;
+                };
                 use coturbo_net::home::Act;
                 let act = match pick.as_str() {
                     "details" => {
-                        let one = coturbo_net::Inventory { local: inv.local, devices: vec![device.clone()] };
+                        let one = coturbo_net::Inventory {
+                            local: inv.local,
+                            devices: vec![device.clone()],
+                        };
                         let text = coturbo_net::render(&one);
-                        self.send(Out::Lines(text.lines().skip(2).map(|l| Line::raw(l.to_string())).collect()));
+                        self.send(Out::Lines(
+                            text.lines()
+                                .skip(2)
+                                .map(|l| Line::raw(l.to_string()))
+                                .collect(),
+                        ));
                         continue;
                     }
                     "rename" => {
@@ -878,7 +1142,11 @@ impl Session {
                         continue;
                     }
                     "web" => {
-                        let scheme = if device.open_ports.contains(&80) { "http" } else { "https" };
+                        let scheme = if device.open_ports.contains(&80) {
+                            "http"
+                        } else {
+                            "https"
+                        };
                         self.info(format!("Open {scheme}://{ip}/ in your browser."));
                         continue;
                     }
@@ -893,9 +1161,18 @@ impl Session {
                     "cold" => Act::Color(220, 235, 255),
                     "red" => Act::Color(255, 0, 0),
                     "blue" => Act::Color(0, 0, 255),
-                    "youtube" => Act::Launch { app: "YouTube".into(), content: None },
-                    "netflix" => Act::Launch { app: "Netflix".into(), content: None },
-                    "spotify" => Act::Launch { app: "Spotify".into(), content: None },
+                    "youtube" => Act::Launch {
+                        app: "YouTube".into(),
+                        content: None,
+                    },
+                    "netflix" => Act::Launch {
+                        app: "Netflix".into(),
+                        content: None,
+                    },
+                    "spotify" => Act::Launch {
+                        app: "Spotify".into(),
+                        content: None,
+                    },
                     "volume_up" => Act::VolumeUp(2),
                     "volume_down" => Act::VolumeDown(2),
                     "mute" => Act::Mute,
@@ -931,29 +1208,51 @@ impl Session {
             return;
         }
         let Some(m) = slot.get() else {
-            self.info(format!("{} MCP server(s) still connecting…", configured.len()));
+            self.info(format!(
+                "{} MCP server(s) still connecting…",
+                configured.len()
+            ));
             return;
         };
-        let mut lines = vec![Line::styled("  MCP servers", Style::new().add_modifier(Modifier::BOLD))];
+        let mut lines = vec![Line::styled(
+            "  MCP servers",
+            Style::new().add_modifier(Modifier::BOLD),
+        )];
         for (server, n) in m.summary() {
             lines.push(Line::raw(format!("  ✓ {server}: {n} tool(s)")));
             for t in m.tools().iter().filter(|t| t.server == server).take(12) {
                 let d: String = t.description.chars().take(70).collect();
-                lines.push(Line::styled(format!("      {} · {d}", t.name), Style::new().fg(Color::DarkGray)));
+                lines.push(Line::styled(
+                    format!("      {} · {d}", t.name),
+                    Style::new().fg(Color::DarkGray),
+                ));
             }
         }
         for (s, e) in &m.failed {
-            lines.push(Line::styled(format!("  ✗ {s}: {e}"), Style::new().fg(Color::Yellow)));
+            lines.push(Line::styled(
+                format!("  ✗ {s}: {e}"),
+                Style::new().fg(Color::Yellow),
+            ));
         }
         self.send(Out::Lines(lines));
     }
 
     /// Asks for a name and remembers it for the device with this MAC.
     async fn rename_device(&mut self, mac: &str) {
-        let title = "Name for this device (e.g. living room TV) · type it and press Enter".to_string();
-        let Some(name) = self.select(title, Vec::new(), true).await.filter(|n| !n.trim().is_empty()) else { return };
+        let title =
+            "Name for this device (e.g. living room TV) · type it and press Enter".to_string();
+        let Some(name) = self
+            .select(title, Vec::new(), true)
+            .await
+            .filter(|n| !n.trim().is_empty())
+        else {
+            return;
+        };
         match coturbo_net::registry::name(mac, &name) {
-            Ok(k) => self.info(format!("Saved: \"{}\". You can now ask, for example, \"turn off the {}\".", k.name, k.name)),
+            Ok(k) => self.info(format!(
+                "Saved: \"{}\". You can now ask, for example, \"turn off the {}\".",
+                k.name, k.name
+            )),
             Err(e) => self.warn(e),
         }
     }
@@ -972,7 +1271,12 @@ impl Session {
     async fn ask_key(&mut self, id: &str) -> bool {
         let label = settings::provider(id).map_or(id, |p| p.label);
         let title = format!("API key · {label}");
-        let Some(key) = self.ask(|reply| Question::Secret { title, reply }, None).await else { return false };
+        let Some(key) = self
+            .ask(|reply| Question::Secret { title, reply }, None)
+            .await
+        else {
+            return false;
+        };
         self.creds.set(id, &key);
         match &self.dir {
             Some(dir) => match self.creds.save(dir) {
@@ -989,11 +1293,20 @@ impl Session {
             let options = APPROVAL_MODES
                 .iter()
                 .map(|(id, label)| {
-                    let current = if *id == self.cfg.approval_mode { " (current)" } else { "" };
+                    let current = if *id == self.cfg.approval_mode {
+                        " (current)"
+                    } else {
+                        ""
+                    };
                     Choice::new(*id, format!("{label}{current}"))
                 })
                 .collect();
-            let Some(m) = self.select("When to ask for confirmation?".into(), options, false).await else { return false };
+            let Some(m) = self
+                .select("When to ask for confirmation?".into(), options, false)
+                .await
+            else {
+                return false;
+            };
             m
         } else {
             typed.to_string()
@@ -1024,22 +1337,38 @@ impl Session {
             let now = self.cfg.effort.clone().unwrap_or_else(|| "default".into());
             let options = LEVELS
                 .iter()
-                .map(|(id, label)| Choice::new(*id, format!("{label}{}", if *id == now { " (current)" } else { "" })))
+                .map(|(id, label)| {
+                    Choice::new(
+                        *id,
+                        format!("{label}{}", if *id == now { " (current)" } else { "" }),
+                    )
+                })
                 .collect();
-            let Some(l) = self.select("Reasoning effort".into(), options, false).await else { return false };
+            let Some(l) = self.select("Reasoning effort".into(), options, false).await else {
+                return false;
+            };
             l
         } else {
             typed.trim().to_lowercase()
         };
         if !LEVELS.iter().any(|(id, _)| *id == level) {
-            self.warn(format!("unknown effort `{level}`: use default, low, medium, high, xhigh or max"));
+            self.warn(format!(
+                "unknown effort `{level}`: use default, low, medium, high, xhigh or max"
+            ));
             return false;
         }
         let value = (level != "default").then_some(level.as_str());
         self.cfg.effort = value.map(str::to_string);
         self.save(&[("effort", value)]);
-        let takes = matches!(self.cfg.provider.as_str(), "anthropic" | "claude-code" | "codex" | "antigravity" | "openrouter" | "openai");
-        let note = if takes { "" } else { " (this provider does not take an effort setting; it applies when you switch to one that does)" };
+        let takes = matches!(
+            self.cfg.provider.as_str(),
+            "anthropic" | "claude-code" | "codex" | "antigravity" | "openrouter" | "openai"
+        );
+        let note = if takes {
+            ""
+        } else {
+            " (this provider does not take an effort setting; it applies when you switch to one that does)"
+        };
         self.info(format!("Effort: {level}{note}"));
         true
     }
@@ -1060,10 +1389,20 @@ impl Session {
     }
 
     fn help(&self) {
-        let mut lines = vec![Line::default(), Line::styled("Commands", Style::new().add_modifier(Modifier::BOLD))];
-        lines.extend(COMMANDS.iter().map(|c| Line::raw(format!("  {:<12} {}", c.name, c.about))));
+        let mut lines = vec![
+            Line::default(),
+            Line::styled("Commands", Style::new().add_modifier(Modifier::BOLD)),
+        ];
+        lines.extend(
+            COMMANDS
+                .iter()
+                .map(|c| Line::raw(format!("  {:<12} {}", c.name, c.about))),
+        );
         lines.push(Line::default());
-        lines.push(Line::styled("Shortcuts", Style::new().add_modifier(Modifier::BOLD)));
+        lines.push(Line::styled(
+            "Shortcuts",
+            Style::new().add_modifier(Modifier::BOLD),
+        ));
         for (keys, what) in [
             ("Enter", "sends the message"),
             ("Shift+Enter", "new line"),

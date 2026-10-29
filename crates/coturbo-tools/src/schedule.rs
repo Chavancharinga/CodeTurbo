@@ -22,7 +22,9 @@ fn file(root: &Path) -> PathBuf {
 }
 
 fn now() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
 }
 
 /// Seconds east of UTC of this machine's clock, for "at 23:00".
@@ -30,7 +32,10 @@ fn utc_offset() -> i64 {
     // The difference between local midnight math and UTC: read from the
     // environment when set (TZ_OFFSET_MINUTES), else assume the system clock
     // reports local time through chrono-less means: use 0 when unknown.
-    std::env::var("CODETURBO_TZ_OFFSET_MINUTES").ok().and_then(|m| m.parse::<i64>().ok()).map_or_else(local_offset, |m| m * 60)
+    std::env::var("CODETURBO_TZ_OFFSET_MINUTES")
+        .ok()
+        .and_then(|m| m.parse::<i64>().ok())
+        .map_or_else(local_offset, |m| m * 60)
 }
 
 #[cfg(windows)]
@@ -44,10 +49,17 @@ fn local_offset() -> i64 {
     unsafe extern "system" {
         fn GetTimeZoneInformation(tz: *mut Tz) -> u32;
     }
-    let mut tz = Tz { bias: 0, rest: [0; 168] };
+    let mut tz = Tz {
+        bias: 0,
+        rest: [0; 168],
+    };
     // SAFETY: a plain out-parameter struct of the documented size.
     let kind = unsafe { GetTimeZoneInformation(&mut tz) };
-    let daylight = if kind == 2 { i32::from_le_bytes([tz.rest[164], tz.rest[165], tz.rest[166], tz.rest[167]]) } else { 0 };
+    let daylight = if kind == 2 {
+        i32::from_le_bytes([tz.rest[164], tz.rest[165], tz.rest[166], tz.rest[167]])
+    } else {
+        0
+    };
     -i64::from(tz.bias + daylight) * 60
 }
 
@@ -62,7 +74,10 @@ fn local_offset() -> i64 {
             let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
             let sign = if s.starts_with('-') { -1 } else { 1 };
             let d = s.trim_start_matches(['+', '-']);
-            let (h, m) = (d.get(0..2)?.parse::<i64>().ok()?, d.get(2..4)?.parse::<i64>().ok()?);
+            let (h, m) = (
+                d.get(0..2)?.parse::<i64>().ok()?,
+                d.get(2..4)?.parse::<i64>().ok()?,
+            );
             Some(sign * (h * 3600 + m * 60))
         })
         .unwrap_or(0)
@@ -78,13 +93,15 @@ pub fn parse_when(when: &str, now: u64, offset: i64) -> Option<(u64, u64)> {
         let s = s.trim();
         let (n, unit) = s.split_at(s.find(|c: char| !c.is_ascii_digit())?);
         let n: u64 = n.parse().ok()?;
-        Some(n * match unit.trim() {
-            "s" | "sec" | "seconds" => 1,
-            "m" | "min" | "mins" | "minutes" | "minute" => 60,
-            "h" | "hour" | "hours" => 3600,
-            "d" | "day" | "days" => 86_400,
-            _ => return None,
-        })
+        Some(
+            n * match unit.trim() {
+                "s" | "sec" | "seconds" => 1,
+                "m" | "min" | "mins" | "minutes" | "minute" => 60,
+                "h" | "hour" | "hours" => 3600,
+                "d" | "day" | "days" => 86_400,
+                _ => return None,
+            },
+        )
     };
     let clock = |s: &str| -> Option<u64> {
         let (h, m) = s.trim().split_once(':')?;
@@ -103,7 +120,11 @@ pub fn parse_when(when: &str, now: u64, offset: i64) -> Option<(u64, u64)> {
     if let Some(rest) = w.strip_prefix("in ") {
         return Some((now + span(rest)?, 0));
     }
-    if let Some(rest) = w.strip_prefix("every day at ").or_else(|| w.strip_prefix("daily at ")).or_else(|| w.strip_prefix("daily ")) {
+    if let Some(rest) = w
+        .strip_prefix("every day at ")
+        .or_else(|| w.strip_prefix("daily at "))
+        .or_else(|| w.strip_prefix("daily "))
+    {
         return Some((next_at(clock(rest)?), 86_400));
     }
     if let Some(rest) = w.strip_prefix("every ") {
@@ -117,7 +138,10 @@ pub fn parse_when(when: &str, now: u64, offset: i64) -> Option<(u64, u64)> {
 }
 
 pub fn load(root: &Path) -> Vec<Entry> {
-    let v: Value = std::fs::read_to_string(file(root)).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(json!([]));
+    let v: Value = std::fs::read_to_string(file(root))
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or(json!([]));
     v.as_array()
         .into_iter()
         .flatten()
@@ -134,7 +158,11 @@ pub fn load(root: &Path) -> Vec<Entry> {
 fn save(root: &Path, all: &[Entry]) -> Result<(), String> {
     let v: Vec<Value> = all.iter().map(|e| json!({"id": e.id, "task": e.task, "next": e.next, "every": e.every, "when": e.when})).collect();
     std::fs::create_dir_all(root.join(".codeturbo")).map_err(|e| e.to_string())?;
-    std::fs::write(file(root), serde_json::to_string_pretty(&v).unwrap_or_default()).map_err(|e| e.to_string())
+    std::fs::write(
+        file(root),
+        serde_json::to_string_pretty(&v).unwrap_or_default(),
+    )
+    .map_err(|e| e.to_string())
 }
 
 /// The tasks due now; repeating ones move to their next time, the others go.
@@ -157,7 +185,11 @@ pub fn take_due(root: &Path) -> Vec<Entry> {
 
 fn describe(e: &Entry) -> String {
     let left = e.next.saturating_sub(now());
-    let soon = if left < 3600 { format!("in {} min", left / 60) } else { format!("in {}h{:02}", left / 3600, left % 3600 / 60) };
+    let soon = if left < 3600 {
+        format!("in {} min", left / 60)
+    } else {
+        format!("in {}h{:02}", left / 3600, left % 3600 / 60)
+    };
     format!("#{} · {} · next {soon} · {}", e.id, e.when, e.task)
 }
 
@@ -166,10 +198,16 @@ pub(crate) fn tool(root: &Path, input: &Value) -> Res {
     match input["action"].as_str().unwrap_or("add") {
         "list" => {
             let all = load(root);
-            Ok(ToolOutput::ok(if all.is_empty() { "Nothing scheduled.".into() } else { all.iter().map(describe).collect::<Vec<_>>().join("\n") }))
+            Ok(ToolOutput::ok(if all.is_empty() {
+                "Nothing scheduled.".into()
+            } else {
+                all.iter().map(describe).collect::<Vec<_>>().join("\n")
+            }))
         }
         "cancel" => {
-            let id = input["id"].as_u64().ok_or("cancel needs the `id` from list")?;
+            let id = input["id"]
+                .as_u64()
+                .ok_or("cancel needs the `id` from list")?;
             let mut all = load(root);
             let before = all.len();
             all.retain(|e| e.id != id);
@@ -186,11 +224,19 @@ pub(crate) fn tool(root: &Path, input: &Value) -> Res {
                 .ok_or_else(|| format!("`{when}` is not a time I understand: use in 20m, in 2h, every 30m, at 23:00 or every day at 23:00"))?;
             let mut all = load(root);
             let id = all.iter().map(|e| e.id).max().unwrap_or(0) + 1;
-            let e = Entry { id, task: task.to_string(), next, every, when: when.to_string() };
+            let e = Entry {
+                id,
+                task: task.to_string(),
+                next,
+                every,
+                when: when.to_string(),
+            };
             let text = describe(&e);
             all.push(e);
             save(root, &all)?;
-            Ok(ToolOutput::ok(format!("Scheduled {text}. It runs while CodeTurbo is open in this project.")))
+            Ok(ToolOutput::ok(format!(
+                "Scheduled {text}. It runs while CodeTurbo is open in this project."
+            )))
         }
     }
 }
@@ -221,15 +267,42 @@ mod tests {
     fn due_tasks_are_taken_and_repeating_ones_move_on() {
         let dir = tempfile::tempdir().unwrap();
         let t = now();
-        save(dir.path(), &[
-            Entry { id: 1, task: "once".into(), next: t - 5, every: 0, when: "in 1m".into() },
-            Entry { id: 2, task: "repeat".into(), next: t - 5, every: 60, when: "every 1m".into() },
-            Entry { id: 3, task: "later".into(), next: t + 600, every: 0, when: "in 10m".into() },
-        ])
+        save(
+            dir.path(),
+            &[
+                Entry {
+                    id: 1,
+                    task: "once".into(),
+                    next: t - 5,
+                    every: 0,
+                    when: "in 1m".into(),
+                },
+                Entry {
+                    id: 2,
+                    task: "repeat".into(),
+                    next: t - 5,
+                    every: 60,
+                    when: "every 1m".into(),
+                },
+                Entry {
+                    id: 3,
+                    task: "later".into(),
+                    next: t + 600,
+                    every: 0,
+                    when: "in 10m".into(),
+                },
+            ],
+        )
         .unwrap();
         let due: Vec<String> = take_due(dir.path()).into_iter().map(|e| e.task).collect();
         assert_eq!(due, vec!["once", "repeat"]);
-        let left: Vec<(String, bool)> = load(dir.path()).into_iter().map(|e| (e.task, e.next > t)).collect();
-        assert_eq!(left, vec![("repeat".to_string(), true), ("later".to_string(), true)]);
+        let left: Vec<(String, bool)> = load(dir.path())
+            .into_iter()
+            .map(|e| (e.task, e.next > t))
+            .collect();
+        assert_eq!(
+            left,
+            vec![("repeat".to_string(), true), ("later".to_string(), true)]
+        );
     }
 }

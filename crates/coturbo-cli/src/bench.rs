@@ -171,7 +171,10 @@ pub struct Totals {
 }
 
 pub fn totals(runs: &[BenchRun], mode: Mode) -> Totals {
-    let mut t = Totals { cost: Some(0.0), ..Default::default() };
+    let mut t = Totals {
+        cost: Some(0.0),
+        ..Default::default()
+    };
     for r in runs.iter().filter(|r| r.mode == mode) {
         t.runs += 1;
         t.passed += r.passed as u32;
@@ -212,7 +215,10 @@ pub fn markdown(model: &str, runs: &[BenchRun]) -> String {
         ));
     }
     s.push_str("\n| mode | pass rate | avg turns | tokens | cost |\n|---|---|---|---|---|\n");
-    let modes: Vec<Mode> = [Mode::Naive, Mode::Ast].into_iter().filter(|m| runs.iter().any(|r| r.mode == *m)).collect();
+    let modes: Vec<Mode> = [Mode::Naive, Mode::Ast]
+        .into_iter()
+        .filter(|m| runs.iter().any(|r| r.mode == *m))
+        .collect();
     for &m in &modes {
         let t = totals(runs, m);
         s.push_str(&format!(

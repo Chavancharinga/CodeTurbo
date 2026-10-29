@@ -85,7 +85,16 @@ pub const SNAIL_LARGE: Snail = Snail {
     spiral: (3, 3, 7),
     antennae: [
         &[(2, 16), (1, 15), (0, 14), (2, 18), (1, 17), (0, 16)],
-        &[(2, 16), (1, 15), (1, 14), (0, 13), (2, 18), (1, 17), (1, 16), (0, 15)],
+        &[
+            (2, 16),
+            (1, 15),
+            (1, 14),
+            (0, 13),
+            (2, 18),
+            (1, 17),
+            (1, 16),
+            (0, 15),
+        ],
     ],
     tail_room: 7,
     tail: 5,
@@ -116,7 +125,10 @@ pub const SNAIL_SMALL: Snail = Snail {
     spiral: (3, 2, 3),
     // Too small for a whip pose without the antennae lying flat on the head:
     // both poses are the same forked antennae.
-    antennae: [&[(1, 9), (0, 8), (1, 11), (0, 10)], &[(1, 9), (0, 8), (1, 11), (0, 10)]],
+    antennae: [
+        &[(1, 9), (0, 8), (1, 11), (0, 10)],
+        &[(1, 9), (0, 8), (1, 11), (0, 10)],
+    ],
     tail_room: 5,
     tail: 3,
     sole_end: 12,
@@ -139,16 +151,36 @@ pub const ROWS: usize = canvas_h(SNAIL) / 2;
 /// 5×7 pixel font: the letters of the name.
 fn glyph(c: char) -> [&'static str; 7] {
     match c {
-        'C' => [".###.", "#...#", "#....", "#....", "#....", "#...#", ".###."],
-        'T' => ["#####", "..#..", "..#..", "..#..", "..#..", "..#..", "..#.."],
-        'c' => [".....", ".....", ".####", "#....", "#....", "#....", ".####"],
-        'o' => [".....", ".....", ".###.", "#...#", "#...#", "#...#", ".###."],
-        'd' => ["....#", "....#", ".####", "#...#", "#...#", "#...#", ".####"],
-        'e' => [".....", ".....", ".###.", "#...#", "#####", "#....", ".####"],
-        't' => [".#...", ".#...", "####.", ".#...", ".#...", ".#...", "..##."],
-        'u' => [".....", ".....", "#...#", "#...#", "#...#", "#...#", ".####"],
-        'r' => [".....", ".....", "#.##.", "##..#", "#....", "#....", "#...."],
-        'b' => ["#....", "#....", "####.", "#...#", "#...#", "#...#", "####."],
+        'C' => [
+            ".###.", "#...#", "#....", "#....", "#....", "#...#", ".###.",
+        ],
+        'T' => [
+            "#####", "..#..", "..#..", "..#..", "..#..", "..#..", "..#..",
+        ],
+        'c' => [
+            ".....", ".....", ".####", "#....", "#....", "#....", ".####",
+        ],
+        'o' => [
+            ".....", ".....", ".###.", "#...#", "#...#", "#...#", ".###.",
+        ],
+        'd' => [
+            "....#", "....#", ".####", "#...#", "#...#", "#...#", ".####",
+        ],
+        'e' => [
+            ".....", ".....", ".###.", "#...#", "#####", "#....", ".####",
+        ],
+        't' => [
+            ".#...", ".#...", "####.", ".#...", ".#...", ".#...", "..##.",
+        ],
+        'u' => [
+            ".....", ".....", "#...#", "#...#", "#...#", "#...#", ".####",
+        ],
+        'r' => [
+            ".....", ".....", "#.##.", "##..#", "#....", "#....", "#....",
+        ],
+        'b' => [
+            "#....", "#....", "####.", "#...#", "#...#", "#...#", "####.",
+        ],
         _ => ["....."; 7],
     }
 }
@@ -289,12 +321,25 @@ fn canvas(s: &Snail, i: usize, track: usize, reveal: usize) -> Vec<Vec<Option<Rg
 }
 
 /// [`canvas`] for a mood, with the shell turning at the mood's own pace.
-fn canvas_mood(s: &Snail, i: usize, track: usize, reveal: usize, mood: Mood) -> Vec<Vec<Option<Rgb>>> {
+fn canvas_mood(
+    s: &Snail,
+    i: usize,
+    track: usize,
+    reveal: usize,
+    mood: Mood,
+) -> Vec<Vec<Option<Rgb>>> {
     canvas_with(s, i, track, reveal, mood, mood.spin())
 }
 
 /// `spin` is how many quarter turns the shell makes per frame.
-fn canvas_with(s: &Snail, i: usize, track: usize, reveal: usize, mood: Mood, spin: f32) -> Vec<Vec<Option<Rgb>>> {
+fn canvas_with(
+    s: &Snail,
+    i: usize,
+    track: usize,
+    reveal: usize,
+    mood: Mood,
+    spin: f32,
+) -> Vec<Vec<Option<Rgb>>> {
     let h = canvas_h(s);
     // Rows above the sprite when its height is odd.
     let pad = h - (s.body.len() + 1);
@@ -345,7 +390,11 @@ fn canvas_with(s: &Snail, i: usize, track: usize, reveal: usize, mood: Mood, spi
         // Eight cells of dust behind a runner, as ever; three behind the small trails.
         for d in 1..=(if trail >= TRAIL_LEN { 8 } else { 3 }) {
             if (d + 2 * i).is_multiple_of(5) {
-                put(s.body.len(), tip - d as isize, lerp(far, body, 1.0 - d as f32 / 8.0));
+                put(
+                    s.body.len(),
+                    tip - d as isize,
+                    lerp(far, body, 1.0 - d as f32 / 8.0),
+                );
             }
         }
     }
@@ -366,7 +415,11 @@ fn canvas_with(s: &Snail, i: usize, track: usize, reveal: usize, mood: Mood, spi
                 3..=5 => lerp(YELLOW, (200, 110, 20), (age - 3) as f32 / 3.0),
                 _ => (120, 84, 14),
             };
-            put((cy + lift) as usize, pos + cx - (age + age / 2) as isize, color);
+            put(
+                (cy + lift) as usize,
+                pos + cx - (age + age / 2) as isize,
+                color,
+            );
         }
     }
     px
@@ -390,7 +443,11 @@ impl Snail {
     /// How far the wave swells row `y` at frame `t`. The head rides the wave
     /// as one piece, at the timing of its lowest row.
     fn swell(&self, y: usize, t: usize) -> usize {
-        let row = if self.head_rows().contains(&y) { self.head.1 } else { y };
+        let row = if self.head_rows().contains(&y) {
+            self.head.1
+        } else {
+            y
+        };
         let n = self.bump.len();
         self.bump[(t + 4 * n - (self.base_row - row)) % n]
     }
@@ -421,10 +478,18 @@ impl Snail {
         // Front edge of the row above, once the body starts.
         let mut above: Option<usize> = None;
         for (y, row) in self.body.iter().enumerate() {
-            let lit: Vec<usize> = (0..row.len()).filter(|&x| self.body_lit(y, x, turns)).collect();
-            out.extend(lit.iter().filter(|&&x| x < self.front_x).map(|&x| (y, o + x)));
+            let lit: Vec<usize> = (0..row.len())
+                .filter(|&x| self.body_lit(y, x, turns))
+                .collect();
+            out.extend(
+                lit.iter()
+                    .filter(|&&x| x < self.front_x)
+                    .map(|&x| (y, o + x)),
+            );
             let front: Vec<usize> = lit.into_iter().filter(|&x| x >= self.front_x).collect();
-            let (Some(&lo), Some(&hi)) = (front.first(), front.last()) else { continue };
+            let (Some(&lo), Some(&hi)) = (front.first(), front.last()) else {
+                continue;
+            };
             let (l, b) = (self.lean(y), self.swell(y, t));
             if self.head_rows().contains(&y) {
                 // The head surges forward whole when the wave reaches it.
@@ -457,7 +522,9 @@ impl Snail {
         out.extend(self.antennae[whip].iter().map(|&(y, x)| (y, o + x + shift)));
         // Sole from the tail tip to under the chest; the tail tapers behind.
         let (tail, sole) = (self.tail_len(t), self.body.len());
-        out.extend((o + 1 - tail..o + self.sole_end + self.swell(self.base_row, t)).map(|x| (sole, x)));
+        out.extend(
+            (o + 1 - tail..o + self.sole_end + self.swell(self.base_row, t)).map(|x| (sole, x)),
+        );
         out.extend((o + 2 - tail / 2..o + 3).map(|x| (sole - 1, x)));
         out.sort_unstable();
         out.dedup();
@@ -492,7 +559,9 @@ fn half_blocks(px: &[Vec<Option<Rgb>>]) -> Vec<String> {
 }
 
 fn track_for(s: &Snail, width: usize) -> usize {
-    width.saturating_sub(2 + word_width() + GAP).clamp(s.width, TRAIL_LEN + s.width)
+    width
+        .saturating_sub(2 + word_width() + GAP)
+        .clamp(s.width, TRAIL_LEN + s.width)
 }
 
 /// Narrowest frame: the word plus room for one snail.
@@ -519,8 +588,19 @@ pub fn pixels(i: usize, width: usize) -> Vec<Vec<Option<(u8, u8, u8)>>> {
 /// Pixels for the interface: the snail at animation frame `snail` in `mood`,
 /// with the name typed in as of frame `typed` (the two advance at different
 /// paces, because the snail's pace follows its mood).
-pub fn pixels_mood(snail: usize, typed: usize, width: usize, mood: Mood) -> Vec<Vec<Option<(u8, u8, u8)>>> {
-    canvas_mood(SNAIL, snail, track_for(SNAIL, width), (typed / 2).min(NAME.len()), mood)
+pub fn pixels_mood(
+    snail: usize,
+    typed: usize,
+    width: usize,
+    mood: Mood,
+) -> Vec<Vec<Option<(u8, u8, u8)>>> {
+    canvas_mood(
+        SNAIL,
+        snail,
+        track_for(SNAIL, width),
+        (typed / 2).min(NAME.len()),
+        mood,
+    )
 }
 
 /// "Turbo" in a 4×7 pixel font: the big letters' height on a narrower phone.
@@ -550,7 +630,6 @@ fn mini_glyph(c: char) -> [&'static str; 5] {
     }
 }
 
-
 /// The phone-sized logo (and always on Termux): only "turbo", with the
 /// snail running ahead of it. The big letters when they fit, then narrower
 /// ones of the same height, small ones on a very narrow screen. `None` when
@@ -561,7 +640,10 @@ pub fn compact_pixels(snail: usize, width: usize, mood: Mood) -> Option<Vec<Vec<
     let fonts = [6, 5, 4];
     // The trail starts with empty pixels, so one column is enough between them.
     let fits = |pitch: usize, gap: usize| width >= 2 + word.len() * pitch - 1 + gap + SNAIL.width;
-    let pitch = fonts.into_iter().find(|&p| fits(p, if p == 4 { 2 } else { 1 })).unwrap_or(4);
+    let pitch = fonts
+        .into_iter()
+        .find(|&p| fits(p, if p == 4 { 2 } else { 1 }))
+        .unwrap_or(4);
     let gap = if pitch == 4 { 2 } else { 1 };
     let name_w = word.len() * pitch - 1;
     let room = width.checked_sub(2 + name_w + gap)?;
@@ -604,7 +686,10 @@ pub fn on_termux() -> bool {
 pub fn snail_only(snail: usize, cols: usize, mood: Mood) -> Vec<Vec<Option<(u8, u8, u8)>>> {
     let track = cols.clamp(SNAIL.width, TRAIL_LEN + SNAIL.width);
     let t0 = word_width() + GAP;
-    canvas_mood(SNAIL, snail, track, 0, mood).into_iter().map(|row| row[t0..].to_vec()).collect()
+    canvas_mood(SNAIL, snail, track, 0, mood)
+        .into_iter()
+        .map(|row| row[t0..].to_vec())
+        .collect()
 }
 
 /// Frames in one seamless loop of the running snail once the name is shown
@@ -703,7 +788,10 @@ impl LiveLogo {
                 i += 1;
             }
         });
-        Self { stop, thread: Some(thread) }
+        Self {
+            stop,
+            thread: Some(thread),
+        }
     }
 
     pub fn stop(&mut self) {
@@ -742,7 +830,11 @@ pub fn spinner_line(i: usize, label: &str) -> String {
         let phase = (x as f32 - i as f32 * 0.9) * 0.55;
         let level = ((phase.sin() + 1.0) / 2.0 * 3.0).round() as usize;
         let t = (x as f32 + 1.0) / WAVE as f32;
-        s.push_str(&format!("{}{}", fg(lerp(TRAIL_FAR, BLUE, t * t)), LEVELS[level.min(3)]));
+        s.push_str(&format!(
+            "{}{}",
+            fg(lerp(TRAIL_FAR, BLUE, t * t)),
+            LEVELS[level.min(3)]
+        ));
     }
     s.push_str(&format!(" {}@\x1b[0m ", fg(BLUE)));
     let n = label.chars().count() as isize;
@@ -809,7 +901,9 @@ mod mood_tests {
     /// Cells of the track only (the word is excluded).
     fn track(px: &[Vec<Option<Rgb>>]) -> Vec<Rgb> {
         let t0 = word_width() + GAP;
-        px.iter().flat_map(|r| r[t0..].iter().flatten().copied()).collect()
+        px.iter()
+            .flat_map(|r| r[t0..].iter().flatten().copied())
+            .collect()
     }
 
     #[test]
@@ -817,21 +911,43 @@ mod mood_tests {
         // The intro keeps its own quarter turn per frame; Run as a mood has its own spin.
         for i in [0, 7, 19, 40] {
             let intro = canvas(SNAIL, i, track_for(SNAIL, 100), 9);
-            assert_eq!(intro, canvas_with(SNAIL, i, track_for(SNAIL, 100), 9, Mood::Run, 1.0));
+            assert_eq!(
+                intro,
+                canvas_with(SNAIL, i, track_for(SNAIL, 100), 9, Mood::Run, 1.0)
+            );
         }
     }
 
     #[test]
     fn calm_leaves_next_to_no_trail() {
-        let calm = track(&canvas_mood(SNAIL, 11, track_for(SNAIL, 100), 9, Mood::Calm));
+        let calm = track(&canvas_mood(
+            SNAIL,
+            11,
+            track_for(SNAIL, 100),
+            9,
+            Mood::Calm,
+        ));
         let run = track(&canvas_mood(SNAIL, 11, track_for(SNAIL, 100), 9, Mood::Run));
-        assert!(calm.len() + 8 < run.len(), "calm {} vs run {}", calm.len(), run.len());
+        assert!(
+            calm.len() + 8 < run.len(),
+            "calm {} vs run {}",
+            calm.len(),
+            run.len()
+        );
     }
 
     #[test]
     fn the_trail_gets_denser_with_effort() {
-        let n = |m| (0..8).map(|i| track(&canvas_mood(SNAIL, i, track_for(SNAIL, 100), 9, m)).len()).sum::<usize>();
-        assert!(n(Mood::Calm) < n(Mood::Run) && n(Mood::Run) < n(Mood::Hard) && n(Mood::Hard) < n(Mood::Turbo));
+        let n = |m| {
+            (0..8)
+                .map(|i| track(&canvas_mood(SNAIL, i, track_for(SNAIL, 100), 9, m)).len())
+                .sum::<usize>()
+        };
+        assert!(
+            n(Mood::Calm) < n(Mood::Run)
+                && n(Mood::Run) < n(Mood::Hard)
+                && n(Mood::Hard) < n(Mood::Turbo)
+        );
     }
 
     #[test]
@@ -854,22 +970,46 @@ mod mood_tests {
     #[test]
     fn the_walking_moods_leave_next_to_no_trail() {
         // Every mood draws the same snail; only the trail differs.
-        let n = |m| (0..8).map(|i| track(&canvas_mood(SNAIL, i, track_for(SNAIL, 100), 9, m)).len()).sum::<usize>();
+        let n = |m| {
+            (0..8)
+                .map(|i| track(&canvas_mood(SNAIL, i, track_for(SNAIL, 100), 9, m)).len())
+                .sum::<usize>()
+        };
         let (calm, run) = (n(Mood::Calm), n(Mood::Run));
         assert_eq!(n(Mood::Start), calm, "blue walking: no trail");
         assert_eq!(n(Mood::Done), calm, "green walking: no trail");
-        assert!(run > calm + 100, "running has a real trail: {run} vs {calm}");
+        assert!(
+            run > calm + 100,
+            "running has a real trail: {run} vs {calm}"
+        );
         // Alert and denied walk too, with a light trail in their colour.
         for m in [Mood::Alert, Mood::Denied] {
-            assert!(n(m) > calm && n(m) < run, "{m:?}: {} between {calm} and {run}", n(m));
+            assert!(
+                n(m) > calm && n(m) < run,
+                "{m:?}: {} between {calm} and {run}",
+                n(m)
+            );
         }
     }
 
     #[test]
     fn turbo_has_yellow_sparks_and_yellow_in_the_trail_and_others_do_not() {
         let warm = |c: &Rgb| c.0 > 200 && c.1 > 150 && c.2 < 130;
-        let count = |m| (0..12).map(|i| track(&canvas_mood(SNAIL, i, track_for(SNAIL, 100), 9, m)).iter().filter(|c| warm(c)).count()).sum::<usize>();
-        assert!(count(Mood::Turbo) > 12, "turbo yellow cells: {}", count(Mood::Turbo));
+        let count = |m| {
+            (0..12)
+                .map(|i| {
+                    track(&canvas_mood(SNAIL, i, track_for(SNAIL, 100), 9, m))
+                        .iter()
+                        .filter(|c| warm(c))
+                        .count()
+                })
+                .sum::<usize>()
+        };
+        assert!(
+            count(Mood::Turbo) > 12,
+            "turbo yellow cells: {}",
+            count(Mood::Turbo)
+        );
         assert_eq!(count(Mood::Run), 0);
         assert_eq!(count(Mood::Hard), 0);
         assert_eq!(count(Mood::Calm), 0);
@@ -885,13 +1025,27 @@ mod mood_tests {
 
     #[test]
     fn the_faster_the_effort_the_faster_the_frames() {
-        assert!(Mood::Calm.speed() < Mood::Start.speed(), "idle is almost still");
+        assert!(
+            Mood::Calm.speed() < Mood::Start.speed(),
+            "idle is almost still"
+        );
         assert!(Mood::Start.speed() < Mood::Run.speed());
         assert!(Mood::Run.speed() < Mood::Hard.speed());
         assert!(Mood::Hard.speed() < Mood::Turbo.speed());
         assert_eq!(Mood::Start.speed(), Mood::Done.speed());
         assert!(Mood::Alert.is_flash() && Mood::Denied.is_flash());
-        assert!(![Mood::Calm, Mood::Start, Mood::Done, Mood::Run, Mood::Hard, Mood::Turbo].iter().any(|m| m.is_flash()));
+        assert!(
+            ![
+                Mood::Calm,
+                Mood::Start,
+                Mood::Done,
+                Mood::Run,
+                Mood::Hard,
+                Mood::Turbo
+            ]
+            .iter()
+            .any(|m| m.is_flash())
+        );
     }
 
     #[test]
@@ -907,7 +1061,9 @@ mod mood_tests {
         (0..16)
             .filter_map(|i| {
                 let px = canvas_mood(SNAIL, i, track_for(SNAIL, 100), 9, m);
-                px.iter().filter_map(|r| r[t0..].iter().position(Option::is_some)).min()
+                px.iter()
+                    .filter_map(|r| r[t0..].iter().position(Option::is_some))
+                    .min()
             })
             .min()
             .unwrap()
@@ -916,21 +1072,43 @@ mod mood_tests {
     #[test]
     fn only_the_running_moods_leave_a_running_trail() {
         let (calm, start, done) = (reach(Mood::Calm), reach(Mood::Start), reach(Mood::Done));
-        assert_eq!((calm, start), (start, done), "the walking snails leave nothing behind them");
+        assert_eq!(
+            (calm, start),
+            (start, done),
+            "the walking snails leave nothing behind them"
+        );
         for m in [Mood::Alert, Mood::Denied] {
             let r = reach(m);
-            assert!(r + 3 <= calm, "{m:?} leaves a small trail: reaches {r}, walking reaches {calm}");
-            assert!(r >= reach(Mood::Run) + 6, "{m:?} is far from a running trail: {r} vs {}", reach(Mood::Run));
+            assert!(
+                r + 3 <= calm,
+                "{m:?} leaves a small trail: reaches {r}, walking reaches {calm}"
+            );
+            assert!(
+                r >= reach(Mood::Run) + 6,
+                "{m:?} is far from a running trail: {r} vs {}",
+                reach(Mood::Run)
+            );
         }
         assert!(reach(Mood::Run) + 6 <= calm);
-        assert!(reach(Mood::Hard) <= reach(Mood::Run) + 1 && reach(Mood::Turbo) <= reach(Mood::Run) + 1);
+        assert!(
+            reach(Mood::Hard) <= reach(Mood::Run) + 1 && reach(Mood::Turbo) <= reach(Mood::Run) + 1
+        );
     }
 
     #[test]
     fn no_dust_behind_a_walking_snail() {
         // The only lit cells of a walking snail are the snail itself.
         let t0 = word_width() + GAP;
-        let cols = |m| (0..16).map(|i| canvas_mood(SNAIL, i, track_for(SNAIL, 100), 9, m).iter().map(|r| r[t0..].iter().filter(|c| c.is_some()).count()).sum::<usize>()).collect::<Vec<_>>();
+        let cols = |m| {
+            (0..16)
+                .map(|i| {
+                    canvas_mood(SNAIL, i, track_for(SNAIL, 100), 9, m)
+                        .iter()
+                        .map(|r| r[t0..].iter().filter(|c| c.is_some()).count())
+                        .sum::<usize>()
+                })
+                .collect::<Vec<_>>()
+        };
         assert_eq!(cols(Mood::Calm), cols(Mood::Done));
         let walking = cols(Mood::Start);
         let sprite_only: Vec<usize> = (0..16).map(|i| SNAIL.sprite(i, 0).len()).collect();
@@ -944,32 +1122,66 @@ mod mood_tests {
             let t0 = word_width() + GAP;
             // Columns of the letters of "turbo": after the first four, 6 columns each.
             let (from, to) = (SPLIT * 6, word_width().min(t0));
-            let colors: std::collections::BTreeSet<Rgb> = px.iter().flat_map(|r| r[from..to].iter().flatten().copied()).collect();
+            let colors: std::collections::BTreeSet<Rgb> = px
+                .iter()
+                .flat_map(|r| r[from..to].iter().flatten().copied())
+                .collect();
             colors
         };
-        for (m, c) in [(Mood::Calm, SOFT), (Mood::Start, BLUE), (Mood::Done, GREEN), (Mood::Alert, YELLOW), (Mood::Denied, RED), (Mood::Run, BLUE), (Mood::Turbo, BLUE)] {
+        for (m, c) in [
+            (Mood::Calm, SOFT),
+            (Mood::Start, BLUE),
+            (Mood::Done, GREEN),
+            (Mood::Alert, YELLOW),
+            (Mood::Denied, RED),
+            (Mood::Run, BLUE),
+            (Mood::Turbo, BLUE),
+        ] {
             assert_eq!(word(m), [c].into_iter().collect(), "{m:?}");
         }
         // "code" stays white in every mood.
         let px = canvas_mood(SNAIL, 5, track_for(SNAIL, 100), 9, Mood::Denied);
-        assert!(px.iter().flat_map(|r| r[..SPLIT * 6].iter().flatten()).all(|&c| c == SOFT));
+        assert!(
+            px.iter()
+                .flat_map(|r| r[..SPLIT * 6].iter().flatten())
+                .all(|&c| c == SOFT)
+        );
     }
 
     #[test]
     fn the_shell_turns_slowly_walking_fast_running_and_faster_running_hard() {
         // Quarter turns a second: a frame is 50 ms divided by the pace.
         let qps = |m: Mood| m.spin() * 20.0 * m.speed();
-        assert!((0.2..0.6).contains(&qps(Mood::Calm)), "still: {}", qps(Mood::Calm));
+        assert!(
+            (0.2..0.6).contains(&qps(Mood::Calm)),
+            "still: {}",
+            qps(Mood::Calm)
+        );
         assert!((0.5..1.5).contains(&qps(Mood::Start)) && (0.5..1.5).contains(&qps(Mood::Done)));
-        assert!((2.5..6.0).contains(&qps(Mood::Run)), "running: {}", qps(Mood::Run));
-        assert!(qps(Mood::Hard) > qps(Mood::Run) * 1.6, "running hard: {}", qps(Mood::Hard));
-        assert!(qps(Mood::Turbo) > qps(Mood::Hard) * 1.4, "turbo: {}", qps(Mood::Turbo));
+        assert!(
+            (2.5..6.0).contains(&qps(Mood::Run)),
+            "running: {}",
+            qps(Mood::Run)
+        );
+        assert!(
+            qps(Mood::Hard) > qps(Mood::Run) * 1.6,
+            "running hard: {}",
+            qps(Mood::Hard)
+        );
+        assert!(
+            qps(Mood::Turbo) > qps(Mood::Hard) * 1.4,
+            "turbo: {}",
+            qps(Mood::Turbo)
+        );
         // It shows: the spiral of the shell changes much less often in a walk than in a run.
         let changes = |m: Mood| {
             let shell = |i: usize| SNAIL.sprite(0, (i as f32 * m.spin()) as usize);
             (1..200).filter(|&i| shell(i) != shell(i - 1)).count()
         };
-        assert!(changes(Mood::Calm) * 2 < changes(Mood::Run) && changes(Mood::Run) < changes(Mood::Turbo) + 1);
+        assert!(
+            changes(Mood::Calm) * 2 < changes(Mood::Run)
+                && changes(Mood::Run) < changes(Mood::Turbo) + 1
+        );
     }
 }
 
@@ -981,14 +1193,26 @@ mod compact_tests {
     fn the_phone_logo_shows_turbo_and_the_snail_and_fits() {
         for width in [44, 50, 53, 60, 70] {
             let px = compact_pixels(0, width, Mood::Calm).expect("fits");
-            assert!(px[0].len() <= width - 2, "width {width}: {} px", px[0].len());
+            assert!(
+                px[0].len() <= width - 2,
+                "width {width}: {} px",
+                px[0].len()
+            );
             if std::env::var_os("SHOW_LOGO").is_some() {
                 println!("width {width}:");
                 for row in &px {
-                    println!("{}", row.iter().map(|c| if c.is_some() { '#' } else { '.' }).collect::<String>());
+                    println!(
+                        "{}",
+                        row.iter()
+                            .map(|c| if c.is_some() { '#' } else { '.' })
+                            .collect::<String>()
+                    );
                 }
             }
         }
-        assert!(compact_pixels(0, 43, Mood::Calm).is_none(), "too narrow even with small letters");
+        assert!(
+            compact_pixels(0, 43, Mood::Calm).is_none(),
+            "too narrow even with small letters"
+        );
     }
 }

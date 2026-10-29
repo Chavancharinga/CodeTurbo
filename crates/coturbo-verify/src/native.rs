@@ -23,7 +23,10 @@ fn diag(rel: &str, text: &str, level: Level, line: u32, col: u32, message: Strin
         col,
         message: message.lines().next().unwrap_or("").to_string(),
         code: None,
-        source: text.lines().nth(line.saturating_sub(1) as usize).map(str::to_string),
+        source: text
+            .lines()
+            .nth(line.saturating_sub(1) as usize)
+            .map(str::to_string),
     }
 }
 
@@ -37,7 +40,15 @@ fn rust(rel: &str, text: &str) -> Vec<Diag> {
     SourceFile::parse(text, Edition::Edition2024)
         .errors()
         .iter()
-        .map(|e| at(rel, text, Level::Error, usize::from(e.range().start()), e.to_string()))
+        .map(|e| {
+            at(
+                rel,
+                text,
+                Level::Error,
+                usize::from(e.range().start()),
+                e.to_string(),
+            )
+        })
         .collect()
 }
 
@@ -51,17 +62,32 @@ fn js(rel: &str, text: &str) -> Vec<Diag> {
     let parsed = Parser::new(&alloc, text, source_type).parse();
     let mut errors: Vec<_> = parsed.diagnostics.iter().cloned().collect();
     if !parsed.panicked {
-        errors.extend(SemanticBuilder::new().with_check_syntax_error(true).build(&parsed.program).diagnostics.iter().cloned());
+        errors.extend(
+            SemanticBuilder::new()
+                .with_check_syntax_error(true)
+                .build(&parsed.program)
+                .diagnostics
+                .iter()
+                .cloned(),
+        );
     }
     errors
         .iter()
         .map(|e| {
             // The primary label marks the offending spot (e.g. the redeclaration,
             // not the original declaration); otherwise the last one.
-            let label = e.labels.iter().find(|l| l.primary()).or_else(|| e.labels.last());
+            let label = e
+                .labels
+                .iter()
+                .find(|l| l.primary())
+                .or_else(|| e.labels.last());
             let offset = label.map_or(0, |l| l.offset());
             // miette's Severity is not re-exported by oxc: compare by name.
-            let level = if format!("{:?}", e.severity) == "Error" { Level::Error } else { Level::Warning };
+            let level = if format!("{:?}", e.severity) == "Error" {
+                Level::Error
+            } else {
+                Level::Warning
+            };
             at(rel, text, level, offset as usize, e.message.to_string())
         })
         .collect()
@@ -93,7 +119,14 @@ fn css(rel: &str, text: &str) -> Vec<Diag> {
 fn json(rel: &str, text: &str) -> Vec<Diag> {
     match serde_json::from_str::<serde_json::Value>(text) {
         Ok(_) => Vec::new(),
-        Err(e) => vec![diag(rel, text, Level::Error, e.line() as u32, e.column() as u32, e.to_string())],
+        Err(e) => vec![diag(
+            rel,
+            text,
+            Level::Error,
+            e.line() as u32,
+            e.column() as u32,
+            e.to_string(),
+        )],
     }
 }
 

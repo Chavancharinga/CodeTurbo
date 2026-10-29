@@ -43,7 +43,11 @@ async fn main() {
                 let ask = json!({"jsonrpc": "2.0", "id": "cfg-1", "method": "workspace/configuration", "params": {"items": [{}]}});
                 let _ = write_msg(&mut stdout, &ask).await;
                 let caps = json!({"capabilities": {"textDocumentSync": 1, "documentFormattingProvider": true}});
-                let _ = write_msg(&mut stdout, &json!({"jsonrpc": "2.0", "id": msg["id"], "result": caps})).await;
+                let _ = write_msg(
+                    &mut stdout,
+                    &json!({"jsonrpc": "2.0", "id": msg["id"], "result": caps}),
+                )
+                .await;
             }
             "textDocument/didOpen" | "textDocument/didChange" => {
                 if mode == "crash" {
@@ -81,10 +85,18 @@ async fn main() {
                 } else {
                     json!([])
                 };
-                let _ = write_msg(&mut stdout, &json!({"jsonrpc": "2.0", "id": msg["id"], "result": result})).await;
+                let _ = write_msg(
+                    &mut stdout,
+                    &json!({"jsonrpc": "2.0", "id": msg["id"], "result": result}),
+                )
+                .await;
             }
             "shutdown" => {
-                let _ = write_msg(&mut stdout, &json!({"jsonrpc": "2.0", "id": msg["id"], "result": null})).await;
+                let _ = write_msg(
+                    &mut stdout,
+                    &json!({"jsonrpc": "2.0", "id": msg["id"], "result": null}),
+                )
+                .await;
             }
             "exit" => break,
             _ => {}

@@ -8,7 +8,10 @@ fn main() {
         (Mood::Calm, "Calm - abre / ocioso: anda, quase sem rastro"),
         (Mood::Run, "Run - pediu codigo: corre"),
         (Mood::Hard, "Hard - ferramentas / REA: corre muito"),
-        (Mood::Turbo, "Turbo - o mais rapido: rastro azul com amarelo + faiscas"),
+        (
+            Mood::Turbo,
+            "Turbo - o mais rapido: rastro azul com amarelo + faiscas",
+        ),
         (Mood::Alert, "Alert - alerta: amarelo"),
         (Mood::Denied, "Denied - design negado: vermelho"),
     ];

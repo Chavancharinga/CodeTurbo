@@ -5,18 +5,18 @@
 mod ci;
 mod devices;
 mod fsops;
-pub mod memory;
-pub mod schedule;
-pub mod skills;
-mod research;
-pub mod sense_window;
-mod web;
 pub mod images;
+pub mod memory;
+mod research;
+pub mod schedule;
+pub mod sense_window;
 mod shell;
+pub mod skills;
+mod web;
 
 use coturbo_providers::ToolSpec;
-use serde_json::{Value, json};
 use coturbo_verify::lsp::LspManager;
+use serde_json::{Value, json};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
@@ -36,10 +36,18 @@ pub struct ToolOutput {
 
 impl ToolOutput {
     pub fn ok(content: impl Into<String>) -> Self {
-        Self { content: content.into(), is_error: false, images: Vec::new() }
+        Self {
+            content: content.into(),
+            is_error: false,
+            images: Vec::new(),
+        }
     }
     pub fn err(content: impl Into<String>) -> Self {
-        Self { content: content.into(), is_error: true, images: Vec::new() }
+        Self {
+            content: content.into(),
+            is_error: true,
+            images: Vec::new(),
+        }
     }
 }
 
@@ -57,10 +65,35 @@ pub const EDIT_TOOLS: &[&str] = &["write_file", "edit_file", "replace_symbol", "
 /// Fixed tier per tool. Unknown tools (MCP, third-party) are `Exec`.
 pub fn tier(name: &str) -> Tier {
     match name {
-        "read_file" | "read_symbol" | "list_files" | "grep" | "workspace_diagnostics" | "propose_plan" | "tasks" | "network_scan" | "tool_search" | "web_search" | "web_fetch" | "agent" | "recall" | "skill" | "lsp" | "ask_user" | "ci" | "jobs" | "last30days" | "wifi_sense" => Tier::Read,
+        "read_file"
+        | "read_symbol"
+        | "list_files"
+        | "grep"
+        | "workspace_diagnostics"
+        | "propose_plan"
+        | "tasks"
+        | "network_scan"
+        | "tool_search"
+        | "web_search"
+        | "web_fetch"
+        | "agent"
+        | "recall"
+        | "skill"
+        | "lsp"
+        | "ask_user"
+        | "ci"
+        | "jobs"
+        | "last30days"
+        | "wifi_sense" => Tier::Read,
         "remember" | "forget" | "schedule" => Tier::Write,
         "name_device" => Tier::Write,
-        n if EDIT_TOOLS.contains(&n) || n == "design_brief" || n == "layout_grid" || n == "find_images" => Tier::Write,
+        n if EDIT_TOOLS.contains(&n)
+            || n == "design_brief"
+            || n == "layout_grid"
+            || n == "find_images" =>
+        {
+            Tier::Write
+        }
         "design_review" => Tier::Read,
         _ => Tier::Exec,
     }
@@ -74,10 +107,33 @@ fn native_note(rel: &str, diags: &[coturbo_verify::Diag]) -> String {
         return format!("check {rel}: clean");
     }
     let (e, w) = (count(diags, Level::Error), count(diags, Level::Warning));
-    format!("check {rel}: {e} error(s), {w} warning(s)\n{}", render_list(diags, 20))
+    format!(
+        "check {rel}: {e} error(s), {w} warning(s)\n{}",
+        render_list(diags, 20)
+    )
 }
 
 type Res = Result<ToolOutput, String>;
+
+/// What `design_review` asks next. `passes` counts the reviews of the page
+/// with nothing blocking (0: something blocks). Without this the model
+/// keeps "polishing" a page that passes until it runs out of rounds.
+pub fn review_advice(passes: u32) -> &'static str {
+    match passes {
+        0 => {
+            "Look at them as a demanding designer: anything overlapping, cramped, cut off, misaligned or scrolling sideways? \
+              Does it look generic? Is the signature element the first thing you see? Fix every blocking problem, keeping DESIGN.md, \
+              then call design_review again."
+        }
+        1 => {
+            "Nothing blocks: the page passes and warnings are optional. Look at the screenshots once; if something is clearly broken \
+              (overlapping, cut off, scrolling sideways) fix it and review once more, otherwise the page is done: finish the task now."
+        }
+        _ => {
+            "Nothing blocks again: the page is done. Do not review or edit it further; finish the task now with a short summary."
+        }
+    }
+}
 
 pub struct Tools {
     root: PathBuf,
@@ -89,6 +145,9 @@ pub struct Tools {
     /// Content hash of each file when the model last read it, to warn when
     /// a write would clobber a file that changed on disk since (conflict).
     seen: std::sync::Mutex<std::collections::HashMap<String, u64>>,
+    /// Reviews of each page that found nothing blocking, so the model is
+    /// told to stop polishing instead of reviewing forever.
+    passes: std::sync::Mutex<std::collections::HashMap<String, u32>>,
     /// Where `browse` sends each picture of the page, so the screen can show
     /// the agent using it.
     browse_sink: Option<BrowseSink>,
@@ -113,17 +172,38 @@ pub struct Tools {
 /// loads them with tool_search: their full definitions stay out of every
 /// request that does not need them.
 pub const DEFERRED: [(&str, &str); 11] = [
-    ("browse", "drive a real browser: open pages, click, type, read, screenshots, console and requests"),
-    ("ci", "GitHub Actions of the branch: status, failed logs, wait for a run"),
-    ("device", "control a TV, speaker, light, plug, printer or router on the local network"),
-    ("device_control", "call a network device's own HTTP or UPnP API"),
-    ("investigate", "reverse-engineer a website, JS/Electron app, binary, APK or SQLite database"),
-    ("last30days", "what people said about a topic lately: Hacker News, GitHub, Reddit, Polymarket, dev.to, arXiv"),
+    (
+        "browse",
+        "drive a real browser: open pages, click, type, read, screenshots, console and requests",
+    ),
+    (
+        "ci",
+        "GitHub Actions of the branch: status, failed logs, wait for a run",
+    ),
+    (
+        "device",
+        "control a TV, speaker, light, plug, printer or router on the local network",
+    ),
+    (
+        "device_control",
+        "call a network device's own HTTP or UPnP API",
+    ),
+    (
+        "investigate",
+        "reverse-engineer a website, JS/Electron app, binary, APK or SQLite database",
+    ),
+    (
+        "last30days",
+        "what people said about a topic lately: Hacker News, GitHub, Reddit, Polymarket, dev.to, arXiv",
+    ),
     ("name_device", "remember a name for a network device"),
     ("network_scan", "list the devices on the local network"),
     ("observe_app", "run a desktop program and watch its window"),
     ("schedule", "run a task later or on a repeat"),
-    ("wifi_sense", "sense movement and breathing through WiFi, shown full screen"),
+    (
+        "wifi_sense",
+        "sense movement and breathing through WiFi, shown full screen",
+    ),
 ];
 
 /// With more external tools than this, they are named only, and loaded on demand.
@@ -171,7 +251,9 @@ pub type SenseSink = Arc<dyn Fn(coturbo_net::sense::Event) + Send + Sync>;
 
 /// FNV-1a hash of file content, for cheap change detection.
 pub(crate) fn content_hash(s: &str) -> u64 {
-    s.bytes().fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ b as u64).wrapping_mul(0x0100_0000_01b3))
+    s.bytes().fold(0xcbf2_9ce4_8422_2325, |h, b| {
+        (h ^ b as u64).wrapping_mul(0x0100_0000_01b3)
+    })
 }
 
 /// Rust files longer than this are returned as a skeleton by `read_file` in Ast mode.
@@ -182,7 +264,11 @@ fn obj(props: Value, required: &[&str]) -> Value {
 }
 
 fn spec(name: &str, description: &str, schema: Value) -> ToolSpec {
-    ToolSpec { name: name.into(), description: description.into(), input_schema: schema }
+    ToolSpec {
+        name: name.into(),
+        description: description.into(),
+        input_schema: schema,
+    }
 }
 
 fn s(desc: &str) -> Value {
@@ -190,13 +276,29 @@ fn s(desc: &str) -> Value {
 }
 
 fn arg<'a>(input: &'a Value, key: &str) -> Result<&'a str, String> {
-    input[key].as_str().ok_or_else(|| format!("missing string argument `{key}`"))
+    input[key]
+        .as_str()
+        .ok_or_else(|| format!("missing string argument `{key}`"))
 }
 
 impl Tools {
     pub fn new(root: &Path, mode: Mode) -> Self {
         let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
-        Self { root, mode, lsp: None, native_checks: false, seen: std::sync::Mutex::new(std::collections::HashMap::new()), browse_sink: None, sense_sink: None, browse_live: Arc::new((0..MAX_BROWSE_WINDOWS).map(|_| Arc::default()).collect()), browse_window: Arc::new(|| false), background: std::sync::Mutex::new(Vec::new()), mcp: Arc::default(), loaded: std::sync::Mutex::default() }
+        Self {
+            root,
+            mode,
+            lsp: None,
+            native_checks: false,
+            seen: std::sync::Mutex::new(std::collections::HashMap::new()),
+            passes: std::sync::Mutex::default(),
+            browse_sink: None,
+            sense_sink: None,
+            browse_live: Arc::new((0..MAX_BROWSE_WINDOWS).map(|_| Arc::default()).collect()),
+            browse_window: Arc::new(|| false),
+            background: std::sync::Mutex::new(Vec::new()),
+            mcp: Arc::default(),
+            loaded: std::sync::Mutex::default(),
+        }
     }
 
     /// Makes `browse` open a real window beside the terminal, with the agent's
@@ -208,7 +310,10 @@ impl Tools {
 
     /// Like [`Self::with_browse_window`], decided when the browser opens: the
     /// screen may only find out later what the terminal can draw.
-    pub fn with_browse_window_when(mut self, decide: impl Fn() -> bool + Send + Sync + 'static) -> Self {
+    pub fn with_browse_window_when(
+        mut self,
+        decide: impl Fn() -> bool + Send + Sync + 'static,
+    ) -> Self {
         self.browse_window = Arc::new(decide);
         self
     }
@@ -259,19 +364,58 @@ impl Tools {
     /// Tool definitions, sorted by name so the request prefix is byte-stable.
     pub fn specs(&self) -> Vec<ToolSpec> {
         let read_desc = match self.mode {
-            Mode::Naive => "Read a file. Images (png, jpg, gif, webp) are shown to you; PDFs and Jupyter notebooks come as text.",
-            Mode::Ast => "Read a file (images are shown to you; PDFs and notebooks come as text). Large .rs, .js and .ts files return a skeleton (bodies elided as `{ … }`); use read_symbol (Rust) for a body or full=true for everything.",
+            Mode::Naive => {
+                "Read a file. Images (png, jpg, gif, webp) are shown to you; PDFs and Jupyter notebooks come as text."
+            }
+            Mode::Ast => {
+                "Read a file (images are shown to you; PDFs and notebooks come as text). Large .rs, .js and .ts files return a skeleton (bodies elided as `{ … }`); use read_symbol (Rust) for a body or full=true for everything."
+            }
         };
         let mut v = vec![
-            spec("read_file", read_desc, obj(json!({"path": s("relative path"), "full": {"type": "boolean"}}), &["path"])),
-            spec("write_file", "Create or overwrite a file.", obj(json!({"path": s("relative path"), "content": s("full file content")}), &["path", "content"])),
-            spec("edit_file", "Replace the unique occurrence of `old` with `new` in a file.", obj(json!({"path": s("relative path"), "old": s("exact text, must match once"), "new": s("replacement")}), &["path", "old", "new"])),
-            spec("list_files", "List files (respects .gitignore).", obj(json!({"path": s("relative dir, default .")}), &[])),
-            spec("grep", "Regex search; returns path:line: text.", obj(json!({"pattern": s("regex"), "path": s("relative dir or file, default .")}), &["pattern"])),
+            spec(
+                "read_file",
+                read_desc,
+                obj(
+                    json!({"path": s("relative path"), "full": {"type": "boolean"}}),
+                    &["path"],
+                ),
+            ),
+            spec(
+                "write_file",
+                "Create or overwrite a file.",
+                obj(
+                    json!({"path": s("relative path"), "content": s("full file content")}),
+                    &["path", "content"],
+                ),
+            ),
+            spec(
+                "edit_file",
+                "Replace the unique occurrence of `old` with `new` in a file.",
+                obj(
+                    json!({"path": s("relative path"), "old": s("exact text, must match once"), "new": s("replacement")}),
+                    &["path", "old", "new"],
+                ),
+            ),
+            spec(
+                "list_files",
+                "List files (respects .gitignore).",
+                obj(json!({"path": s("relative dir, default .")}), &[]),
+            ),
+            spec(
+                "grep",
+                "Regex search; returns path:line: text.",
+                obj(
+                    json!({"pattern": s("regex"), "path": s("relative dir or file, default .")}),
+                    &["pattern"],
+                ),
+            ),
             spec(
                 "bash",
                 "Run a shell command in the project root and get its output. A command that keeps running (a web server, a watcher, `npm run dev`, `python -m http.server`) must use background=true: it keeps running, you get its first output after a few seconds, and it stops when the session ends. Never start a server without it: the call would wait until it times out.",
-                obj(json!({"command": s("command"), "background": {"type": "boolean", "description": "leave it running (servers, watchers)"}}), &["command"]),
+                obj(
+                    json!({"command": s("command"), "background": {"type": "boolean", "description": "leave it running (servers, watchers)"}}),
+                    &["command"],
+                ),
             ),
             spec(
                 "design_brief",
@@ -292,7 +436,10 @@ impl Tools {
             spec(
                 "find_images",
                 "Real photos of the subject for a page, with free licences (Wikimedia Commons): searches, downloads the best large ones into assets/images/ and writes their credits to assets/images/CREDITS.md. Call it for any page about something people judge with their eyes (beauty, food, fashion, places, products, people), once per motif (e.g. \"gel nails\", \"nail art\", \"manicure salon\"), before writing the HTML; a page needs six or more photos (opening, gallery, bento tiles), and the check refuses a long page with fewer than three.",
-                obj(json!({"query": s("the subject in two or three words, in English"), "count": {"type": "integer", "description": "how many photos, 1-12 (default 8)"}}), &["query"]),
+                obj(
+                    json!({"query": s("the subject in two or three words, in English"), "count": {"type": "integer", "description": "how many photos, 1-12 (default 8)"}}),
+                    &["query"],
+                ),
             ),
             spec(
                 "layout_grid",
@@ -324,7 +471,10 @@ impl Tools {
             spec(
                 "investigate",
                 "Reverse-engineer how existing software does something, from evidence (read-only): a website URL (rendered, with structure, technology, design system and screenshots), a local app folder, an Electron .asar, a JS bundle, or a native binary (exe/dll/so/dylib/wasm: imports, exports, strings). Use it to learn from a reference before building something similar. When recreating an app with an interface, reproduce the real layout faithfully — its navigation, lists, master-detail panels, primary actions and states — grounded in what the report shows, not a simplified demo. For an app whose UI lives in resources (e.g. Electron/CEF), also investigate that UI folder, not only the launcher binary. Symbols and strings do not show the look: pair it with observe_app to see the running program.",
-                obj(json!({"target": s("URL, or path to a folder or file (absolute paths allowed)"), "question": s("what you want to understand, e.g. how search works")}), &["target"]),
+                obj(
+                    json!({"target": s("URL, or path to a folder or file (absolute paths allowed)"), "question": s("what you want to understand, e.g. how search works")}),
+                    &["target"],
+                ),
             ),
             spec(
                 "observe_app",
@@ -382,17 +532,26 @@ impl Tools {
             spec(
                 "jobs",
                 "The commands running in the background (started by bash with background=true): list them, read what one printed since you last looked (output), or stop one (stop). Use it to watch a server's log or a long build.",
-                obj(json!({"action": {"type": "string", "enum": ["list", "output", "stop"]}, "id": {"type": "integer", "description": "output/stop: the job id from list"}}), &[]),
+                obj(
+                    json!({"action": {"type": "string", "enum": ["list", "output", "stop"]}, "id": {"type": "integer", "description": "output/stop: the job id from list"}}),
+                    &[],
+                ),
             ),
             spec(
                 "ci",
                 "GitHub Actions of the current branch through the gh CLI: status (the latest runs), logs (the failed steps of a run, the newest failure by default), wait (until the newest run ends, then its result and failed steps). After pushing, wait for CI and fix what fails.",
-                obj(json!({"action": {"type": "string", "enum": ["status", "logs", "wait"]}, "branch": s("default: the current branch"), "run": {"type": "integer", "description": "logs: a run id"}}), &[]),
+                obj(
+                    json!({"action": {"type": "string", "enum": ["status", "logs", "wait"]}, "branch": s("default: the current branch"), "run": {"type": "integer", "description": "logs: a run id"}}),
+                    &[],
+                ),
             ),
             spec(
                 "ask_user",
                 "Ask the user a question only they can answer (a preference, a choice between real alternatives, a missing fact), with 2 to 4 short options to pick; they can also type their own answer. Do not ask what you can find out or decide yourself.",
-                obj(json!({"question": s("the question"), "options": {"type": "array", "items": {"type": "string"}, "description": "2 to 4 short options"}}), &["question"]),
+                obj(
+                    json!({"question": s("the question"), "options": {"type": "array", "items": {"type": "string"}, "description": "2 to 4 short options"}}),
+                    &["question"],
+                ),
             ),
             spec(
                 "lsp",
@@ -410,7 +569,10 @@ impl Tools {
             spec(
                 "skill",
                 "Load an installed skill: its instructions for a particular kind of work, and the list of its files (read one with `file`). Load it before starting a task that matches its description.",
-                obj(json!({"name": s("the skill's name"), "file": s("optional: one of the skill's files")}), &["name"]),
+                obj(
+                    json!({"name": s("the skill's name"), "file": s("optional: one of the skill's files")}),
+                    &["name"],
+                ),
             ),
             spec(
                 "schedule",
@@ -425,8 +587,16 @@ impl Tools {
                     &[],
                 ),
             ),
-            spec("recall", "Read one remembered fact in full (by name), or the list of all of them.", obj(json!({"name": s("memory name; omit for the list")}), &[])),
-            spec("forget", "Delete a memory that turned out wrong or no longer applies.", obj(json!({"name": s("memory name")}), &["name"])),
+            spec(
+                "recall",
+                "Read one remembered fact in full (by name), or the list of all of them.",
+                obj(json!({"name": s("memory name; omit for the list")}), &[]),
+            ),
+            spec(
+                "forget",
+                "Delete a memory that turned out wrong or no longer applies.",
+                obj(json!({"name": s("memory name")}), &["name"]),
+            ),
             spec(
                 "agent",
                 "Hand a self-contained piece of work to a subagent with its own fresh context; you get back only its report, which keeps your context small. Call it several times in the same reply to run them at the same time. kind: explore (find how something works in the code, the default), plan (a step-by-step plan), review (look for real defects) only read; general does the work in its own git worktree (a copy of the project) and hands back a branch to merge. The prompt must stand alone: the subagent knows nothing of this conversation.",
@@ -459,7 +629,10 @@ impl Tools {
             spec(
                 "wifi_sense",
                 "Sense people through WiFi, natively: whether someone is moving or still in the room, and their breathing rate when an ESP32 CSI node streams to this machine (UDP 5005). Without a node it uses this computer's or phone's own WiFi signal, which shows movement near the path to the router but not breathing. The user watches it live in a full-screen view and may close it early. Report the result as estimates.",
-                obj(json!({"seconds": {"type": "integer", "description": "how long to measure, 10-300 (default 30)"}}), &[]),
+                obj(
+                    json!({"seconds": {"type": "integer", "description": "how long to measure, 10-300 (default 30)"}}),
+                    &[],
+                ),
             ),
             spec(
                 "web_fetch",
@@ -469,12 +642,18 @@ impl Tools {
             spec(
                 "network_scan",
                 "List the devices on the user's local network (read-only): TVs, speakers, printers, cameras, lights, plugs, routers, computers. Finds them by Bonjour/mDNS, UPnP and the ARP table; sweep=true also checks common ports on every address of the local subnet (slower, finds silent devices). Returns each device's address, MAC, names, services, UPnP actions with their control URLs, and open ports. Use it before device_control.",
-                obj(json!({"sweep": {"type": "boolean", "description": "also probe common ports on the whole local /24 (about 10 s)"}, "seconds": {"type": "integer", "description": "how long to listen for announcements, 1-10 (default 3)"}}), &[]),
+                obj(
+                    json!({"sweep": {"type": "boolean", "description": "also probe common ports on the whole local /24 (about 10 s)"}, "seconds": {"type": "integer", "description": "how long to listen for announcements, 1-10 (default 3)"}}),
+                    &[],
+                ),
             ),
             spec(
                 "name_device",
                 "Give a device on the network a name the user can use later (\"living room TV\"), so `tv` and the user can refer to it by name, even when it is off. `device` is its current address or MAC from network_scan.",
-                obj(json!({"device": s("address or MAC"), "name": s("the name, in the user's words")}), &["device", "name"]),
+                obj(
+                    json!({"device": s("address or MAC"), "name": s("the name, in the user's words")}),
+                    &["device", "name"],
+                ),
             ),
             spec(
                 "device",
@@ -517,7 +696,11 @@ impl Tools {
                     &["kind"],
                 ),
             ),
-            spec("propose_plan", "Plan mode only: submit .codeturbo/plans/<slug>-plan.md for the user's approval.", obj(json!({"slug": s("plan slug")}), &["slug"])),
+            spec(
+                "propose_plan",
+                "Plan mode only: submit .codeturbo/plans/<slug>-plan.md for the user's approval.",
+                obj(json!({"slug": s("plan slug")}), &["slug"]),
+            ),
         ];
         if self.mode == Mode::Ast {
             let sym = s("symbol path, e.g. `Point::new` or `utils::parse`");
@@ -531,7 +714,11 @@ impl Tools {
         v.sort_by(|a, b| a.name.cmp(&b.name));
         let loaded = self.loaded.lock().map(|l| l.clone()).unwrap_or_default();
         v.retain(|t| !DEFERRED.iter().any(|(n, _)| *n == t.name) || loaded.contains(&t.name));
-        let mut waiting: Vec<String> = DEFERRED.iter().filter(|(n, _)| !loaded.contains(*n)).map(|(n, what)| format!("{n} ({what})")).collect();
+        let mut waiting: Vec<String> = DEFERRED
+            .iter()
+            .filter(|(n, _)| !loaded.contains(*n))
+            .map(|(n, what)| format!("{n} ({what})"))
+            .collect();
         // External servers' tools come after, in a stable order. Many of them
         // are only named, behind tool_search, until the model asks for one.
         if let Some(m) = self.mcp.get() {
@@ -540,11 +727,21 @@ impl Tools {
             let mut ext: Vec<ToolSpec> = all
                 .iter()
                 .filter(|t| eager || loaded.contains(&t.qualified()))
-                .map(|t| spec(&t.qualified(), &format!("[{} server] {}", t.server, t.description), t.input_schema.clone()))
+                .map(|t| {
+                    spec(
+                        &t.qualified(),
+                        &format!("[{} server] {}", t.server, t.description),
+                        t.input_schema.clone(),
+                    )
+                })
                 .collect();
             ext.sort_by(|a, b| a.name.cmp(&b.name));
             v.extend(ext);
-            let mut external: Vec<String> = all.iter().map(|t| t.qualified()).filter(|q| !eager && !loaded.contains(q)).collect();
+            let mut external: Vec<String> = all
+                .iter()
+                .map(|t| t.qualified())
+                .filter(|q| !eager && !loaded.contains(q))
+                .collect();
             external.sort();
             waiting.extend(external);
         }
@@ -563,10 +760,15 @@ impl Tools {
 
     /// `lsp`: definition, references or hover through the language server.
     async fn lsp_navigate(&self, input: &Value) -> Res {
-        let lsp = self.lsp.as_ref().ok_or("no language server is configured; use grep and read_file")?;
+        let lsp = self
+            .lsp
+            .as_ref()
+            .ok_or("no language server is configured; use grep and read_file")?;
         let rel = arg(input, "path")?.replace('\\', "/");
         let line = input["line"].as_u64().ok_or("missing `line`")? as u32;
-        lsp.navigate(arg(input, "action")?, &rel, line, arg(input, "symbol")?).await.map(ToolOutput::ok)
+        lsp.navigate(arg(input, "action")?, &rel, line, arg(input, "symbol")?)
+            .await
+            .map(ToolOutput::ok)
     }
 
     /// `tool_search`: marks the matching external tools as loaded.
@@ -580,7 +782,15 @@ impl Tools {
         let exact = query.starts_with("select:");
         let own: Vec<&(&str, &str)> = DEFERRED
             .iter()
-            .filter(|(n, what)| if exact { words.iter().any(|w| w == n) } else { words.iter().any(|w| n.contains(w.as_str()) || what.contains(w.as_str())) })
+            .filter(|(n, what)| {
+                if exact {
+                    words.iter().any(|w| w == n)
+                } else {
+                    words
+                        .iter()
+                        .any(|w| n.contains(w.as_str()) || what.contains(w.as_str()))
+                }
+            })
             .collect();
         if !own.is_empty() {
             if let Ok(mut l) = self.loaded.lock() {
@@ -588,15 +798,25 @@ impl Tools {
             }
             let list: Vec<String> = own.iter().map(|(n, what)| format!("{n}: {what}")).collect();
             if exact || self.mcp.get().is_none() {
-                return Ok(ToolOutput::ok(format!("Loaded; call them from the next step:
-{}", list.join("
-"))));
+                return Ok(ToolOutput::ok(format!(
+                    "Loaded; call them from the next step:
+{}",
+                    list.join(
+                        "
+"
+                    )
+                )));
             }
         }
-        let Some(m) = self.mcp.get() else { return Err(format!("no tool matches `{query}`")) };
+        let Some(m) = self.mcp.get() else {
+            return Err(format!("no tool matches `{query}`"));
+        };
         let found: Vec<&coturbo_mcp::Tool> = if let Some(names) = query.strip_prefix("select:") {
             let want: Vec<&str> = names.split(',').map(str::trim).collect();
-            m.tools().iter().filter(|t| want.contains(&t.qualified().to_lowercase().as_str())).collect()
+            m.tools()
+                .iter()
+                .filter(|t| want.contains(&t.qualified().to_lowercase().as_str()))
+                .collect()
         } else {
             let words: Vec<&str> = query.split_whitespace().collect();
             let mut scored: Vec<(usize, &coturbo_mcp::Tool)> = m
@@ -618,13 +838,28 @@ impl Tools {
             l.extend(found.iter().map(|t| t.qualified()));
         }
         let mut list: Vec<String> = own.iter().map(|(n, what)| format!("{n}: {what}")).collect();
-        list.extend(found.iter().map(|t| format!("{}: {}", t.qualified(), t.description.chars().take(160).collect::<String>())));
-        Ok(ToolOutput::ok(format!("Loaded; call them from the next step:\n{}", list.join("\n"))))
+        list.extend(found.iter().map(|t| {
+            format!(
+                "{}: {}",
+                t.qualified(),
+                t.description.chars().take(160).collect::<String>()
+            )
+        }));
+        Ok(ToolOutput::ok(format!(
+            "Loaded; call them from the next step:\n{}",
+            list.join("\n")
+        )))
     }
 
     /// Runs `actions` in window `slot`'s browser, kept open for `browse`,
     /// opening one if there is none (or the old one stopped answering).
-    async fn run_live(&self, slot: usize, path: &Path, actions: &[coturbo_browse::Action], mut on_frame: impl FnMut(coturbo_browse::Frame) + Send) -> Result<coturbo_browse::Report, String> {
+    async fn run_live(
+        &self,
+        slot: usize,
+        path: &Path,
+        actions: &[coturbo_browse::Action],
+        mut on_frame: impl FnMut(coturbo_browse::Frame) + Send,
+    ) -> Result<coturbo_browse::Report, String> {
         let cell = self.browse_live[slot].clone();
         let mut guard = cell.lock().await;
         for attempt in 0..2 {
@@ -632,7 +867,10 @@ impl Tools {
                 // A real window beside the terminal is only for the first page.
                 let visible = slot == 0 && (self.browse_window)();
                 let browser = coturbo_browse::Browser::open_with(path, (880, 560), visible).await?;
-                *guard = Some(LiveBrowser { browser, last_used: std::time::Instant::now() });
+                *guard = Some(LiveBrowser {
+                    browser,
+                    last_used: std::time::Instant::now(),
+                });
                 self.watch_browser(slot);
             }
             let live = guard.as_mut().expect("opened above");
@@ -659,7 +897,11 @@ impl Tools {
     fn watch_browser(&self, slot: usize) {
         let live = self.browse_live[slot].clone();
         // A window someone is watching stays longer than one nobody sees.
-        let idle = if (self.browse_window)() { BROWSER_IDLE * 3 } else { BROWSER_IDLE };
+        let idle = if (self.browse_window)() {
+            BROWSER_IDLE * 3
+        } else {
+            BROWSER_IDLE
+        };
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(10)).await;
@@ -681,7 +923,11 @@ impl Tools {
 
     /// Closes the browsers `browse` keeps open (when the session ends).
     pub async fn shutdown(&self) {
-        let running: Vec<shell::Job> = self.background.lock().map(|mut b| std::mem::take(&mut *b)).unwrap_or_default();
+        let running: Vec<shell::Job> = self
+            .background
+            .lock()
+            .map(|mut b| std::mem::take(&mut *b))
+            .unwrap_or_default();
         for mut job in running {
             let _ = job.child.kill().await;
         }
@@ -707,26 +953,46 @@ impl Tools {
                 let mut jobs = Vec::new();
                 for (i, w) in list.iter().enumerate() {
                     let slot = w["window"].as_u64().map_or(i, |n| n as usize);
-                    jobs.push((slot, Action::parse_all(&w["actions"]).map_err(|e| format!("window {}: {e}", i + 1))?));
+                    jobs.push((
+                        slot,
+                        Action::parse_all(&w["actions"])
+                            .map_err(|e| format!("window {}: {e}", i + 1))?,
+                    ));
                 }
                 jobs
             }
-            _ => vec![(input["window"].as_u64().unwrap_or(0) as usize, Action::parse_all(&input["actions"])?)],
+            _ => vec![(
+                input["window"].as_u64().unwrap_or(0) as usize,
+                Action::parse_all(&input["actions"])?,
+            )],
         };
         let mut seen = std::collections::HashSet::new();
         for (slot, actions) in &jobs {
             if *slot >= MAX_BROWSE_WINDOWS || !seen.insert(*slot) {
-                return Err(format!("window numbers are 0 to {} and each is used once per call", MAX_BROWSE_WINDOWS - 1));
+                return Err(format!(
+                    "window numbers are 0 to {} and each is used once per call",
+                    MAX_BROWSE_WINDOWS - 1
+                ));
             }
             // A project file must stay inside the project, like every other tool.
             for a in actions {
                 if let Action::Open(u) = a {
                     let url = resolve_url(&self.root, u);
-                    if let Some(p) = url.strip_prefix("file:///").or_else(|| url.strip_prefix("file://")) {
+                    if let Some(p) = url
+                        .strip_prefix("file:///")
+                        .or_else(|| url.strip_prefix("file://"))
+                    {
                         // `file:///C:/x` is `C:/x`; `file:///tmp/x` is `/tmp/x`.
                         let p = p.replace("%20", " ");
-                        let path = std::path::PathBuf::from(if cfg!(windows) { p } else { format!("/{p}") });
-                        let root = self.root.canonicalize().unwrap_or_else(|_| self.root.clone());
+                        let path = std::path::PathBuf::from(if cfg!(windows) {
+                            p
+                        } else {
+                            format!("/{p}")
+                        });
+                        let root = self
+                            .root
+                            .canonicalize()
+                            .unwrap_or_else(|_| self.root.clone());
                         let inside = path.canonicalize().is_ok_and(|c| c.starts_with(&root));
                         if !inside {
                             return Err(format!("{u}: the page must be inside the project"));
@@ -735,7 +1001,8 @@ impl Tools {
                 }
             }
         }
-        let browser = coturbo_design::render::find_browser().ok_or_else(coturbo_design::render::no_browser_help)?;
+        let browser = coturbo_design::render::find_browser()
+            .ok_or_else(coturbo_design::render::no_browser_help)?;
         // Every window works at the same time, each reporting its own steps.
         let runs = jobs.iter().map(|(slot, actions)| {
             let slot = *slot;
@@ -762,17 +1029,30 @@ impl Tools {
             if many {
                 text.push_str(&format!("window {slot}: "));
             }
-            text.push_str(&format!("browser session, {steps} step(s):\n{}", report.log.join("\n")));
+            text.push_str(&format!(
+                "browser session, {steps} step(s):\n{}",
+                report.log.join("\n")
+            ));
             if report.problems.is_empty() {
                 text.push_str("\n\nNothing wrong was noticed.\n\n");
             } else {
                 text.push_str("\n\nWhat a person would notice is wrong (fix these):\n");
-                text.push_str(&report.problems.iter().map(|p| format!("- {p}")).collect::<Vec<_>>().join("\n"));
+                text.push_str(
+                    &report
+                        .problems
+                        .iter()
+                        .map(|p| format!("- {p}"))
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                );
                 text.push_str("\n\n");
             }
             if let Some(png) = report.shots.last() {
                 use base64::Engine;
-                images.push(("image/png".to_string(), base64::engine::general_purpose::STANDARD.encode(png)));
+                images.push((
+                    "image/png".to_string(),
+                    base64::engine::general_purpose::STANDARD.encode(png),
+                ));
             }
         }
         let mut out = ToolOutput::ok(text.trim_end().to_string());
@@ -783,19 +1063,30 @@ impl Tools {
     /// The checklist is shown by the interface; here it is only checked and
     /// acknowledged, so the model learns when it sent something malformed.
     fn tasks(input: &Value) -> Res {
-        let items = input["items"].as_array().filter(|a| !a.is_empty()).ok_or("items must be a non-empty list of {title, status}")?;
+        let items = input["items"]
+            .as_array()
+            .filter(|a| !a.is_empty())
+            .ok_or("items must be a non-empty list of {title, status}")?;
         if items.len() > 12 {
             return Err("at most 12 steps: group the small ones".into());
         }
         let mut done = 0;
         for (i, it) in items.iter().enumerate() {
             let status = it["status"].as_str().unwrap_or("");
-            if it["title"].as_str().is_none_or(|t| t.trim().is_empty()) || !["pending", "doing", "done"].contains(&status) {
-                return Err(format!("step {} needs a title and a status of pending, doing or done", i + 1));
+            if it["title"].as_str().is_none_or(|t| t.trim().is_empty())
+                || !["pending", "doing", "done"].contains(&status)
+            {
+                return Err(format!(
+                    "step {} needs a title and a status of pending, doing or done",
+                    i + 1
+                ));
             }
             done += usize::from(status == "done");
         }
-        Ok(ToolOutput::ok(format!("checklist updated: {done}/{} done", items.len())))
+        Ok(ToolOutput::ok(format!(
+            "checklist updated: {done}/{} done",
+            items.len()
+        )))
     }
 
     /// Opens a program, captures its window and returns the screenshot.
@@ -804,14 +1095,25 @@ impl Tools {
         // A path that exists under the project is made absolute; a bare
         // command (`mspaint.exe`) is left for the system to resolve.
         let local = self.root.join(raw);
-        let target = if !Path::new(raw).is_absolute() && local.is_file() { local.to_string_lossy().into_owned() } else { raw.to_string() };
+        let target = if !Path::new(raw).is_absolute() && local.is_file() {
+            local.to_string_lossy().into_owned()
+        } else {
+            raw.to_string()
+        };
         let seconds = input["seconds"].as_u64().unwrap_or(8);
         let maximize = input["maximize"].as_bool().unwrap_or(true);
         let dir = self.root.join(".codeturbo/observe");
-        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
-        let shot = dir.join(format!("{}-{stamp}.png", coturbo_rea::observe::process_name(&target).replace(' ', "_")));
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        let shot = dir.join(format!(
+            "{}-{stamp}.png",
+            coturbo_rea::observe::process_name(&target).replace(' ', "_")
+        ));
         let title = input["title"].as_str().filter(|t| !t.is_empty());
-        let info = coturbo_rea::observe::observe(&target, title, seconds, maximize, &shot).await?.info;
+        let info = coturbo_rea::observe::observe(&target, title, seconds, maximize, &shot)
+            .await?
+            .info;
         let mut out = ToolOutput::ok(format!(
             "Captured the window of {target}: {info}. Screenshot saved at {}. Look at it as a demanding designer: \
              the exact arrangement of regions, the density of controls, how groups are labelled, the colours, \
@@ -820,7 +1122,10 @@ impl Tools {
         ));
         if let Ok(png) = std::fs::read(&shot) {
             use base64::Engine;
-            out.images.push(("image/png".into(), base64::engine::general_purpose::STANDARD.encode(png)));
+            out.images.push((
+                "image/png".into(),
+                base64::engine::general_purpose::STANDARD.encode(png),
+            ));
         }
         Ok(out)
     }
@@ -828,12 +1133,26 @@ impl Tools {
     /// Compiles the brief into tokens and locks them in `DESIGN.md`.
     fn design_brief(&self, input: &Value) -> Res {
         use coturbo_design::{compiler, contract};
-        let given: Vec<String> =
-            input["brand_colors"].as_array().into_iter().flatten().filter_map(|v| v.as_str().map(str::to_string)).collect();
+        let given: Vec<String> = input["brand_colors"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect();
         let fresh = input["new_palette"].as_bool() == Some(true);
         // A redesign starts from the design system the project already has.
-        let existing = if fresh { Default::default() } else { coturbo_design::extract::scan(&self.root) };
-        let brand = if fresh { Vec::new() } else if !given.is_empty() { given } else { existing.brand() };
+        let existing = if fresh {
+            Default::default()
+        } else {
+            coturbo_design::extract::scan(&self.root)
+        };
+        let brand = if fresh {
+            Vec::new()
+        } else if !given.is_empty() {
+            given
+        } else {
+            existing.brand()
+        };
         let brief = compiler::Brief {
             subject: arg(input, "subject")?.to_string(),
             audience: arg(input, "audience")?.to_string(),
@@ -846,7 +1165,8 @@ impl Tools {
         };
         let tokens = compiler::compile(&brief);
         let path = self.root.join(contract::FILE);
-        std::fs::write(&path, contract::markdown(&tokens)).map_err(|e| format!("{}: {e}", path.display()))?;
+        std::fs::write(&path, contract::markdown(&tokens))
+            .map_err(|e| format!("{}: {e}", path.display()))?;
         // Write a ready stylesheet so every page just links it and starts
         // with margins, focus, responsiveness and motion already right.
         let kit_css = format!(
@@ -854,10 +1174,18 @@ impl Tools {
             contract::css(&tokens),
             coturbo_design::kit::base_css(&tokens)
         );
-        std::fs::write(self.root.join("codeturbo-kit.css"), kit_css).map_err(|e| format!("codeturbo-kit.css: {e}"))?;
-        std::fs::write(self.root.join("codeturbo-motion.js"), coturbo_design::kit::motion_js(&tokens)).map_err(|e| format!("codeturbo-motion.js: {e}"))?;
+        std::fs::write(self.root.join("codeturbo-kit.css"), kit_css)
+            .map_err(|e| format!("codeturbo-kit.css: {e}"))?;
+        std::fs::write(
+            self.root.join("codeturbo-motion.js"),
+            coturbo_design::kit::motion_js(&tokens),
+        )
+        .map_err(|e| format!("codeturbo-motion.js: {e}"))?;
         // A visual catalogue the user can open in a browser.
-        let _ = std::fs::write(self.root.join("design-preview.html"), contract::preview_html(&tokens));
+        let _ = std::fs::write(
+            self.root.join("design-preview.html"),
+            contract::preview_html(&tokens),
+        );
         let kept = if existing.is_empty() && brief.brand.is_empty() {
             String::new()
         } else if !existing.is_empty() {
@@ -901,7 +1229,12 @@ impl Tools {
             contract::font_link(&tokens).replace('\n', " "),
             tokens.layout,
             brief.signature,
-            coturbo_design::kit::blueprint(&tokens).iter().enumerate().map(|(i, s)| format!("{}. {s}", i + 1)).collect::<Vec<_>>().join("\n"),
+            coturbo_design::kit::blueprint(&tokens)
+                .iter()
+                .enumerate()
+                .map(|(i, s)| format!("{}. {s}", i + 1))
+                .collect::<Vec<_>>()
+                .join("\n"),
             coturbo_design::kit::ornament_svg(&tokens),
             coturbo_design::kit::divider_svg(&tokens),
             style = tokens.style.name(),
@@ -927,13 +1260,25 @@ impl Tools {
         if elements.is_empty() {
             return Err("elements: give at least one {id, kind}".into());
         }
-        std::fs::write(self.root.join("codeturbo-grid.css"), grid::css(&elements)).map_err(|e| format!("codeturbo-grid.css: {e}"))?;
-        let _ = std::fs::write(self.root.join("layout-preview.html"), grid::preview_html(&elements));
+        std::fs::write(self.root.join("codeturbo-grid.css"), grid::css(&elements))
+            .map_err(|e| format!("codeturbo-grid.css: {e}"))?;
+        let _ = std::fs::write(
+            self.root.join("layout-preview.html"),
+            grid::preview_html(&elements),
+        );
         let maps: Vec<String> = SCREENS
             .iter()
             .map(|(name, w, h, _)| {
                 let g = Grid::for_viewport(*w, *h);
-                format!("{name} {w}px: {} columns of {:.0}px, gutter {}px, margin {}px, rows {}px\n{}", g.columns, g.column, g.gutter, g.margin, g.row, grid::ascii(&elements, &g))
+                format!(
+                    "{name} {w}px: {} columns of {:.0}px, gutter {}px, margin {}px, rows {}px\n{}",
+                    g.columns,
+                    g.column,
+                    g.gutter,
+                    g.margin,
+                    g.row,
+                    grid::ascii(&elements, &g)
+                )
             })
             .collect();
         Ok(ToolOutput::ok(format!(
@@ -953,23 +1298,38 @@ impl Tools {
         let rel = self.display(&abs);
         let mut findings = fiscal::check(&rel, &text, Contract::load(&self.root).as_ref());
         let browser = render::find_browser().ok_or_else(coturbo_design::render::no_browser_help)?;
-        let stem = abs.file_stem().map_or("page".into(), |s| s.to_string_lossy().into_owned());
-        let shot = self.root.join(".codeturbo/design").join(format!("{stem}.png"));
+        let stem = abs
+            .file_stem()
+            .map_or("page".into(), |s| s.to_string_lossy().into_owned());
+        let shot = self
+            .root
+            .join(".codeturbo/design")
+            .join(format!("{stem}.png"));
         let page = render::measure(&browser, &abs, &shot).await?;
         findings.extend(render::judge(&page));
         let phone = render::mobile_shot(&shot);
+        let passes = if findings.iter().any(|f| f.blocking()) {
+            0
+        } else {
+            let mut m = self.passes.lock().unwrap_or_else(|e| e.into_inner());
+            let n = m.entry(rel.clone()).or_default();
+            *n += 1;
+            *n
+        };
         let mut out = ToolOutput::ok(format!(
-            "{}\nScreenshots attached: desktop 1440px ({}) and phone 390px ({}). Look at them as a demanding designer: \
-             anything overlapping, cramped, cut off, misaligned or scrolling sideways? Does it look generic? \
-             Is the signature element the first thing you see? Fix every problem, keeping DESIGN.md, then call design_review again.",
+            "{}\nScreenshots attached: desktop 1440px ({}) and phone 390px ({}). {}",
             fiscal::render(&rel, &findings),
             self.display(&shot),
-            self.display(&phone)
+            self.display(&phone),
+            review_advice(passes)
         ));
         for p in [&shot, &phone] {
             if let Ok(png) = std::fs::read(p) {
                 use base64::Engine;
-                out.images.push(("image/png".into(), base64::engine::general_purpose::STANDARD.encode(png)));
+                out.images.push((
+                    "image/png".into(),
+                    base64::engine::general_purpose::STANDARD.encode(png),
+                ));
             }
         }
         Ok(out)
@@ -979,7 +1339,9 @@ impl Tools {
     pub fn resolve(&self, rel: &str) -> Result<PathBuf, String> {
         let p = Path::new(rel);
         let rel = if p.is_absolute() {
-            p.strip_prefix(&self.root).map_err(|_| format!("path outside project: {rel}"))?.to_path_buf()
+            p.strip_prefix(&self.root)
+                .map_err(|_| format!("path outside project: {rel}"))?
+                .to_path_buf()
         } else {
             p.to_path_buf()
         };
@@ -1002,7 +1364,10 @@ impl Tools {
     }
 
     pub(crate) fn display(&self, p: &Path) -> String {
-        p.strip_prefix(&self.root).unwrap_or(p).to_string_lossy().replace('\\', "/")
+        p.strip_prefix(&self.root)
+            .unwrap_or(p)
+            .to_string_lossy()
+            .replace('\\', "/")
     }
 
     /// Remembers the content the model just saw for `rel`.
@@ -1038,17 +1403,31 @@ impl Tools {
             if total <= PREVIEW_MAX_LINES {
                 return diff;
             }
-            let mut out: String = diff.lines().take(PREVIEW_MAX_LINES).map(|l| format!("{l}
-")).collect();
-            out.push_str(&format!("[{} more diff lines]
-", total - PREVIEW_MAX_LINES));
+            let mut out: String = diff
+                .lines()
+                .take(PREVIEW_MAX_LINES)
+                .map(|l| {
+                    format!(
+                        "{l}
+"
+                    )
+                })
+                .collect();
+            out.push_str(&format!(
+                "[{} more diff lines]
+",
+                total - PREVIEW_MAX_LINES
+            ));
             out
         }))
     }
 
     /// Runs a tool. Failures come back as `is_error` outputs, never panics.
     pub async fn call(&self, name: &str, input: &Value) -> ToolOutput {
-        let ast_only = matches!(name, "read_symbol" | "replace_symbol" | "insert_symbol" | "workspace_diagnostics");
+        let ast_only = matches!(
+            name,
+            "read_symbol" | "replace_symbol" | "insert_symbol" | "workspace_diagnostics"
+        );
         if ast_only && self.mode != Mode::Ast {
             return ToolOutput::err(format!("unknown tool: {name}"));
         }
@@ -1057,7 +1436,15 @@ impl Tools {
             && let Some(r) = m.call(name, input.clone()).await
         {
             return match r {
-                Ok(o) => ToolOutput { content: if o.text.trim().is_empty() { "(no output)".into() } else { o.text }, is_error: o.is_error, images: o.images },
+                Ok(o) => ToolOutput {
+                    content: if o.text.trim().is_empty() {
+                        "(no output)".into()
+                    } else {
+                        o.text
+                    },
+                    is_error: o.is_error,
+                    images: o.images,
+                },
                 Err(e) => ToolOutput::err(e),
             };
         }
@@ -1072,8 +1459,14 @@ impl Tools {
             "replace_symbol" => self.replace_symbol(input),
             "insert_symbol" => self.insert_symbol(input),
             "workspace_diagnostics" => {
-                let (text, clean) = coturbo_verify::workspace::render(&coturbo_verify::workspace::check(&self.root).await);
-                Ok(if clean { ToolOutput::ok(text) } else { ToolOutput::err(text) })
+                let (text, clean) = coturbo_verify::workspace::render(
+                    &coturbo_verify::workspace::check(&self.root).await,
+                );
+                Ok(if clean {
+                    ToolOutput::ok(text)
+                } else {
+                    ToolOutput::err(text)
+                })
             }
             "propose_plan" => Err("plan mode is not active".into()),
             "design_brief" => self.design_brief(input),
@@ -1082,14 +1475,23 @@ impl Tools {
             "find_images" => images::find(&self.root, input).await,
             "investigate" => {
                 let question = input["question"].as_str().unwrap_or("");
-                match coturbo_rea::investigate(&self.root, arg(input, "target").unwrap_or(""), question).await {
+                match coturbo_rea::investigate(
+                    &self.root,
+                    arg(input, "target").unwrap_or(""),
+                    question,
+                )
+                .await
+                {
                     Ok(report) => {
                         let mut out = ToolOutput::ok(report.text);
                         if let Some(shot) = report.images.first()
                             && let Ok(png) = std::fs::read(shot)
                         {
                             use base64::Engine;
-                            out.images.push(("image/png".into(), base64::engine::general_purpose::STANDARD.encode(png)));
+                            out.images.push((
+                                "image/png".into(),
+                                base64::engine::general_purpose::STANDARD.encode(png),
+                            ));
                         }
                         Ok(out)
                     }
@@ -1122,7 +1524,9 @@ impl Tools {
                         s(e);
                     }
                 };
-                sense_window::run(Some(secs), &on).await.map(|r| ToolOutput::ok(r.summary()))
+                sense_window::run(Some(secs), &on)
+                    .await
+                    .map(|r| ToolOutput::ok(r.summary()))
             }
             "name_device" => devices::name_device(input),
             _ => Err(format!("unknown tool: {name}")),
@@ -1154,7 +1558,8 @@ impl Tools {
                 let checked = coturbo_design::with_linked_css(&self.root, &rel, &text);
                 let findings = coturbo_design::fiscal::check(&rel, &checked, contract.as_ref());
                 out.content.push('\n');
-                out.content.push_str(&coturbo_design::fiscal::render(&rel, &findings));
+                out.content
+                    .push_str(&coturbo_design::fiscal::render(&rel, &findings));
             }
         }
         if let Some(lsp) = &self.lsp {

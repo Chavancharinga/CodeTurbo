@@ -28,8 +28,15 @@ impl Diag {
             Level::Error => "error",
             Level::Warning => "warning",
         };
-        let code = self.code.as_ref().map(|c| format!("[{c}]")).unwrap_or_default();
-        let mut s = format!("{level}{code} {}:{}:{}: {}", self.path, self.line, self.col, self.message);
+        let code = self
+            .code
+            .as_ref()
+            .map(|c| format!("[{c}]"))
+            .unwrap_or_default();
+        let mut s = format!(
+            "{level}{code} {}:{}:{}: {}",
+            self.path, self.line, self.col, self.message
+        );
         if let Some(src) = &self.source {
             s.push_str(&format!("\n    {}", excerpt(src, self.col as usize)));
         }
@@ -46,7 +53,10 @@ fn excerpt(src: &str, col: usize) -> String {
     if chars.len() <= MAX {
         return src.trim_start().to_string();
     }
-    let start = col.saturating_sub(1).saturating_sub(MAX / 3).min(chars.len() - MAX);
+    let start = col
+        .saturating_sub(1)
+        .saturating_sub(MAX / 3)
+        .min(chars.len() - MAX);
     let mut out: String = chars[start..start + MAX].iter().collect();
     if start > 0 {
         out.insert(0, '…');
@@ -62,7 +72,9 @@ fn excerpt(src: &str, col: usize) -> String {
 pub fn cargo_json(stdout: &str) -> Vec<Diag> {
     let mut out: Vec<Diag> = Vec::new();
     for line in stdout.lines() {
-        let Ok(v) = serde_json::from_str::<Value>(line) else { continue };
+        let Ok(v) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
         if v["reason"] != "compiler-message" {
             continue;
         }
@@ -72,7 +84,10 @@ pub fn cargo_json(stdout: &str) -> Vec<Diag> {
             Some("warning") => Level::Warning,
             _ => continue,
         };
-        let Some(span) = m["spans"].as_array().and_then(|s| s.iter().find(|s| s["is_primary"] == true)) else {
+        let Some(span) = m["spans"]
+            .as_array()
+            .and_then(|s| s.iter().find(|s| s["is_primary"] == true))
+        else {
             continue;
         };
         let label = span["label"].as_str().filter(|l| !l.is_empty());
@@ -116,14 +131,19 @@ pub fn cargo_test_failures(output: &str) -> Vec<String> {
     let mut failures = Vec::new();
     let mut current: Option<String> = None;
     for line in output.lines() {
-        if let Some(name) = line.strip_prefix("---- ").and_then(|l| l.split(" stdout ----").next())
+        if let Some(name) = line
+            .strip_prefix("---- ")
+            .and_then(|l| l.split(" stdout ----").next())
             && line.ends_with("stdout ----")
         {
             current = Some(name.to_string());
             continue;
         }
         if let Some(name) = &current
-            && (line.contains("panicked at") || line.starts_with("assertion") || line.trim_start().starts_with("left:") || line.trim_start().starts_with("right:"))
+            && (line.contains("panicked at")
+                || line.starts_with("assertion")
+                || line.trim_start().starts_with("left:")
+                || line.trim_start().starts_with("right:"))
         {
             failures.push(format!("{name}: {}", line.trim()));
         }
@@ -149,7 +169,10 @@ pub fn generic_warnings(output: &str) -> Vec<String> {
         .filter(|l| re.is_match(l))
         .filter(|l| {
             let t = l.trim_start().to_ascii_lowercase();
-            !(t.starts_with("npm warn") || t.starts_with("yarn warn") || t.contains(" 0 warnings") || t.starts_with("0 warnings"))
+            !(t.starts_with("npm warn")
+                || t.starts_with("yarn warn")
+                || t.contains(" 0 warnings")
+                || t.starts_with("0 warnings"))
         })
         .map(|l| l.trim().to_string())
         .collect()

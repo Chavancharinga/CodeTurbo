@@ -4,11 +4,17 @@
 use super::Act;
 
 fn service<'a>(controls: &'a [(String, String)], name: &str) -> Option<(&'a str, &'a str)> {
-    controls.iter().find(|(t, _)| t.contains(name)).map(|(t, u)| (t.as_str(), u.as_str()))
+    controls
+        .iter()
+        .find(|(t, _)| t.contains(name))
+        .map(|(t, u)| (t.as_str(), u.as_str()))
 }
 
 fn args(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
-    pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    pairs
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
 }
 
 /// The text of `<tag>` in a SOAP answer.
@@ -19,16 +25,30 @@ pub fn soap_value(xml: &str, tag: &str) -> Option<String> {
     Some(xml[start..end].trim().to_string())
 }
 
-async fn call(controls: &[(String, String)], service_name: &str, action: &str, a: &[(&str, &str)]) -> Result<String, String> {
-    let (kind, url) = service(controls, service_name).ok_or_else(|| format!("this player has no {service_name} service"))?;
+async fn call(
+    controls: &[(String, String)],
+    service_name: &str,
+    action: &str,
+    a: &[(&str, &str)],
+) -> Result<String, String> {
+    let (kind, url) = service(controls, service_name)
+        .ok_or_else(|| format!("this player has no {service_name} service"))?;
     crate::upnp_action(url, kind, action, &args(a)).await
 }
 
 pub(crate) async fn renderer(controls: &[(String, String)], act: &Act) -> Result<String, String> {
     let instance = [("InstanceID", "0")];
     let volume_now = || async {
-        let r = call(controls, "RenderingControl", "GetVolume", &[("InstanceID", "0"), ("Channel", "Master")]).await?;
-        soap_value(&r, "CurrentVolume").and_then(|v| v.parse::<i64>().ok()).ok_or_else(|| "the player did not say its volume".to_string())
+        let r = call(
+            controls,
+            "RenderingControl",
+            "GetVolume",
+            &[("InstanceID", "0"), ("Channel", "Master")],
+        )
+        .await?;
+        soap_value(&r, "CurrentVolume")
+            .and_then(|v| v.parse::<i64>().ok())
+            .ok_or_else(|| "the player did not say its volume".to_string())
     };
     match act {
         Act::Status => {
@@ -75,13 +95,27 @@ pub(crate) async fn renderer(controls: &[(String, String)], act: &Act) -> Result
 
 pub(crate) async fn router(controls: &[(String, String)], act: &Act) -> Result<String, String> {
     if *act != Act::Status {
-        return Err("only the router's status is read here; change its settings on its own web page".into());
+        return Err(
+            "only the router's status is read here; change its settings on its own web page".into(),
+        );
     }
-    let wan = if service(controls, "WANIPConnection").is_some() { "WANIPConnection" } else { "WANPPPConnection" };
-    let ip = call(controls, wan, "GetExternalIPAddress", &[]).await.ok().and_then(|r| soap_value(&r, "NewExternalIPAddress"));
+    let wan = if service(controls, "WANIPConnection").is_some() {
+        "WANIPConnection"
+    } else {
+        "WANPPPConnection"
+    };
+    let ip = call(controls, wan, "GetExternalIPAddress", &[])
+        .await
+        .ok()
+        .and_then(|r| soap_value(&r, "NewExternalIPAddress"));
     let status = call(controls, wan, "GetStatusInfo", &[]).await.ok();
-    let link = status.as_deref().and_then(|r| soap_value(r, "NewConnectionStatus"));
-    let uptime = status.as_deref().and_then(|r| soap_value(r, "NewUptime")).and_then(|s| s.parse::<u64>().ok());
+    let link = status
+        .as_deref()
+        .and_then(|r| soap_value(r, "NewConnectionStatus"));
+    let uptime = status
+        .as_deref()
+        .and_then(|r| soap_value(r, "NewUptime"))
+        .and_then(|s| s.parse::<u64>().ok());
     if ip.is_none() && link.is_none() {
         return Err("the router does not share its status over UPnP".into());
     }
@@ -89,7 +123,9 @@ pub(crate) async fn router(controls: &[(String, String)], act: &Act) -> Result<S
         "internet {} · public address {}{}",
         link.unwrap_or_else(|| "?".into()).to_lowercase(),
         ip.unwrap_or_else(|| "?".into()),
-        uptime.map(|s| format!(" · up for {}h{:02}m", s / 3600, s % 3600 / 60)).unwrap_or_default()
+        uptime
+            .map(|s| format!(" · up for {}h{:02}m", s / 3600, s % 3600 / 60))
+            .unwrap_or_default()
     ))
 }
 

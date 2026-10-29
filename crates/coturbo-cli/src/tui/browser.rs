@@ -69,9 +69,19 @@ impl Pixels {
     fn scaled(&self, out_w: usize, out_h: usize) -> Vec<(u8, u8, u8)> {
         let mut out = Vec::with_capacity(out_w * out_h);
         for oy in 0..out_h {
-            let (y0, y1) = (oy * self.h / out_h, ((oy + 1) * self.h / out_h).max(oy * self.h / out_h + 1).min(self.h));
+            let (y0, y1) = (
+                oy * self.h / out_h,
+                ((oy + 1) * self.h / out_h)
+                    .max(oy * self.h / out_h + 1)
+                    .min(self.h),
+            );
             for ox in 0..out_w {
-                let (x0, x1) = (ox * self.w / out_w, ((ox + 1) * self.w / out_w).max(ox * self.w / out_w + 1).min(self.w));
+                let (x0, x1) = (
+                    ox * self.w / out_w,
+                    ((ox + 1) * self.w / out_w)
+                        .max(ox * self.w / out_w + 1)
+                        .min(self.w),
+                );
                 let (mut r, mut g, mut b, mut n) = (0u32, 0u32, 0u32, 0u32);
                 for y in y0..y1 {
                     for x in x0..x1 {
@@ -120,13 +130,27 @@ fn bake_pointer(px: &mut Pixels, at: (f32, f32), size: (u32, u32), clicked: bool
             for x in (cx - r - 3.0) as i32..=(cx + r + 3.0) as i32 {
                 let d = ((x as f32 - cx).powi(2) + (y as f32 - cy).powi(2)).sqrt();
                 if d <= r {
-                    blend(px, x, y, [255, 214, 80], if d >= r - 3.0 * unit { 0.95 } else { 0.28 });
+                    blend(
+                        px,
+                        x,
+                        y,
+                        [255, 214, 80],
+                        if d >= r - 3.0 * unit { 0.95 } else { 0.28 },
+                    );
                 }
             }
         }
     }
     // An arrow, in the page's own pixels: black edge, white body.
-    let arrow = [(0.0, 0.0), (0.0, 17.0), (4.2, 13.2), (7.2, 20.0), (9.8, 18.8), (6.9, 12.4), (12.4, 12.0)];
+    let arrow = [
+        (0.0, 0.0),
+        (0.0, 17.0),
+        (4.2, 13.2),
+        (7.2, 20.0),
+        (9.8, 18.8),
+        (6.9, 12.4),
+        (12.4, 12.0),
+    ];
     let inside = |x: f32, y: f32| {
         let mut c = false;
         let mut j = arrow.len() - 1;
@@ -145,9 +169,18 @@ fn bake_pointer(px: &mut Pixels, at: (f32, f32), size: (u32, u32), clicked: bool
             let (ax, ay) = ((x as f32 - cx) / unit, (y as f32 - cy) / unit);
             if inside(ax, ay) {
                 blend(px, x, y, [255, 255, 255], 1.0);
-            } else if [(edge, 0.0), (-edge, 0.0), (0.0, edge), (0.0, -edge), (edge, edge), (-edge, -edge), (edge, -edge), (-edge, edge)]
-                .iter()
-                .any(|(dx, dy)| inside(ax + dx, ay + dy))
+            } else if [
+                (edge, 0.0),
+                (-edge, 0.0),
+                (0.0, edge),
+                (0.0, -edge),
+                (edge, edge),
+                (-edge, -edge),
+                (edge, -edge),
+                (-edge, edge),
+            ]
+            .iter()
+            .any(|(dx, dy)| inside(ax + dx, ay + dy))
             {
                 blend(px, x, y, [17, 17, 17], 1.0);
             }
@@ -207,7 +240,11 @@ fn ease(t: f32) -> f32 {
 /// Black or white, whichever reads better on `bg`.
 fn readable_on(bg: (u8, u8, u8)) -> Color {
     let lum = 0.299 * f32::from(bg.0) + 0.587 * f32::from(bg.1) + 0.114 * f32::from(bg.2);
-    if lum > 140.0 { Color::Rgb(24, 24, 28) } else { Color::Rgb(245, 245, 248) }
+    if lum > 140.0 {
+        Color::Rgb(24, 24, 28)
+    } else {
+        Color::Rgb(245, 245, 248)
+    }
 }
 
 /// The grid that shows `n` pages of shape `size` largest inside an area `w`
@@ -236,26 +273,50 @@ fn cells(rect: Rect, n: usize, size: (u32, u32)) -> Vec<Rect> {
     let (cols, rows) = best_grid(n, rect.width, rect.height, size);
     let (cw, ch) = (rect.width / cols as u16, rect.height / rows as u16);
     let x0 = rect.x + (rect.width - cw * cols as u16) / 2;
-    (0..n).map(|i| Rect { x: x0 + cw * (i % cols) as u16, y: rect.y + ch * (i / cols) as u16, width: cw, height: ch }).collect()
+    (0..n)
+        .map(|i| Rect {
+            x: x0 + cw * (i % cols) as u16,
+            y: rect.y + ch * (i / cols) as u16,
+            width: cw,
+            height: ch,
+        })
+        .collect()
 }
 
 /// Where everything goes in the cell `cell`: the frame (as small as the
 /// page's shape allows, so it hugs the picture), the page inside it, and
 /// the line under the frame that says what the agent is doing.
 fn geometry_of(size: &(u32, u32), cell: Rect) -> (Rect, Rect, Rect) {
-let (vw, vh) = (size.0.max(1) as f32, size.1.max(1) as f32);
+    let (vw, vh) = (size.0.max(1) as f32, size.1.max(1) as f32);
     // Room for the page: the frame takes two columns and three rows (borders and
     // address), and the caption one row. A cell is one pixel wide and two tall.
-    let (room_w, room_h) = (cell.width.saturating_sub(2).max(1), cell.height.saturating_sub(4).max(1));
+    let (room_w, room_h) = (
+        cell.width.saturating_sub(2).max(1),
+        cell.height.saturating_sub(4).max(1),
+    );
     let scale = (room_w as f32 / vw).min(room_h as f32 * 2.0 / vh);
     let w = ((vw * scale).round() as u16).clamp(1, room_w);
     let h = (((vh * scale / 2.0).round()) as u16).clamp(1, room_h);
-    let frame = Rect { x: cell.x + (cell.width - (w + 2)) / 2, y: cell.y, width: w + 2, height: h + 3 };
-    let page = Rect { x: frame.x + 1, y: frame.y + 2, width: w, height: h };
-    let caption = Rect { x: frame.x, y: frame.bottom(), width: cell.width - (frame.x - cell.x), height: 1 };
+    let frame = Rect {
+        x: cell.x + (cell.width - (w + 2)) / 2,
+        y: cell.y,
+        width: w + 2,
+        height: h + 3,
+    };
+    let page = Rect {
+        x: frame.x + 1,
+        y: frame.y + 2,
+        width: w,
+        height: h,
+    };
+    let caption = Rect {
+        x: frame.x,
+        y: frame.bottom(),
+        width: cell.width - (frame.x - cell.x),
+        height: 1,
+    };
     (frame, page, caption)
 }
-
 
 /// The address as a person reads it: the file's name for a local page, the
 /// host and path for the web.
@@ -263,35 +324,71 @@ fn address(url: &str) -> String {
     if url.is_empty() {
         return "about:blank".into();
     }
-    if let Some(path) = url.strip_prefix("file:///").or_else(|| url.strip_prefix("file://")) {
+    if let Some(path) = url
+        .strip_prefix("file:///")
+        .or_else(|| url.strip_prefix("file://"))
+    {
         return path.rsplit('/').next().unwrap_or(path).to_string();
     }
     let bare = url.split_once("://").map_or(url, |(_, rest)| rest);
-    bare.strip_prefix("www.").unwrap_or(bare).trim_end_matches('/').to_string()
+    bare.strip_prefix("www.")
+        .unwrap_or(bare)
+        .trim_end_matches('/')
+        .to_string()
 }
-
 
 impl Tab {
     /// Writes the page's own texts over the picture, where they are on the
     /// page and in colours that read on what is behind them: a headline, a
     /// button, a menu. The picture alone is only a blur of colours.
-    fn overlay(&self, buf: &mut Buffer, grid: &[(u8, u8, u8)], (out_w, out_h): (usize, usize), (ox, oy): (u16, u16), scale: f32, rows: usize) {
+    fn overlay(
+        &self,
+        buf: &mut Buffer,
+        grid: &[(u8, u8, u8)],
+        (out_w, out_h): (usize, usize),
+        (ox, oy): (u16, u16),
+        scale: f32,
+        rows: usize,
+    ) {
         let mut taken = vec![vec![false; out_w]; out_h / 2];
         let mut labels: Vec<&Label> = self.labels.iter().collect();
-        labels.sort_by(|a, b| (a.y, a.x).partial_cmp(&(b.y, b.x)).unwrap_or(std::cmp::Ordering::Equal));
+        labels.sort_by(|a, b| {
+            (a.y, a.x)
+                .partial_cmp(&(b.y, b.x))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         for l in labels {
             let col = (l.x * scale).round().max(0.0) as usize;
             let room = ((l.w * scale).round() as usize).max(1);
             // Wide texts show their start; narrow ones need a few cells to say anything.
-            let want = room.max(if l.kind.starts_with('h') { room } else { 4 }).min(out_w.saturating_sub(col));
+            let want = room
+                .max(if l.kind.starts_with('h') { room } else { 4 })
+                .min(out_w.saturating_sub(col));
             if col >= out_w || want < 3 || room < 2 {
                 continue;
             }
             let tall = l.h * scale / 2.0 > 3.0;
-            let row0 = if tall { (l.y * scale / 2.0).round() } else { ((l.y + l.h / 2.0) * scale / 2.0).round() }.max(0.0) as usize;
-            let text: Vec<char> = l.text.chars().filter(|c| !c.is_control()).take(want).collect();
+            let row0 = if tall {
+                (l.y * scale / 2.0).round()
+            } else {
+                ((l.y + l.h / 2.0) * scale / 2.0).round()
+            }
+            .max(0.0) as usize;
+            let text: Vec<char> = l
+                .text
+                .chars()
+                .filter(|c| !c.is_control())
+                .take(want)
+                .collect();
             // Try the row, then the next one, when something is already written there.
-            let Some(row) = [row0, row0 + 1].into_iter().find(|&r| r < rows && taken[r][col..(col + text.len()).min(out_w)].iter().all(|t| !t)) else { continue };
+            let Some(row) = [row0, row0 + 1].into_iter().find(|&r| {
+                r < rows
+                    && taken[r][col..(col + text.len()).min(out_w)]
+                        .iter()
+                        .all(|t| !t)
+            }) else {
+                continue;
+            };
             let mut style = Modifier::empty();
             if l.kind.starts_with('h') || l.kind == "button" || l.kind == "strong" {
                 style |= Modifier::BOLD;
@@ -304,10 +401,20 @@ impl Tab {
                 if c >= out_w {
                     break;
                 }
-                let (top, bottom) = (grid[row * 2 * out_w + c], grid[(row * 2 + 1).min(out_h - 1) * out_w + c]);
-                let bg = ((top.0 / 2 + bottom.0 / 2), (top.1 / 2 + bottom.1 / 2), (top.2 / 2 + bottom.2 / 2));
+                let (top, bottom) = (
+                    grid[row * 2 * out_w + c],
+                    grid[(row * 2 + 1).min(out_h - 1) * out_w + c],
+                );
+                let bg = (
+                    (top.0 / 2 + bottom.0 / 2),
+                    (top.1 / 2 + bottom.1 / 2),
+                    (top.2 / 2 + bottom.2 / 2),
+                );
                 let cell = &mut buf[(ox + c as u16, oy + row as u16)];
-                cell.set_symbol(&ch.to_string()).set_fg(readable_on(bg)).set_bg(Color::Rgb(bg.0, bg.1, bg.2)).set_style(Style::new().add_modifier(style));
+                cell.set_symbol(&ch.to_string())
+                    .set_fg(readable_on(bg))
+                    .set_bg(Color::Rgb(bg.0, bg.1, bg.2))
+                    .set_style(Style::new().add_modifier(style));
                 taken[row][c] = true;
             }
         }
@@ -332,19 +439,52 @@ impl Tab {
 
     /// Draws the page in its cell `cell`: the framed address and page, and under
     /// it what the agent is doing. `p` is how open the window is.
-    fn draw(&self, buf: &mut Buffer, cell: Rect, now: Instant, p: f32, (tag, tail): (&str, &str), native: bool) {
-        let reveal = if p >= 1.0 { 1.0 } else { ((p - PAGE_FROM) / (1.0 - PAGE_FROM)).clamp(0.0, 1.0) };
+    fn draw(
+        &self,
+        buf: &mut Buffer,
+        cell: Rect,
+        now: Instant,
+        p: f32,
+        (tag, tail): (&str, &str),
+        native: bool,
+    ) {
+        let reveal = if p >= 1.0 {
+            1.0
+        } else {
+            ((p - PAGE_FROM) / (1.0 - PAGE_FROM)).clamp(0.0, 1.0)
+        };
         let (frame, page, caption_row) = geometry_of(&self.size, cell);
-        let block = Block::new().borders(Borders::ALL).border_type(BorderType::Rounded).border_style(Style::new().fg(BORDER));
+        let block = Block::new()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::new().fg(BORDER));
         let inner = block.inner(frame);
         block.render(frame, buf);
         // The address bar: only the address, as in a browser.
         let shown = address(&self.url);
         let room = inner.width.saturating_sub(1) as usize;
-        let addr: String = if shown.chars().count() > room { format!("…{}", shown.chars().rev().take(room.saturating_sub(1)).collect::<Vec<_>>().into_iter().rev().collect::<String>()) } else { shown };
-        Line::styled(format!(" {addr}"), Style::new().fg(DIM)).render(Rect { height: 1, ..inner }, buf);
+        let addr: String = if shown.chars().count() > room {
+            format!(
+                "…{}",
+                shown
+                    .chars()
+                    .rev()
+                    .take(room.saturating_sub(1))
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect::<String>()
+            )
+        } else {
+            shown
+        };
+        Line::styled(format!(" {addr}"), Style::new().fg(DIM))
+            .render(Rect { height: 1, ..inner }, buf);
         // What the agent is doing, small, under the frame and outside it.
-        let cap: String = format!("{tag}{}{tail}", self.caption).chars().take(caption_row.width as usize).collect();
+        let cap: String = format!("{tag}{}{tail}", self.caption)
+            .chars()
+            .take(caption_row.width as usize)
+            .collect();
         Line::styled(cap, Style::new().fg(DIM)).render(caption_row, buf);
         let Some(px) = &self.pixels else { return };
         // A real picture takes the page once the window is open.
@@ -360,18 +500,36 @@ impl Tab {
         let shown_rows = ((out_h / 2) as f32 * reveal).ceil() as usize;
         for row in 0..shown_rows.min(out_h / 2) {
             for col in 0..out_w {
-                let (t, b) = (grid[row * 2 * out_w + col], grid[(row * 2 + 1) * out_w + col]);
+                let (t, b) = (
+                    grid[row * 2 * out_w + col],
+                    grid[(row * 2 + 1) * out_w + col],
+                );
                 let cell = &mut buf[(ox + col as u16, oy + row as u16)];
-                cell.set_symbol("▀").set_fg(Color::Rgb(t.0, t.1, t.2)).set_bg(Color::Rgb(b.0, b.1, b.2));
+                cell.set_symbol("▀")
+                    .set_fg(Color::Rgb(t.0, t.1, t.2))
+                    .set_bg(Color::Rgb(b.0, b.1, b.2));
             }
         }
-        self.overlay(buf, &grid, (out_w, out_h), (ox, oy), scale, shown_rows.min(out_h / 2));
+        self.overlay(
+            buf,
+            &grid,
+            (out_w, out_h),
+            (ox, oy),
+            scale,
+            shown_rows.min(out_h / 2),
+        );
         // The pointer, and the click.
-        let Some((cx, cy)) = self.pointer(now) else { return };
-        let (mx, my) = ((cx * scale).round() as i32, (cy * scale / 2.0).round() as i32);
+        let Some((cx, cy)) = self.pointer(now) else {
+            return;
+        };
+        let (mx, my) = (
+            (cx * scale).round() as i32,
+            (cy * scale / 2.0).round() as i32,
+        );
         let at = |dx: i32, dy: i32| -> Option<(u16, u16)> {
             let (x, y) = (mx + dx, my + dy);
-            (x >= 0 && y >= 0 && (x as usize) < out_w && (y as usize) < shown_rows.min(out_h / 2)).then(|| (ox + x as u16, oy + y as u16))
+            (x >= 0 && y >= 0 && (x as usize) < out_w && (y as usize) < shown_rows.min(out_h / 2))
+                .then(|| (ox + x as u16, oy + y as u16))
         };
         let mut put = |p: Option<(u16, u16)>, sym: &str, fg: Color| {
             if let Some((x, y)) = p {
@@ -383,7 +541,11 @@ impl Tab {
             let age = now.saturating_duration_since(t);
             if age < RIPPLE {
                 let yellow = Color::Rgb(255, 214, 80);
-                let r = if age < PRESS { 1 } else { 2 + (age.as_millis() as i32 - PRESS.as_millis() as i32) / 230 };
+                let r = if age < PRESS {
+                    1
+                } else {
+                    2 + (age.as_millis() as i32 - PRESS.as_millis() as i32) / 230
+                };
                 for (dx, dy, sym) in [(-r, 0, "("), (r, 0, ")"), (0, -1, "·"), (0, 1, "·")] {
                     put(at(dx, dy), sym, yellow);
                 }
@@ -396,7 +558,9 @@ impl Tab {
         put(at(0, 0), "◤", Color::White);
         // The arrow's body, so it reads against any page.
         if let Some((x, y)) = at(0, 0) {
-            buf[(x, y)].set_bg(Color::Black).set_style(Style::new().add_modifier(Modifier::BOLD));
+            buf[(x, y)]
+                .set_bg(Color::Black)
+                .set_style(Style::new().add_modifier(Modifier::BOLD));
         }
     }
 }
@@ -413,7 +577,11 @@ impl BrowserView {
 
     /// How many pages are open.
     pub fn windows(&self) -> usize {
-        self.tabs.iter().filter(|t| t.pixels.is_some()).count().max(1)
+        self.tabs
+            .iter()
+            .filter(|t| t.pixels.is_some())
+            .count()
+            .max(1)
     }
 
     pub fn apply(&mut self, f: Frame, now: Instant) {
@@ -429,8 +597,12 @@ impl BrowserView {
                 if let Some(c) = f.cursor {
                     bake_pointer(&mut shot, c, f.size, f.clicked);
                 }
-                if let Some(img) = image::RgbImage::from_raw(shot.w as u32, shot.h as u32, shot.rgb) {
-                    tab.page = Some(Page(n.picker.new_resize_protocol(image::DynamicImage::ImageRgb8(img))));
+                if let Some(img) = image::RgbImage::from_raw(shot.w as u32, shot.h as u32, shot.rgb)
+                {
+                    tab.page = Some(Page(
+                        n.picker
+                            .new_resize_protocol(image::DynamicImage::ImageRgb8(img)),
+                    ));
                 }
             }
             tab.pixels = Some(p);
@@ -451,7 +623,11 @@ impl BrowserView {
         }
         // A window that is not on screen opens; one that is closing opens again from where it is.
         let p = self.progress(now);
-        self.opened_at = Some(if p >= 1.0 { self.opened_at.unwrap_or(now) } else { now.checked_sub(OPEN.mul_f32(p)).unwrap_or(now) });
+        self.opened_at = Some(if p >= 1.0 {
+            self.opened_at.unwrap_or(now)
+        } else {
+            now.checked_sub(OPEN.mul_f32(p)).unwrap_or(now)
+        });
         self.touched = Some(now);
         self.steps += 1;
     }
@@ -459,7 +635,10 @@ impl BrowserView {
     pub fn clear(&mut self) {
         // What the terminal can draw does not change with the task.
         let native = self.native.take();
-        *self = Self { native, ..Self::default() };
+        *self = Self {
+            native,
+            ..Self::default()
+        };
     }
 
     pub fn set_idle(&mut self, idle: bool) {
@@ -480,12 +659,17 @@ impl BrowserView {
     /// Whether the window is on screen: a while after the last picture, and
     /// the moment it takes to close.
     pub fn visible(&self, now: Instant) -> bool {
-        self.has_pixels() && self.touched.is_some_and(|t| now.saturating_duration_since(t) < LINGER + CLOSE)
+        self.has_pixels()
+            && self
+                .touched
+                .is_some_and(|t| now.saturating_duration_since(t) < LINGER + CLOSE)
     }
 
     /// How open the window is, 0 to 1: it opens from the corner, stays, and closes.
     pub fn progress(&self, now: Instant) -> f32 {
-        let (Some(opened), Some(touched)) = (self.opened_at, self.touched) else { return 0.0 };
+        let (Some(opened), Some(touched)) = (self.opened_at, self.touched) else {
+            return 0.0;
+        };
         if !self.has_pixels() {
             return 0.0;
         }
@@ -506,21 +690,31 @@ impl BrowserView {
         if self.windows() > 1 {
             return self.rows_wide(cols, 60);
         }
-        self.tabs.iter().find(|t| t.pixels.is_some()).map_or(4, |t| t.rows_for(cols))
+        self.tabs
+            .iter()
+            .find(|t| t.pixels.is_some())
+            .map_or(4, |t| t.rows_for(cols))
     }
 
     /// Rows a window `width` columns wide needs for all its pages, at most `max`.
     pub fn rows_wide(&self, width: u16, max: u16) -> u16 {
-        let Some(first) = self.tabs.iter().find(|t| t.pixels.is_some()) else { return 4 };
+        let Some(first) = self.tabs.iter().find(|t| t.pixels.is_some()) else {
+            return 4;
+        };
         let (cols, rows) = best_grid(self.windows(), width, max, first.size);
         (first.rows_for(width / cols as u16) * rows as u16).min(max)
     }
 
     /// The pages that are open, with the cell of each in a window at `rect`.
     fn placed(&self, rect: Rect) -> Vec<(usize, Rect)> {
-        let open: Vec<usize> = (0..self.tabs.len()).filter(|&i| self.tabs[i].pixels.is_some()).collect();
+        let open: Vec<usize> = (0..self.tabs.len())
+            .filter(|&i| self.tabs[i].pixels.is_some())
+            .collect();
         let size = open.first().map_or((880, 560), |&i| self.tabs[i].size);
-        open.iter().copied().zip(cells(rect, open.len(), size)).collect()
+        open.iter()
+            .copied()
+            .zip(cells(rect, open.len(), size))
+            .collect()
     }
 
     /// With real pictures: once the window is fully open, each page is drawn as
@@ -539,7 +733,12 @@ impl BrowserView {
                 // The picture keeps its shape, so it may not fill the page's width: centre it.
                 let fit = proto.size_for(resize.clone(), page.as_size());
                 let (w, h) = (fit.width.min(page.width), fit.height.min(page.height));
-                let area = Rect { x: page.x + (page.width - w) / 2, y: page.y, width: w, height: h };
+                let area = Rect {
+                    x: page.x + (page.width - w) / 2,
+                    y: page.y,
+                    width: w,
+                    height: h,
+                };
                 f.render_stateful_widget(StatefulImage::default().resize(resize), area, proto);
             }
         }
@@ -552,8 +751,20 @@ impl BrowserView {
             return;
         }
         // It grows from the top right corner; the page appears top to bottom once the frame is there.
-        let (w, h) = (((rect.width as f32 * p).round() as u16).max(12).min(rect.width), ((rect.height as f32 * p).round() as u16).max(6).min(rect.height));
-        let rect = Rect { x: rect.right() - w, y: rect.y, width: w, height: h };
+        let (w, h) = (
+            ((rect.width as f32 * p).round() as u16)
+                .max(12)
+                .min(rect.width),
+            ((rect.height as f32 * p).round() as u16)
+                .max(6)
+                .min(rect.height),
+        );
+        let rect = Rect {
+            x: rect.right() - w,
+            y: rect.y,
+            width: w,
+            height: h,
+        };
         let native = self.native.is_some();
         let placed = self.placed(rect);
         let alone = placed.len() == 1;
@@ -561,9 +772,17 @@ impl BrowserView {
             if cell.width < 12 || cell.height < 6 {
                 continue;
             }
-            let tail = if self.idle && alone { " · Esc closes" } else { "" };
+            let tail = if self.idle && alone {
+                " · Esc closes"
+            } else {
+                ""
+            };
             // With several pages, each caption says which window it is.
-            let tag = if alone { String::new() } else { format!("{} · ", i + 1) };
+            let tag = if alone {
+                String::new()
+            } else {
+                format!("{} · ", i + 1)
+            };
             self.tabs[i].draw(buf, cell, now, p, (&tag, tail), native);
         }
     }

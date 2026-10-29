@@ -59,7 +59,9 @@ fn to_diags(root: &Path, uri: &str, items: &[Value], text: Option<&str>) -> Vec<
     let rel = {
         let key = uri_key(uri);
         let root_key = uri_key(&root.to_string_lossy());
-        key.strip_prefix(&root_key).map(|r| r.trim_start_matches('/').to_string()).unwrap_or(key)
+        key.strip_prefix(&root_key)
+            .map(|r| r.trim_start_matches('/').to_string())
+            .unwrap_or(key)
     };
     let mut out: Vec<Diag> = items
         .iter()
@@ -72,13 +74,21 @@ fn to_diags(root: &Path, uri: &str, items: &[Value], text: Option<&str>) -> Vec<
                 Value::Number(n) => Some(n.to_string()),
                 _ => None,
             };
-            let source = text.and_then(|t| t.lines().nth(line as usize)).map(str::to_string);
+            let source = text
+                .and_then(|t| t.lines().nth(line as usize))
+                .map(str::to_string);
             Some(Diag {
                 level,
                 path: rel.clone(),
                 line: line + 1,
                 col: col + 1,
-                message: d["message"].as_str().unwrap_or("").lines().next().unwrap_or("").to_string(),
+                message: d["message"]
+                    .as_str()
+                    .unwrap_or("")
+                    .lines()
+                    .next()
+                    .unwrap_or("")
+                    .to_string(),
                 code,
                 source,
             })
@@ -89,7 +99,12 @@ fn to_diags(root: &Path, uri: &str, items: &[Value], text: Option<&str>) -> Vec<
 }
 
 impl Client {
-    pub async fn start(command: &str, args: &[String], root: &Path, timeout: Duration) -> Result<Arc<Self>, String> {
+    pub async fn start(
+        command: &str,
+        args: &[String],
+        root: &Path,
+        timeout: Duration,
+    ) -> Result<Arc<Self>, String> {
         let mut child = Command::new(command)
             .args(args)
             .current_dir(root)
@@ -101,7 +116,10 @@ impl Client {
             .map_err(|e| format!("cannot start `{command}`: {e}"))?;
         let stdin = child.stdin.take().ok_or("no stdin")?;
         let stdout = child.stdout.take().ok_or("no stdout")?;
-        let shared = Arc::new(Shared { alive: AtomicBool::new(true), ..Shared::default() });
+        let shared = Arc::new(Shared {
+            alive: AtomicBool::new(true),
+            ..Shared::default()
+        });
         let mut client = Client {
             root: root.to_path_buf(),
             stdin: tokio::sync::Mutex::new(stdin),
@@ -119,9 +137,15 @@ impl Client {
                 let method = msg["method"].as_str().map(str::to_string);
                 match (method.as_deref(), msg.get("id")) {
                     (None, Some(id)) => {
-                        let tx = id.as_i64().and_then(|id| shared.pending.lock().unwrap().remove(&id));
+                        let tx = id
+                            .as_i64()
+                            .and_then(|id| shared.pending.lock().unwrap().remove(&id));
                         if let Some(tx) = tx {
-                            let result = if msg.get("error").is_some() { json!({"__error": msg["error"]}) } else { msg["result"].clone() };
+                            let result = if msg.get("error").is_some() {
+                                json!({"__error": msg["error"]})
+                            } else {
+                                msg["result"].clone()
+                            };
                             let _ = tx.send(result);
                         }
                     }
@@ -139,10 +163,18 @@ impl Client {
                         let uri = msg["params"]["uri"].as_str().unwrap_or("");
                         let key = uri_key(uri);
                         let text = shared.texts.lock().unwrap().get(&key).cloned();
-                        let items = msg["params"]["diagnostics"].as_array().cloned().unwrap_or_default();
+                        let items = msg["params"]["diagnostics"]
+                            .as_array()
+                            .cloned()
+                            .unwrap_or_default();
                         let diags = to_diags(&reader_root, uri, &items, text.as_deref());
                         let seq = shared.seq.fetch_add(1, Ordering::SeqCst) + 1;
-                        let p = Published { version: msg["params"]["version"].as_i64(), seq, at: Instant::now(), diags };
+                        let p = Published {
+                            version: msg["params"]["version"].as_i64(),
+                            seq,
+                            at: Instant::now(),
+                            diags,
+                        };
                         shared.published.lock().unwrap().insert(key, p);
                         shared.notify.notify_waiters();
                     }
@@ -197,7 +229,9 @@ impl Client {
 
     async fn send(&self, msg: &Value) -> Result<(), String> {
         let mut stdin = self.stdin.lock().await;
-        rpc::write_msg(&mut *stdin, msg).await.map_err(|e| format!("lsp write failed: {e}"))
+        rpc::write_msg(&mut *stdin, msg)
+            .await
+            .map_err(|e| format!("lsp write failed: {e}"))
     }
 
     pub fn alive(&self) -> bool {
@@ -212,7 +246,8 @@ impl Client {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
         self.shared.pending.lock().unwrap().insert(id, tx);
-        self.send(&json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params})).await?;
+        self.send(&json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}))
+            .await?;
         let v = rx.await.map_err(|_| "server exited".to_string())?;
         match v.get("__error") {
             Some(e) => Err(format!("{method} failed: {e}")),
@@ -220,22 +255,37 @@ impl Client {
         }
     }
 
-    pub async fn request(&self, method: &str, params: Value, timeout: Duration) -> Result<Value, String> {
+    pub async fn request(
+        &self,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+    ) -> Result<Value, String> {
         tokio::time::timeout(timeout, self.request_raw(method, params))
             .await
             .map_err(|_| format!("{method} timed out"))?
     }
 
     pub async fn notify(&self, method: &str, params: Value) -> Result<(), String> {
-        self.send(&json!({"jsonrpc": "2.0", "method": method, "params": params})).await
+        self.send(&json!({"jsonrpc": "2.0", "method": method, "params": params}))
+            .await
     }
 
     /// Opens or updates the document with its full text; returns the version
     /// sent and the publish sequence number at that moment.
-    pub async fn sync(&self, path: &Path, language_id: &str, text: &str) -> Result<(i64, u64), String> {
+    pub async fn sync(
+        &self,
+        path: &Path,
+        language_id: &str,
+        text: &str,
+    ) -> Result<(i64, u64), String> {
         let uri = path_to_uri(path);
         let key = uri_key(&uri);
-        self.shared.texts.lock().unwrap().insert(key.clone(), text.to_string());
+        self.shared
+            .texts
+            .lock()
+            .unwrap()
+            .insert(key.clone(), text.to_string());
         let seq = self.shared.seq.load(Ordering::SeqCst);
         let prev = self.docs.lock().unwrap().get(&key).copied();
         let version = prev.map_or(1, |v| v + 1);
@@ -256,29 +306,50 @@ impl Client {
                 .await?
             }
         }
-        self.notify("textDocument/didSave", json!({"textDocument": {"uri": uri}, "text": text})).await?;
+        self.notify(
+            "textDocument/didSave",
+            json!({"textDocument": {"uri": uri}, "text": text}),
+        )
+        .await?;
         Ok((version, seq))
     }
 
     /// Diagnostics published for `path` at or after `version` (or, for
     /// servers that do not send versions, the first publish after `seq` that
     /// settles). `None` if nothing fresh arrives within `timeout`.
-    pub async fn diagnostics(&self, path: &Path, version: i64, seq: u64, timeout: Duration) -> Option<Vec<Diag>> {
+    pub async fn diagnostics(
+        &self,
+        path: &Path,
+        version: i64,
+        seq: u64,
+        timeout: Duration,
+    ) -> Option<Vec<Diag>> {
         let key = uri_key(&path_to_uri(path));
         let deadline = Instant::now() + timeout;
         loop {
             let notified = self.shared.notify.notified();
-            let fresh = self.shared.published.lock().unwrap().get(&key).cloned().filter(|p| match p.version {
-                Some(v) => v >= version,
-                None => p.seq > seq,
-            });
+            let fresh = self
+                .shared
+                .published
+                .lock()
+                .unwrap()
+                .get(&key)
+                .cloned()
+                .filter(|p| match p.version {
+                    Some(v) => v >= version,
+                    None => p.seq > seq,
+                });
             if let Some(p) = fresh {
                 if p.version.is_some() || p.at.elapsed() >= SETTLE {
                     return Some(p.diags);
                 }
                 // Unversioned: wait for it to settle, unless a newer one lands.
                 let wait = SETTLE.saturating_sub(p.at.elapsed());
-                let _ = tokio::time::timeout(wait.min(deadline.saturating_duration_since(Instant::now())), notified).await;
+                let _ = tokio::time::timeout(
+                    wait.min(deadline.saturating_duration_since(Instant::now())),
+                    notified,
+                )
+                .await;
                 if Instant::now() >= deadline {
                     return Some(p.diags);
                 }

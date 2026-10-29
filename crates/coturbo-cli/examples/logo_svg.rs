@@ -42,16 +42,31 @@ fn paths(px: &Grid, keep: impl Fn(usize, usize) -> bool) -> String {
                 x += 1;
             }
             let d = by_color.entry(hex(c)).or_default();
-            let _ = write!(d, "M{} {}h{}v1h-{}z", start + PAD, y + PAD, x - start, x - start);
+            let _ = write!(
+                d,
+                "M{} {}h{}v1h-{}z",
+                start + PAD,
+                y + PAD,
+                x - start,
+                x - start
+            );
         }
     }
-    by_color.into_iter().map(|(c, d)| format!("<path fill=\"{c}\" d=\"{d}\"/>")).collect()
+    by_color
+        .into_iter()
+        .map(|(c, d)| format!("<path fill=\"{c}\" d=\"{d}\"/>"))
+        .collect()
 }
 
 fn main() {
-    let out = std::env::args().nth(1).unwrap_or_else(|| "codeturbo.svg".into());
+    let out = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "codeturbo.svg".into());
     // No padding in the grids: `paths` and the view box add it.
-    let all: Vec<Grid> = MOODS.iter().flat_map(|&m| (0..PER_MOOD).map(move |i| frame(m, i, 0))).collect();
+    let all: Vec<Grid> = MOODS
+        .iter()
+        .flat_map(|&m| (0..PER_MOOD).map(move |i| frame(m, i, 0)))
+        .collect();
     let frames = all.len();
     let (h, w) = (all[0].len(), all[0][0].len());
     // Pixels identical in every frame (the wordmark) are drawn once.
@@ -71,10 +86,17 @@ fn main() {
     );
     svg.push_str(&paths(&all[0], fixed));
     for (k, f) in all.iter().enumerate() {
-        let _ = write!(svg, "<g style=\"animation-delay:{}ms\">{}</g>", k * FRAME_MS, paths(f, |x, y| !fixed(x, y)));
+        let _ = write!(
+            svg,
+            "<g style=\"animation-delay:{}ms\">{}</g>",
+            k * FRAME_MS,
+            paths(f, |x, y| !fixed(x, y))
+        );
     }
-    svg.push_str("</svg>
-");
+    svg.push_str(
+        "</svg>
+",
+    );
     std::fs::write(&out, &svg).expect("write svg");
     eprintln!("wrote {out} ({} KB, {frames} frames)", svg.len() / 1024);
 }

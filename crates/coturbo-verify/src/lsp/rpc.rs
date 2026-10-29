@@ -6,7 +6,8 @@ use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWr
 
 pub async fn write_msg<W: AsyncWrite + Unpin>(w: &mut W, msg: &Value) -> io::Result<()> {
     let body = serde_json::to_vec(msg)?;
-    w.write_all(format!("Content-Length: {}\r\n\r\n", body.len()).as_bytes()).await?;
+    w.write_all(format!("Content-Length: {}\r\n\r\n", body.len()).as_bytes())
+        .await?;
     w.write_all(&body).await?;
     w.flush().await
 }
@@ -34,7 +35,9 @@ pub async fn read_msg<R: AsyncBufRead + Unpin>(r: &mut R) -> io::Result<Option<V
     }
     let mut body = vec![0; len.unwrap_or(0)];
     r.read_exact(&mut body).await?;
-    serde_json::from_slice(&body).map(Some).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+    serde_json::from_slice(&body)
+        .map(Some)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
 }
 
 /// `file://` URI for an absolute path, percent-encoding what URIs reserve.
@@ -47,7 +50,9 @@ pub fn path_to_uri(path: &std::path::Path) -> String {
     }
     for b in s.bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' | b':' => out.push(b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' | b':' => {
+                out.push(b as char)
+            }
             _ => out.push_str(&format!("%{b:02X}")),
         }
     }

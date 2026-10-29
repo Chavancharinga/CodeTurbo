@@ -27,7 +27,12 @@ const SERVICES: &[(&str, &str, &str, &str)] = &[
     ("yeelight", "light", "Yeelight", "device"),
     ("_wled._tcp", "light", "WLED", "device"),
     ("_androidtvremote2._tcp", "TV", "Android TV", "device"),
-    ("_googlecast._tcp", "TV / speaker (Google Cast)", "Google Cast", "device"),
+    (
+        "_googlecast._tcp",
+        "TV / speaker (Google Cast)",
+        "Google Cast",
+        "device",
+    ),
     ("_amzn-wplay._tcp", "TV", "Amazon Fire TV", "device"),
     ("_airplay._tcp", "TV / AirPlay", "Apple", ""),
     ("_raop._tcp", "speaker / AirPlay", "", ""),
@@ -101,7 +106,12 @@ const NAME_HINTS: &[(&str, &str, &str)] = &[
 ];
 
 /// Combines every clue into what the device is.
-pub fn identify(d: &Device, vendor: Option<&str>, host: Option<&str>, title: Option<&str>) -> Identity {
+pub fn identify(
+    d: &Device,
+    vendor: Option<&str>,
+    host: Option<&str>,
+    title: Option<&str>,
+) -> Identity {
     let mut id = Identity::default();
     let set = |field: &mut String, value: &str| {
         if field.is_empty() && !value.trim().is_empty() {
@@ -110,7 +120,9 @@ pub fn identify(d: &Device, vendor: Option<&str>, host: Option<&str>, title: Opt
     };
     // 1. What it announces: the strongest clue.
     for s in &d.services {
-        if let Some((_, kind, brand, control)) = SERVICES.iter().find(|(t, ..)| s.kind.starts_with(t)) {
+        if let Some((_, kind, brand, control)) =
+            SERVICES.iter().find(|(t, ..)| s.kind.starts_with(t))
+        {
             set(&mut id.kind, kind);
             set(&mut id.brand, brand);
             set(&mut id.control, control);
@@ -136,7 +148,10 @@ pub fn identify(d: &Device, vendor: Option<&str>, host: Option<&str>, title: Opt
         let t = u.device_type.to_lowercase();
         let kind = if t.contains("mediarenderer") {
             "TV / speaker"
-        } else if t.contains("internetgateway") || t.contains("wfadevice") || t.contains("wlanaccesspoint") {
+        } else if t.contains("internetgateway")
+            || t.contains("wfadevice")
+            || t.contains("wlanaccesspoint")
+        {
             "router"
         } else if t.contains("mediaserver") {
             "media server"
@@ -150,12 +165,22 @@ pub fn identify(d: &Device, vendor: Option<&str>, host: Option<&str>, title: Opt
             set(&mut id.control, "device");
         }
     }
-    let names: Vec<String> = d.names.iter().cloned().chain(host.map(str::to_string)).chain(title.map(str::to_string)).collect();
+    let names: Vec<String> = d
+        .names
+        .iter()
+        .cloned()
+        .chain(host.map(str::to_string))
+        .chain(title.map(str::to_string))
+        .collect();
     // The router's name for it beats generic service names ("WFADevice").
     if let Some(h) = host {
         set(&mut id.name, h);
     }
-    if let Some(n) = d.names.iter().find(|n| !n.eq_ignore_ascii_case("WFADevice")) {
+    if let Some(n) = d
+        .names
+        .iter()
+        .find(|n| !n.eq_ignore_ascii_case("WFADevice"))
+    {
         set(&mut id.name, n);
     }
     // 3. Names: the device's own, the router's, the web page title.
@@ -171,7 +196,10 @@ pub fn identify(d: &Device, vendor: Option<&str>, host: Option<&str>, title: Opt
         set(&mut id.brand, &short_vendor(v));
     }
     if d.mac.as_deref().is_some_and(is_private_mac) {
-        set(&mut id.kind, "phone / tablet / laptop (private Wi-Fi address)");
+        set(
+            &mut id.kind,
+            "phone / tablet / laptop (private Wi-Fi address)",
+        );
     }
     // 5. Ports that only one kind of device opens.
     let p = &d.open_ports;
@@ -218,7 +246,18 @@ pub fn is_private_mac(mac: &str) -> bool {
 /// "Samsung Electronics Co.,Ltd" → "Samsung Electronics".
 fn short_vendor(v: &str) -> String {
     let mut s = v.to_string();
-    for cut in [",", " Co.", " Corporation", " Inc", " Ltd", " Limited", " LLC", " GmbH", " Technologies", " Technology"] {
+    for cut in [
+        ",",
+        " Co.",
+        " Corporation",
+        " Inc",
+        " Ltd",
+        " Limited",
+        " LLC",
+        " GmbH",
+        " Technologies",
+        " Technology",
+    ] {
         if let Some(i) = s.find(cut) {
             s.truncate(i);
         }
@@ -230,9 +269,17 @@ fn short_vendor(v: &str) -> String {
 /// MB) and kept in the CodeTurbo config folder.
 pub async fn vendors() -> HashMap<String, String> {
     let path = crate::tv::state_dir().join("oui.csv");
-    let fresh = std::fs::metadata(&path).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|age| age < Duration::from_secs(90 * 24 * 3600));
+    let fresh = std::fs::metadata(&path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.elapsed().ok())
+        .is_some_and(|age| age < Duration::from_secs(90 * 24 * 3600));
     if !fresh
-        && let Ok(Ok(resp)) = tokio::time::timeout(Duration::from_secs(20), reqwest::get("https://standards-oui.ieee.org/oui/oui.csv")).await
+        && let Ok(Ok(resp)) = tokio::time::timeout(
+            Duration::from_secs(20),
+            reqwest::get("https://standards-oui.ieee.org/oui/oui.csv"),
+        )
+        .await
         && resp.status().is_success()
         && let Ok(body) = resp.text().await
         && body.len() > 100_000
@@ -251,14 +298,23 @@ pub fn parse_oui(csv: &str) -> HashMap<String, String> {
             let _registry = fields.next()?;
             let prefix = fields.next()?.trim().to_lowercase();
             let rest = fields.next()?;
-            let org = if let Some(stripped) = rest.strip_prefix('"') { stripped.split('"').next()? } else { rest.split(',').next()? };
+            let org = if let Some(stripped) = rest.strip_prefix('"') {
+                stripped.split('"').next()?
+            } else {
+                rest.split(',').next()?
+            };
             (prefix.len() == 6).then(|| (prefix, org.trim().to_string()))
         })
         .collect()
 }
 
 pub fn vendor_of<'a>(table: &'a HashMap<String, String>, mac: &str) -> Option<&'a str> {
-    let prefix: String = mac.chars().filter(|c| c.is_ascii_hexdigit()).take(6).collect::<String>().to_lowercase();
+    let prefix: String = mac
+        .chars()
+        .filter(|c| c.is_ascii_hexdigit())
+        .take(6)
+        .collect::<String>()
+        .to_lowercase();
     table.get(&prefix).map(String::as_str)
 }
 
@@ -274,17 +330,40 @@ pub async fn host_name(router: Ipv4Addr, ip: Ipv4Addr) -> Option<String> {
     let socket = tokio::net::UdpSocket::bind("0.0.0.0:0").await.ok()?;
     socket.send_to(&q, (router, 53)).await.ok()?;
     let mut buf = [0u8; 1500];
-    let n = tokio::time::timeout(Duration::from_millis(800), socket.recv(&mut buf)).await.ok()?.ok()?;
-    dns::records(&buf[..n]).into_iter().find_map(|r| match r.data {
-        dns::Data::Ptr(h) => Some(h.trim_end_matches('.').trim_end_matches(".home").trim_end_matches(".lan").trim_end_matches(".local").to_string()),
-        _ => None,
-    })
+    let n = tokio::time::timeout(Duration::from_millis(800), socket.recv(&mut buf))
+        .await
+        .ok()?
+        .ok()?;
+    dns::records(&buf[..n])
+        .into_iter()
+        .find_map(|r| match r.data {
+            dns::Data::Ptr(h) => Some(
+                h.trim_end_matches('.')
+                    .trim_end_matches(".home")
+                    .trim_end_matches(".lan")
+                    .trim_end_matches(".local")
+                    .to_string(),
+            ),
+            _ => None,
+        })
 }
 
 /// The `<title>` of the device's own web page, if it has one.
 pub async fn web_title(ip: IpAddr) -> Option<String> {
-    let client = reqwest::Client::builder().timeout(Duration::from_millis(1500)).no_proxy().danger_accept_invalid_certs(true).build().ok()?;
-    let body = client.get(format!("http://{ip}/")).send().await.ok()?.text().await.ok()?;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_millis(1500))
+        .no_proxy()
+        .danger_accept_invalid_certs(true)
+        .build()
+        .ok()?;
+    let body = client
+        .get(format!("http://{ip}/"))
+        .send()
+        .await
+        .ok()?
+        .text()
+        .await
+        .ok()?;
     let lower = body.to_lowercase();
     let start = lower.find("<title>")? + 7;
     let end = lower[start..].find("</title>")? + start;
@@ -302,26 +381,58 @@ mod tests {
         let csv = "Registry,Assignment,Organization Name,Organization Address\nMA-L,F4F5D8,Google Inc.,1600 Amphitheatre\nMA-L,8C79F5,\"Samsung Electronics Co.,Ltd\",Suwon\n";
         let t = parse_oui(csv);
         assert_eq!(vendor_of(&t, "f4:f5:d8:01:02:03"), Some("Google Inc."));
-        assert_eq!(vendor_of(&t, "8C-79-F5-AA-BB-CC"), Some("Samsung Electronics Co.,Ltd"));
-        assert_eq!(short_vendor("Samsung Electronics Co.,Ltd"), "Samsung Electronics");
+        assert_eq!(
+            vendor_of(&t, "8C-79-F5-AA-BB-CC"),
+            Some("Samsung Electronics Co.,Ltd")
+        );
+        assert_eq!(
+            short_vendor("Samsung Electronics Co.,Ltd"),
+            "Samsung Electronics"
+        );
     }
 
     #[test]
     fn recognises_a_chromecast_by_what_it_announces() {
         let d = Device {
-            services: vec![Service { kind: "_googlecast._tcp".into(), port: 8009, txt: vec!["md=Chromecast Ultra".into(), "fn=Sala".into()] }],
+            services: vec![Service {
+                kind: "_googlecast._tcp".into(),
+                port: 8009,
+                txt: vec!["md=Chromecast Ultra".into(), "fn=Sala".into()],
+            }],
             ..Device::default()
         };
         let id = identify(&d, None, None, None);
-        assert_eq!((id.kind.as_str(), id.brand.as_str(), id.model.as_str(), id.name.as_str()), ("TV / speaker (Google Cast)", "Google Cast", "Chromecast Ultra", "Sala"));
+        assert_eq!(
+            (
+                id.kind.as_str(),
+                id.brand.as_str(),
+                id.model.as_str(),
+                id.name.as_str()
+            ),
+            (
+                "TV / speaker (Google Cast)",
+                "Google Cast",
+                "Chromecast Ultra",
+                "Sala"
+            )
+        );
     }
 
     #[test]
     fn recognises_a_samsung_tv_and_a_phone() {
-        let tv = Device { open_ports: [8001, 8002, 9197].into_iter().collect(), ..Device::default() };
+        let tv = Device {
+            open_ports: [8001, 8002, 9197].into_iter().collect(),
+            ..Device::default()
+        };
         let id = identify(&tv, Some("Samsung Electronics Co.,Ltd"), None, None);
-        assert_eq!((id.kind.as_str(), id.brand.as_str(), id.control.as_str()), ("TV", "Samsung Electronics", "device"));
-        let phone = Device { mac: Some("da:a1:19:00:00:01".into()), ..Device::default() };
+        assert_eq!(
+            (id.kind.as_str(), id.brand.as_str(), id.control.as_str()),
+            ("TV", "Samsung Electronics", "device")
+        );
+        let phone = Device {
+            mac: Some("da:a1:19:00:00:01".into()),
+            ..Device::default()
+        };
         assert!(identify(&phone, None, Some("Galaxy-S23"), None).brand == "Samsung");
         assert!(identify(&phone, None, None, None).kind.contains("private"));
     }

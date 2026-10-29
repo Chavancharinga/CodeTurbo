@@ -29,7 +29,10 @@ pub fn disassemble(bytes: &[u8], rip: u64, bitness: u32, max: usize) -> Vec<Line
         text.clear();
         formatter.format(&insn, &mut text);
         let is_ret = text.starts_with("ret");
-        out.push(Line { ip: insn.ip(), text: text.clone() });
+        out.push(Line {
+            ip: insn.ip(),
+            text: text.clone(),
+        });
         if is_ret {
             break;
         }
@@ -60,7 +63,9 @@ fn load<'a>(file: &'a object::File<'a>) -> Loaded<'a> {
     let bitness = if file.is_64() { 64 } else { 32 };
     let sections = file
         .sections()
-        .filter(|s| s.kind() == object::SectionKind::Text || matches!(s.name(), Ok(".text" | "__text")))
+        .filter(|s| {
+            s.kind() == object::SectionKind::Text || matches!(s.name(), Ok(".text" | "__text"))
+        })
         .filter_map(|s| Some((s.data().ok()?, s.address())))
         .collect();
     Loaded { bitness, sections }
@@ -88,7 +93,10 @@ fn targets(file: &object::File, terms: &[String]) -> BTreeMap<u64, String> {
 /// Disassembles the functions related to `question`. Empty when there are
 /// no usable symbols (a stripped binary) or the architecture is not x86.
 pub fn functions(file: &object::File, question: &str) -> String {
-    if !matches!(file.architecture(), object::Architecture::X86_64 | object::Architecture::I386) {
+    if !matches!(
+        file.architecture(),
+        object::Architecture::X86_64 | object::Architecture::I386
+    ) {
         return "Desmontagem: arquitetura não é x86; use o REA externo (Ghidra/IDA).".to_string();
     }
     let loaded = load(file);
@@ -102,7 +110,9 @@ pub fn functions(file: &object::File, question: &str) -> String {
     }
     let mut r = String::from("Disassembly of functions matching the question (Intel syntax):\n");
     for (addr, name) in targets.iter().take(4) {
-        let Some(bytes) = loaded.at(*addr) else { continue };
+        let Some(bytes) = loaded.at(*addr) else {
+            continue;
+        };
         r.push_str(&format!("\n{name} @ 0x{addr:x}:\n"));
         let mut calls = Vec::new();
         for line in disassemble(bytes, *addr, loaded.bitness, 80) {
@@ -112,7 +122,15 @@ pub fn functions(file: &object::File, question: &str) -> String {
             }
         }
         if !calls.is_empty() {
-            r.push_str(&format!("  → chamadas/saltos: {}\n", calls.iter().take(12).cloned().collect::<Vec<_>>().join("; ")));
+            r.push_str(&format!(
+                "  → chamadas/saltos: {}\n",
+                calls
+                    .iter()
+                    .take(12)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            ));
         }
     }
     r

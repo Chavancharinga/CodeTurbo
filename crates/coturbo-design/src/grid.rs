@@ -47,7 +47,15 @@ impl Grid {
         let column = (content - f64::from((columns - 1) * gutter)) / f64::from(columns);
         // Rows: half a column, on the 8 px beat, never under 32 (a line of text).
         let row = snap(column / 2.0).max(32);
-        Grid { width, height, margin, gutter, columns, column, row }
+        Grid {
+            width,
+            height,
+            margin,
+            gutter,
+            columns,
+            column,
+            row,
+        }
     }
 
     /// Text rows that fill the screen's height below the margins.
@@ -57,7 +65,9 @@ impl Grid {
 
     /// Rows needed for `px` of height, with the gaps between them.
     fn rows_for(&self, px: f64) -> u32 {
-        ((px + f64::from(UNIT)) / f64::from(self.row + UNIT)).ceil().max(1.0) as u32
+        ((px + f64::from(UNIT)) / f64::from(self.row + UNIT))
+            .ceil()
+            .max(1.0) as u32
     }
 
     /// Width in px of `span` columns with their gutters.
@@ -163,7 +173,10 @@ pub fn place(elements: &[Element], g: &Grid) -> Vec<Placed> {
         if e.break_before {
             cursor = (taken.len(), 0);
         }
-        let free = |taken: &Vec<Vec<bool>>, r: usize, c: usize| c + sw <= cols && (r..r + sh).all(|y| (c..c + sw).all(|x| taken.get(y).is_none_or(|row| !row[x])));
+        let free = |taken: &Vec<Vec<bool>>, r: usize, c: usize| {
+            c + sw <= cols
+                && (r..r + sh).all(|y| (c..c + sw).all(|x| taken.get(y).is_none_or(|row| !row[x])))
+        };
         let (mut r, mut c) = cursor;
         while !free(&taken, r, c) {
             c += 1;
@@ -179,17 +192,35 @@ pub fn place(elements: &[Element], g: &Grid) -> Vec<Placed> {
             row[c..c + sw].iter_mut().for_each(|x| *x = true);
         }
         cursor = (r, c + sw);
-        out.push(Placed { id: e.id.clone(), col: c as u32 + 1, row: r as u32 + 1, span, rows });
+        out.push(Placed {
+            id: e.id.clone(),
+            col: c as u32 + 1,
+            row: r as u32 + 1,
+            span,
+            rows,
+        });
     }
     out
 }
 
 /// The screens the layout is made for: phone, tablet, desktop, and the
 /// width each starts at.
-pub const SCREENS: [(&str, u32, u32, u32); 3] = [("phone", 390, 844, 0), ("tablet", 768, 1024, 768), ("desktop", 1440, 900, 1200)];
+pub const SCREENS: [(&str, u32, u32, u32); 3] = [
+    ("phone", 390, 844, 0),
+    ("tablet", 768, 1024, 768),
+    ("desktop", 1440, 900, 1200),
+];
 
 fn css_id(id: &str) -> String {
-    id.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' }).collect()
+    id.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect()
 }
 
 /// The stylesheet: `.layout` is the grid, each element placed by its id,
@@ -205,18 +236,39 @@ pub fn css(elements: &[Element]) -> String {
             g.columns, g.gutter, UNIT, g.margin
         );
         for p in place(elements, &g) {
-            let _ = writeln!(block, "#{} {{ grid-column: {} / span {}; grid-row: {} / span {}; min-width: 0; }}", css_id(&p.id), p.col, p.span, p.row, p.rows);
+            let _ = writeln!(
+                block,
+                "#{} {{ grid-column: {} / span {}; grid-row: {} / span {}; min-width: 0; }}",
+                css_id(&p.id),
+                p.col,
+                p.span,
+                p.row,
+                p.rows
+            );
             // A full row reaches the screen edges, so its colour band does too;
             // the padding (which the page may override) keeps the content on the margin.
             if p.span == g.columns {
-                let _ = writeln!(block, ":where(#{}) {{ margin-inline: -{m}px; padding-inline: {m}px; }}", css_id(&p.id), m = g.margin);
+                let _ = writeln!(
+                    block,
+                    ":where(#{}) {{ margin-inline: -{m}px; padding-inline: {m}px; }}",
+                    css_id(&p.id),
+                    m = g.margin
+                );
             }
         }
         if from == 0 {
-            let _ = write!(out, "/* {name}: {} columns of {:.0}px, gutter {}px, margin {}px, rows {}px */\n{block}", g.columns, g.column, g.gutter, g.margin, g.row);
+            let _ = write!(
+                out,
+                "/* {name}: {} columns of {:.0}px, gutter {}px, margin {}px, rows {}px */\n{block}",
+                g.columns, g.column, g.gutter, g.margin, g.row
+            );
         } else {
             let indented: String = block.lines().map(|l| format!("  {l}\n")).collect();
-            let _ = write!(out, "/* {name}: {} columns of {:.0}px, gutter {}px, margin {}px, rows {}px */\n@media (min-width: {from}px) {{\n{indented}}}\n", g.columns, g.column, g.gutter, g.margin, g.row);
+            let _ = write!(
+                out,
+                "/* {name}: {} columns of {:.0}px, gutter {}px, margin {}px, rows {}px */\n@media (min-width: {from}px) {{\n{indented}}}\n",
+                g.columns, g.column, g.gutter, g.margin, g.row
+            );
         }
     }
     out
@@ -232,10 +284,15 @@ pub fn ascii(elements: &[Element], g: &Grid) -> String {
         let mark = (b'A' + (n % 26) as u8) as char;
         legend.push(format!("{mark} {} ({}×{})", p.id, p.span, p.rows));
         for row in &mut cells[(p.row - 1) as usize..(p.row + p.rows - 1) as usize] {
-            row[(p.col - 1) as usize..(p.col + p.span - 1) as usize].iter_mut().for_each(|c| *c = mark);
+            row[(p.col - 1) as usize..(p.col + p.span - 1) as usize]
+                .iter_mut()
+                .for_each(|c| *c = mark);
         }
     }
-    let mut out: String = cells.iter().map(|r| r.iter().collect::<String>() + "\n").collect();
+    let mut out: String = cells
+        .iter()
+        .map(|r| r.iter().collect::<String>() + "\n")
+        .collect();
     out.push_str(&legend.join(", "));
     out
 }
@@ -254,13 +311,26 @@ pub fn preview_html(elements: &[Element]) -> String {
         let x = |c: u32| f64::from(g.margin) + f64::from(c - 1) * (g.column + f64::from(g.gutter));
         let mut boxes = String::new();
         for c in 1..=g.columns {
-            let _ = write!(boxes, "<i style=\"left:{:.1}px;width:{:.1}px\"></i>", s(x(c)), s(g.column));
+            let _ = write!(
+                boxes,
+                "<i style=\"left:{:.1}px;width:{:.1}px\"></i>",
+                s(x(c)),
+                s(g.column)
+            );
         }
         for p in &placed {
             let (l, t) = (x(p.col), top(p.row));
             let wpx = g.span_px(p.span);
             let hpx = f64::from(p.rows * g.row + (p.rows - 1) * UNIT);
-            let _ = write!(boxes, "<b style=\"left:{:.1}px;top:{:.1}px;width:{:.1}px;height:{:.1}px\">{}</b>", s(l), s(t), s(wpx), s(hpx), p.id);
+            let _ = write!(
+                boxes,
+                "<b style=\"left:{:.1}px;top:{:.1}px;width:{:.1}px;height:{:.1}px\">{}</b>",
+                s(l),
+                s(t),
+                s(wpx),
+                s(hpx),
+                p.id
+            );
         }
         let _ = write!(
             body,
@@ -286,30 +356,55 @@ mod tests {
     use super::*;
 
     fn el(id: &str, kind: &str) -> Element {
-        Element { id: id.into(), kind: Kind::parse(kind), share: None, break_before: false }
+        Element {
+            id: id.into(),
+            kind: Kind::parse(kind),
+            share: None,
+            break_before: false,
+        }
     }
 
     #[test]
     fn halving_gives_even_columns_on_the_8px_beat() {
-        let cols: Vec<u32> = SCREENS.iter().map(|s| Grid::for_viewport(s.1, s.2).columns).collect();
+        let cols: Vec<u32> = SCREENS
+            .iter()
+            .map(|s| Grid::for_viewport(s.1, s.2).columns)
+            .collect();
         assert_eq!(cols, [4, 8, 16]);
         for (_, w, h, _) in SCREENS {
             let g = Grid::for_viewport(w, h);
-            assert!(g.margin.is_multiple_of(UNIT) && g.gutter.is_multiple_of(UNIT) && g.row.is_multiple_of(UNIT), "{g:?}");
+            assert!(
+                g.margin.is_multiple_of(UNIT)
+                    && g.gutter.is_multiple_of(UNIT)
+                    && g.row.is_multiple_of(UNIT),
+                "{g:?}"
+            );
             assert!(g.column >= MIN_MODULE - f64::from(g.gutter), "{g:?}");
             assert!(g.gutter <= g.margin, "{g:?}");
             // The columns, gutters and margins fill the width exactly.
-            let sum = g.column * f64::from(g.columns) + f64::from((g.columns - 1) * g.gutter + 2 * g.margin);
+            let sum = g.column * f64::from(g.columns)
+                + f64::from((g.columns - 1) * g.gutter + 2 * g.margin);
             assert!((sum - f64::from(w)).abs() < 0.01, "{sum} vs {w}");
         }
     }
 
     #[test]
     fn nothing_overlaps_and_everything_fits_on_every_screen() {
-        let page: Vec<Element> = [("nav", "nav"), ("title", "title"), ("intro", "text"), ("hero", "image"), ("buy", "button"), ("more", "button"), ("a", "card"), ("b", "card"), ("c", "card"), ("note", "caption")]
-            .iter()
-            .map(|(i, k)| el(i, k))
-            .collect();
+        let page: Vec<Element> = [
+            ("nav", "nav"),
+            ("title", "title"),
+            ("intro", "text"),
+            ("hero", "image"),
+            ("buy", "button"),
+            ("more", "button"),
+            ("a", "card"),
+            ("b", "card"),
+            ("c", "card"),
+            ("note", "caption"),
+        ]
+        .iter()
+        .map(|(i, k)| el(i, k))
+        .collect();
         for (_, w, h, _) in SCREENS {
             let g = Grid::for_viewport(w, h);
             let placed = place(&page, &g);
@@ -325,7 +420,11 @@ mod tests {
             }
         }
         let phone = place(&page, &Grid::for_viewport(390, 844));
-        assert_eq!((phone[1].col, phone[1].span), (1, 4), "the title takes the phone's width");
+        assert_eq!(
+            (phone[1].col, phone[1].span),
+            (1, 4),
+            "the title takes the phone's width"
+        );
         let desk = place(&page, &Grid::for_viewport(1440, 900));
         assert_eq!(desk[2].span, 8, "text takes half the desktop");
         assert_eq!(desk[3].row, desk[2].row, "the image sits beside the text");
@@ -333,9 +432,19 @@ mod tests {
 
     #[test]
     fn the_css_places_each_element_on_each_screen() {
-        let page = vec![el("title", "h1"), Element { break_before: true, ..el("go", "button") }];
+        let page = vec![
+            el("title", "h1"),
+            Element {
+                break_before: true,
+                ..el("go", "button")
+            },
+        ];
         let css = css(&page);
-        assert!(css.contains("repeat(4, minmax(0, 1fr))") && css.contains("@media (min-width: 768px)") && css.contains("@media (min-width: 1200px)"));
+        assert!(
+            css.contains("repeat(4, minmax(0, 1fr))")
+                && css.contains("@media (min-width: 768px)")
+                && css.contains("@media (min-width: 1200px)")
+        );
         assert!(css.contains("#title { grid-column: 1 / span 4;"));
         assert_eq!(css.matches("#go {").count(), 3);
         let map = ascii(&page, &Grid::for_viewport(390, 844));
@@ -343,4 +452,3 @@ mod tests {
         assert!(preview_html(&page).contains("16 columns"));
     }
 }
-

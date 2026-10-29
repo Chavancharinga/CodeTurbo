@@ -26,9 +26,22 @@ pub fn request(uri: &str) -> Vec<u8> {
     attr(&mut m, 0x47, "attributes-charset", "utf-8");
     attr(&mut m, 0x48, "attributes-natural-language", "en");
     attr(&mut m, 0x45, "printer-uri", uri);
-    let wanted = ["printer-state", "printer-state-reasons", "printer-make-and-model", "printer-name", "marker-names", "marker-levels", "marker-types"];
+    let wanted = [
+        "printer-state",
+        "printer-state-reasons",
+        "printer-make-and-model",
+        "printer-name",
+        "marker-names",
+        "marker-levels",
+        "marker-types",
+    ];
     for (i, w) in wanted.iter().enumerate() {
-        attr(&mut m, 0x44, if i == 0 { "requested-attributes" } else { "" }, w);
+        attr(
+            &mut m,
+            0x44,
+            if i == 0 { "requested-attributes" } else { "" },
+            w,
+        );
     }
     m.push(0x03);
     m
@@ -54,16 +67,22 @@ pub fn parse(body: &[u8]) -> HashMap<String, Vec<Val>> {
             Some(u16::from_be_bytes([b[0], b[1]]) as usize)
         };
         let Some(nlen) = read_len(&mut i) else { break };
-        let Some(name) = body.get(i..i + nlen) else { break };
+        let Some(name) = body.get(i..i + nlen) else {
+            break;
+        };
         i += nlen;
         let Some(vlen) = read_len(&mut i) else { break };
-        let Some(value) = body.get(i..i + vlen) else { break };
+        let Some(value) = body.get(i..i + vlen) else {
+            break;
+        };
         i += vlen;
         if nlen > 0 {
             last = String::from_utf8_lossy(name).into_owned();
         }
         let v = match tag {
-            0x21 | 0x23 if vlen == 4 => Val::Int(i32::from_be_bytes([value[0], value[1], value[2], value[3]])),
+            0x21 | 0x23 if vlen == 4 => {
+                Val::Int(i32::from_be_bytes([value[0], value[1], value[2], value[3]]))
+            }
             _ => Val::Text(String::from_utf8_lossy(value).into_owned()),
         };
         out.entry(last.clone()).or_default().push(v);
@@ -74,21 +93,49 @@ pub fn parse(body: &[u8]) -> HashMap<String, Vec<Val>> {
 /// What the attributes say, for a person.
 pub fn describe(a: &HashMap<String, Vec<Val>>) -> String {
     let text = |k: &str| -> Vec<String> {
-        a.get(k).into_iter().flatten().filter_map(|v| if let Val::Text(t) = v { Some(t.clone()) } else { None }).collect()
+        a.get(k)
+            .into_iter()
+            .flatten()
+            .filter_map(|v| {
+                if let Val::Text(t) = v {
+                    Some(t.clone())
+                } else {
+                    None
+                }
+            })
+            .collect()
     };
-    let ints = |k: &str| -> Vec<i32> { a.get(k).into_iter().flatten().filter_map(|v| if let Val::Int(n) = v { Some(*n) } else { None }).collect() };
+    let ints = |k: &str| -> Vec<i32> {
+        a.get(k)
+            .into_iter()
+            .flatten()
+            .filter_map(|v| if let Val::Int(n) = v { Some(*n) } else { None })
+            .collect()
+    };
     let state = match ints("printer-state").first() {
         Some(3) => "ready",
         Some(4) => "printing",
         Some(5) => "stopped",
         _ => "state unknown",
     };
-    let reasons: Vec<String> = text("printer-state-reasons").into_iter().filter(|r| r != "none").collect();
-    let model = text("printer-make-and-model").into_iter().next().unwrap_or_else(|| "printer".into());
+    let reasons: Vec<String> = text("printer-state-reasons")
+        .into_iter()
+        .filter(|r| r != "none")
+        .collect();
+    let model = text("printer-make-and-model")
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| "printer".into());
     let levels: Vec<String> = text("marker-names")
         .into_iter()
         .zip(ints("marker-levels"))
-        .map(|(n, l)| if l < 0 { format!("{n} unknown") } else { format!("{n} {l}%") })
+        .map(|(n, l)| {
+            if l < 0 {
+                format!("{n} unknown")
+            } else {
+                format!("{n} {l}%")
+            }
+        })
         .collect();
     let mut s = format!("{model} · {state}");
     if !reasons.is_empty() {
@@ -106,7 +153,15 @@ pub(crate) async fn status(ip: IpAddr, act: &Act) -> Result<String, String> {
     }
     for path in ["/ipp/print", "/ipp/printer", "/ipp", "/printers/", "/"] {
         let uri = format!("ipp://{ip}:631{path}");
-        let Ok(r) = super::http().post(format!("http://{ip}:631{path}")).header("Content-Type", "application/ipp").body(request(&uri)).send().await else { continue };
+        let Ok(r) = super::http()
+            .post(format!("http://{ip}:631{path}"))
+            .header("Content-Type", "application/ipp")
+            .body(request(&uri))
+            .send()
+            .await
+        else {
+            continue;
+        };
         if !r.status().is_success() {
             continue;
         }
@@ -144,7 +199,10 @@ mod tests {
         int(&mut r, 0x21, "marker-levels", 72);
         int(&mut r, 0x21, "", 8);
         r.push(0x03);
-        assert_eq!(describe(&parse(&r)), "HP OfficeJet 8010 · ready · Black 72%, Cyan 8%");
+        assert_eq!(
+            describe(&parse(&r)),
+            "HP OfficeJet 8010 · ready · Black 72%, Cyan 8%"
+        );
         let q = request("ipp://192.168.1.9:631/ipp/print");
         assert_eq!(&q[2..4], &[0x00, 0x0B]);
         assert_eq!(*q.last().unwrap(), 0x03);

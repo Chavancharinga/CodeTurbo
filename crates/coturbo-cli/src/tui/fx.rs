@@ -23,7 +23,11 @@ const GLINT_MS: f32 = 1100.0;
 
 fn in_out_quad(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
-    if t < 0.5 { 2.0 * t * t } else { 1.0 - (-2.0 * t + 2.0).powi(2) / 2.0 }
+    if t < 0.5 {
+        2.0 * t * t
+    } else {
+        1.0 - (-2.0 * t + 2.0).powi(2) / 2.0
+    }
 }
 
 /// The grid `ms` after the start, with every row sliding in from the left.
@@ -65,7 +69,9 @@ pub fn highlight(grid: &mut Grid, ms: u128) {
     let at = phase / GLINT_MS * (width + 24.0) - 12.0;
     for (r, row) in grid.iter_mut().enumerate() {
         for (c, px) in row.iter_mut().enumerate() {
-            let Some((red, green, blue)) = px else { continue };
+            let Some((red, green, blue)) = px else {
+                continue;
+            };
             let d = ((c as f32 + r as f32 * 0.7) - at).abs();
             if d < 4.5 {
                 let k = (1.0 - d / 4.5) * 0.75;

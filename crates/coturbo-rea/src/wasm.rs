@@ -79,7 +79,10 @@ pub fn inspect(data: &[u8], question: &str) -> Result<String, String> {
         return Err("não é um módulo WebAssembly".to_string());
     }
     let version = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
-    let mut r = format!("WebAssembly module: version {version}, {} bytes\n", data.len());
+    let mut r = format!(
+        "WebAssembly module: version {version}, {} bytes\n",
+        data.len()
+    );
     let mut imports: Vec<String> = Vec::new();
     let mut exports: Vec<String> = Vec::new();
     let mut fn_count = 0u64;
@@ -180,11 +183,25 @@ pub fn inspect(data: &[u8], question: &str) -> Result<String, String> {
             "Imports ({}, from {}): {}\n",
             imports.len(),
             by_mod.keys().cloned().collect::<Vec<_>>().join(", "),
-            imports.iter().take(30).cloned().collect::<Vec<_>>().join(", ")
+            imports
+                .iter()
+                .take(30)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
     }
     if !exports.is_empty() {
-        r.push_str(&format!("Exports ({}): {}\n", exports.len(), exports.iter().take(40).cloned().collect::<Vec<_>>().join(", ")));
+        r.push_str(&format!(
+            "Exports ({}): {}\n",
+            exports.len(),
+            exports
+                .iter()
+                .take(40)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
     }
     let terms = crate::terms(question);
     if !names.is_empty() {
@@ -194,7 +211,16 @@ pub fn inspect(data: &[u8], question: &str) -> Result<String, String> {
             .take(40)
             .map(|(i, n)| format!("#{i} {n}"))
             .collect();
-        r.push_str(&format!("Function names ({} total){}: {}\n", names.len(), if terms.is_empty() { "" } else { " matching the question" }, hits.join(", ")));
+        r.push_str(&format!(
+            "Function names ({} total){}: {}\n",
+            names.len(),
+            if terms.is_empty() {
+                ""
+            } else {
+                " matching the question"
+            },
+            hits.join(", ")
+        ));
     }
     if !terms.is_empty() {
         let strings = crate::binary::strings(data, 5);
@@ -205,7 +231,11 @@ pub fn inspect(data: &[u8], question: &str) -> Result<String, String> {
             .map(|(o, s)| format!("  0x{o:x}: {}", s.chars().take(120).collect::<String>()))
             .collect();
         if !hits.is_empty() {
-            r.push_str(&format!("Strings matching {:?}:\n{}\n", terms, hits.join("\n")));
+            r.push_str(&format!(
+                "Strings matching {:?}:\n{}\n",
+                terms,
+                hits.join("\n")
+            ));
         }
     }
     r.push_str(

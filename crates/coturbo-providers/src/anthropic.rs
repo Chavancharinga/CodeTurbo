@@ -1,16 +1,20 @@
 //! Anthropic Messages API (`POST /v1/messages`, streaming).
 
 use crate::{
-    BoxFuture, Delta, ContentBlock, Message, Provider, ProviderError, Request, Response, Role, TextSink,
-    Usage, http, parse_tool_input,
+    BoxFuture, ContentBlock, Delta, Message, Provider, ProviderError, Request, Response, Role,
+    TextSink, Usage, http, parse_tool_input,
 };
 use serde_json::{Value, json};
 
 const API_VERSION: &str = "2023-06-01";
 const FALLBACK_BETA: &str = "server-side-fallback-2026-07-01";
 /// Models that accept `fallbacks: "default"` (route a refusal to another model).
-const FALLBACK_MODELS: &[&str] =
-    &["claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5"];
+const FALLBACK_MODELS: &[&str] = &[
+    "claude-fable-5-1",
+    "claude-opus-5-5",
+    "claude-opus-5",
+    "claude-sonnet-5-5",
+];
 
 pub struct Anthropic {
     client: reqwest::Client,
@@ -38,8 +42,15 @@ impl Anthropic {
 /// returned as text when `display: "summarized"` is requested.
 fn adaptive_thinking(model: &str) -> bool {
     const PREFIXES: &[&str] = &[
-        "claude-fable-5", "claude-mythos-5", "claude-opus-5", "claude-sonnet-5", "claude-haiku-5",
-        "claude-opus-4-6", "claude-opus-4-7", "claude-opus-4-8", "claude-sonnet-4-6",
+        "claude-fable-5",
+        "claude-mythos-5",
+        "claude-opus-5",
+        "claude-sonnet-5",
+        "claude-haiku-5",
+        "claude-opus-4-6",
+        "claude-opus-4-7",
+        "claude-opus-4-8",
+        "claude-sonnet-4-6",
     ];
     PREFIXES.iter().any(|p| model.starts_with(p))
 }
@@ -54,7 +65,11 @@ fn block_json(b: &ContentBlock) -> Value {
         ContentBlock::ToolUse { id, name, input } => {
             json!({"type": "tool_use", "id": id, "name": name, "input": input})
         }
-        ContentBlock::ToolResult { tool_use_id, content, is_error } => json!({
+        ContentBlock::ToolResult {
+            tool_use_id,
+            content,
+            is_error,
+        } => json!({
             "type": "tool_result", "tool_use_id": tool_use_id, "content": content, "is_error": is_error
         }),
         ContentBlock::Image { media_type, data } => json!({
@@ -113,7 +128,11 @@ pub fn build_body(req: &Request, fallbacks: bool) -> Value {
 
 enum Block {
     Text(String),
-    Tool { id: String, name: String, json: String },
+    Tool {
+        id: String,
+        name: String,
+        json: String,
+    },
     /// Thinking/redacted/fallback blocks: kept as the provider sent them,
     /// with streamed `thinking`/`signature` deltas folded in.
     Opaque(Value),
@@ -227,13 +246,19 @@ impl StreamAcc {
             .flatten()
             .map(|b| match b {
                 Block::Text(text) => ContentBlock::Text { text },
-                Block::Tool { id, name, json } => {
-                    ContentBlock::ToolUse { id, name, input: parse_tool_input(&json) }
-                }
+                Block::Tool { id, name, json } => ContentBlock::ToolUse {
+                    id,
+                    name,
+                    input: parse_tool_input(&json),
+                },
                 Block::Opaque(v) => ContentBlock::Opaque(v),
             })
             .collect();
-        Response { content, stop_reason: self.stop_reason, usage: self.usage }
+        Response {
+            content,
+            stop_reason: self.stop_reason,
+            usage: self.usage,
+        }
     }
 }
 

@@ -29,7 +29,10 @@ pub fn plain_path(p: &str) -> String {
 /// (`C:\x\mspaint.exe` e `mspaint.exe` dão `mspaint`).
 pub fn process_name(target: &str) -> String {
     let file = target.rsplit(['\\', '/']).next().unwrap_or(target);
-    file.strip_suffix(".exe").or_else(|| file.strip_suffix(".EXE")).unwrap_or(file).to_string()
+    file.strip_suffix(".exe")
+        .or_else(|| file.strip_suffix(".EXE"))
+        .unwrap_or(file)
+        .to_string()
 }
 
 #[cfg(windows)]
@@ -95,39 +98,72 @@ Write-Output "OK $w x $hh | $t"
 /// `title` filtra a janela pelo título; `seconds` é quanto esperar a janela
 /// aparecer; `maximize` abre a janela maximizada, para ver a interface inteira.
 #[cfg(windows)]
-pub async fn observe(target: &str, title: Option<&str>, seconds: u64, maximize: bool, out: &Path) -> Result<Shot, String> {
+pub async fn observe(
+    target: &str,
+    title: Option<&str>,
+    seconds: u64,
+    maximize: bool,
+    out: &Path,
+) -> Result<Shot, String> {
     use base64::Engine;
     let seconds = seconds.clamp(2, 40);
     let utf16: Vec<u8> = SCRIPT.encode_utf16().flat_map(u16::to_le_bytes).collect();
     let encoded = base64::engine::general_purpose::STANDARD.encode(utf16);
     let mut cmd = tokio::process::Command::new("powershell.exe");
-    cmd.args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", &encoded])
-        .env("CT_TARGET", plain_path(target))
-        .env("CT_NAME", process_name(target))
-        .env("CT_TITLE", title.unwrap_or(""))
-        .env("CT_OUT", plain_path(&out.to_string_lossy()))
-        .env("CT_SECONDS", seconds.to_string())
-        .env("CT_MAXIMIZE", if maximize { "1" } else { "0" })
-        .stdin(std::process::Stdio::null())
-        .kill_on_drop(true);
+    cmd.args([
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-EncodedCommand",
+        &encoded,
+    ])
+    .env("CT_TARGET", plain_path(target))
+    .env("CT_NAME", process_name(target))
+    .env("CT_TITLE", title.unwrap_or(""))
+    .env("CT_OUT", plain_path(&out.to_string_lossy()))
+    .env("CT_SECONDS", seconds.to_string())
+    .env("CT_MAXIMIZE", if maximize { "1" } else { "0" })
+    .stdin(std::process::Stdio::null())
+    .kill_on_drop(true);
     let run = tokio::time::timeout(std::time::Duration::from_secs(seconds + 30), cmd.output())
         .await
         .map_err(|_| "a captura demorou demais e foi interrompida".to_string())?
         .map_err(|e| format!("não foi possível iniciar o PowerShell: {e}"))?;
     let stdout = String::from_utf8_lossy(&run.stdout);
-    let line = stdout.lines().rev().find(|l| l.starts_with("OK ") || l.starts_with("ERR ")).unwrap_or("").to_string();
+    let line = stdout
+        .lines()
+        .rev()
+        .find(|l| l.starts_with("OK ") || l.starts_with("ERR "))
+        .unwrap_or("")
+        .to_string();
     if let Some(info) = line.strip_prefix("OK ") {
-        return if out.is_file() { Ok(Shot { info: info.to_string() }) } else { Err("a captura não gerou o arquivo".into()) };
+        return if out.is_file() {
+            Ok(Shot {
+                info: info.to_string(),
+            })
+        } else {
+            Err("a captura não gerou o arquivo".into())
+        };
     }
     if let Some(e) = line.strip_prefix("ERR ") {
         return Err(e.to_string());
     }
     let stderr = String::from_utf8_lossy(&run.stderr);
-    Err(format!("a captura falhou: {}", stderr.lines().next().unwrap_or("sem detalhes")))
+    Err(format!(
+        "a captura falhou: {}",
+        stderr.lines().next().unwrap_or("sem detalhes")
+    ))
 }
 
 #[cfg(not(windows))]
-pub async fn observe(_target: &str, _title: Option<&str>, _seconds: u64, _maximize: bool, _out: &Path) -> Result<Shot, String> {
+pub async fn observe(
+    _target: &str,
+    _title: Option<&str>,
+    _seconds: u64,
+    _maximize: bool,
+    _out: &Path,
+) -> Result<Shot, String> {
     Err("observe_app só funciona no Windows por enquanto".to_string())
 }
 

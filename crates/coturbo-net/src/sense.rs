@@ -23,7 +23,11 @@ const CSI_MAGIC: u32 = 0xC511_0001;
 /// Seconds of samples kept.
 const KEEP: f64 = 60.0;
 /// What the machine sensing is called on screen.
-const HOST: &str = if cfg!(target_os = "android") { "phone" } else { "computer" };
+const HOST: &str = if cfg!(target_os = "android") {
+    "phone"
+} else {
+    "computer"
+};
 
 /// Set to stop a running sensing loop (the screen's `x`).
 static STOP: AtomicBool = AtomicBool::new(false);
@@ -50,7 +54,12 @@ pub fn parse_csi(b: &[u8]) -> Option<CsiFrame> {
         return None;
     }
     let iq = &b[20..];
-    let amps = iq.as_chunks::<2>().0.iter().map(|p| ((p[0] as i8 as f32).powi(2) + (p[1] as i8 as f32).powi(2)).sqrt()).collect::<Vec<_>>();
+    let amps = iq
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|p| ((p[0] as i8 as f32).powi(2) + (p[1] as i8 as f32).powi(2)).sqrt())
+        .collect::<Vec<_>>();
     if amps.is_empty() {
         return None;
     }
@@ -67,10 +76,17 @@ pub fn parse_csi(b: &[u8]) -> Option<CsiFrame> {
 /// `Signal` percentage on older Windows, in any language).
 pub fn parse_netsh(out: &str) -> Option<f64> {
     let value = |l: &str| l.split_once(':').map(|(_, v)| v.trim().to_string());
-    if let Some(v) = out.lines().find(|l| l.trim_start().to_lowercase().starts_with("rssi")).and_then(value) {
+    if let Some(v) = out
+        .lines()
+        .find(|l| l.trim_start().to_lowercase().starts_with("rssi"))
+        .and_then(value)
+    {
         return v.parse().ok();
     }
-    let pct = out.lines().filter_map(value).find_map(|v| v.strip_suffix('%').and_then(|n| n.trim().parse::<f64>().ok()))?;
+    let pct = out.lines().filter_map(value).find_map(|v| {
+        v.strip_suffix('%')
+            .and_then(|n| n.trim().parse::<f64>().ok())
+    })?;
     Some(pct / 2.0 - 100.0)
 }
 
@@ -91,7 +107,9 @@ fn quiet(cmd: &str, args: &[&str]) -> Option<String> {
         c.creation_flags(0x0800_0000);
     }
     let out = c.output().ok()?;
-    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 /// The Windows WLAN API: the link's RSSI without starting a process, and
@@ -102,12 +120,43 @@ pub mod wlan {
 
     #[link(name = "wlanapi")]
     unsafe extern "system" {
-        fn WlanOpenHandle(version: u32, reserved: *mut c_void, negotiated: *mut u32, handle: *mut *mut c_void) -> u32;
+        fn WlanOpenHandle(
+            version: u32,
+            reserved: *mut c_void,
+            negotiated: *mut u32,
+            handle: *mut *mut c_void,
+        ) -> u32;
         fn WlanCloseHandle(handle: *mut c_void, reserved: *mut c_void) -> u32;
-        fn WlanEnumInterfaces(handle: *mut c_void, reserved: *mut c_void, list: *mut *mut u8) -> u32;
-        fn WlanQueryInterface(handle: *mut c_void, guid: *const [u8; 16], op: u32, reserved: *mut c_void, size: *mut u32, data: *mut *mut u8, kind: *mut u32) -> u32;
-        fn WlanScan(handle: *mut c_void, guid: *const [u8; 16], ssid: *const c_void, ie: *const c_void, reserved: *mut c_void) -> u32;
-        fn WlanGetNetworkBssList(handle: *mut c_void, guid: *const [u8; 16], ssid: *const c_void, bss_type: u32, secure: i32, reserved: *mut c_void, list: *mut *mut u8) -> u32;
+        fn WlanEnumInterfaces(
+            handle: *mut c_void,
+            reserved: *mut c_void,
+            list: *mut *mut u8,
+        ) -> u32;
+        fn WlanQueryInterface(
+            handle: *mut c_void,
+            guid: *const [u8; 16],
+            op: u32,
+            reserved: *mut c_void,
+            size: *mut u32,
+            data: *mut *mut u8,
+            kind: *mut u32,
+        ) -> u32;
+        fn WlanScan(
+            handle: *mut c_void,
+            guid: *const [u8; 16],
+            ssid: *const c_void,
+            ie: *const c_void,
+            reserved: *mut c_void,
+        ) -> u32;
+        fn WlanGetNetworkBssList(
+            handle: *mut c_void,
+            guid: *const [u8; 16],
+            ssid: *const c_void,
+            bss_type: u32,
+            secure: i32,
+            reserved: *mut c_void,
+            list: *mut *mut u8,
+        ) -> u32;
         fn WlanFreeMemory(memory: *mut c_void);
     }
 
@@ -129,14 +178,17 @@ pub mod wlan {
         pub fn open() -> Option<Self> {
             let (mut negotiated, mut handle) = (0u32, std::ptr::null_mut());
             // SAFETY: out-pointers to locals.
-            if unsafe { WlanOpenHandle(2, std::ptr::null_mut(), &mut negotiated, &mut handle) } != 0 {
+            if unsafe { WlanOpenHandle(2, std::ptr::null_mut(), &mut negotiated, &mut handle) } != 0
+            {
                 return None;
             }
             let mut list = std::ptr::null_mut();
             // SAFETY: `WLAN_INTERFACE_INFO_LIST` holds the count at 0 and the
             // first interface's GUID at 8; the list is freed after reading.
             let guid = unsafe {
-                if WlanEnumInterfaces(handle, std::ptr::null_mut(), &mut list) != 0 || list.is_null() {
+                if WlanEnumInterfaces(handle, std::ptr::null_mut(), &mut list) != 0
+                    || list.is_null()
+                {
                     None
                 } else {
                     let n = list.cast::<u32>().read_unaligned();
@@ -160,7 +212,17 @@ pub mod wlan {
             let (mut size, mut data, mut kind) = (0u32, std::ptr::null_mut(), 0u32);
             // SAFETY: the API allocates `data` (a LONG), freed after reading.
             unsafe {
-                if WlanQueryInterface(self.handle, &self.guid, OPCODE_RSSI, std::ptr::null_mut(), &mut size, &mut data, &mut kind) != 0 || data.is_null() {
+                if WlanQueryInterface(
+                    self.handle,
+                    &self.guid,
+                    OPCODE_RSSI,
+                    std::ptr::null_mut(),
+                    &mut size,
+                    &mut data,
+                    &mut kind,
+                ) != 0
+                    || data.is_null()
+                {
                     return None;
                 }
                 let v = data.cast::<i32>().read_unaligned();
@@ -172,7 +234,15 @@ pub mod wlan {
         /// Asks the card for a fresh scan; the results land a few seconds later.
         pub fn scan(&self) {
             // SAFETY: a null SSID and IE ask for a scan of everything.
-            unsafe { WlanScan(self.handle, &self.guid, std::ptr::null(), std::ptr::null(), std::ptr::null_mut()) };
+            unsafe {
+                WlanScan(
+                    self.handle,
+                    &self.guid,
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null_mut(),
+                )
+            };
         }
 
         /// Every access point of the last scan: MAC and dBm.
@@ -181,14 +251,27 @@ pub mod wlan {
             // SAFETY: `WLAN_BSS_LIST` holds the count at 4 and entries of
             // `BSS_ENTRY` bytes from 8; the list is freed after reading.
             unsafe {
-                if WlanGetNetworkBssList(self.handle, &self.guid, std::ptr::null(), BSS_ANY, 0, std::ptr::null_mut(), &mut list) != 0 || list.is_null() {
+                if WlanGetNetworkBssList(
+                    self.handle,
+                    &self.guid,
+                    std::ptr::null(),
+                    BSS_ANY,
+                    0,
+                    std::ptr::null_mut(),
+                    &mut list,
+                ) != 0
+                    || list.is_null()
+                {
                     return Vec::new();
                 }
                 let n = list.add(4).cast::<u32>().read_unaligned() as usize;
                 let out = (0..n)
                     .map(|i| {
                         let e = list.add(8 + i * BSS_ENTRY);
-                        (e.add(40).cast::<[u8; 6]>().read_unaligned(), f64::from(e.add(56).cast::<i32>().read_unaligned()))
+                        (
+                            e.add(40).cast::<[u8; 6]>().read_unaligned(),
+                            f64::from(e.add(56).cast::<i32>().read_unaligned()),
+                        )
                     })
                     .filter(|(_, dbm)| *dbm < 0.0)
                     .collect();
@@ -249,9 +332,16 @@ fn bounded(cmd: &str, args: &[&str], secs: u64) -> Result<Option<String>, bool> 
 /// This machine's WiFi signal in dBm, or why it cannot be read, in words.
 pub fn host_wifi() -> Result<f64, String> {
     if cfg!(windows) {
-        return quiet("netsh", &["wlan", "show", "interfaces"]).as_deref().and_then(parse_netsh).ok_or_else(|| "this computer is not on WiFi".to_string());
+        return quiet("netsh", &["wlan", "show", "interfaces"])
+            .as_deref()
+            .and_then(parse_netsh)
+            .ok_or_else(|| "this computer is not on WiFi".to_string());
     }
-    if let Some(v) = std::fs::read_to_string("/proc/net/wireless").ok().as_deref().and_then(parse_proc_wireless) {
+    if let Some(v) = std::fs::read_to_string("/proc/net/wireless")
+        .ok()
+        .as_deref()
+        .and_then(parse_proc_wireless)
+    {
         return Ok(v);
     }
     let termux = std::env::var_os("TERMUX_VERSION").is_some() || cfg!(target_os = "android");
@@ -420,7 +510,11 @@ pub fn breathing(samples: &[(f64, f64)]) -> Option<(f64, f64)> {
 
 impl Analyzer {
     pub fn push_rssi(&mut self, t: f64, dbm: f64) {
-        self.rssi.push_back(Sample { t, value: dbm, amps: Vec::new() });
+        self.rssi.push_back(Sample {
+            t,
+            value: dbm,
+            amps: Vec::new(),
+        });
         while self.rssi.front().is_some_and(|s| t - s.t > KEEP) {
             self.rssi.pop_front();
         }
@@ -441,25 +535,47 @@ impl Analyzer {
 
     /// Access points heard in the last half minute.
     fn heard(&self, now: f64) -> usize {
-        self.aps.values().filter(|v| v.back().is_some_and(|s| now - s.0 <= 30.0)).count()
+        self.aps
+            .values()
+            .filter(|v| v.back().is_some_and(|s| now - s.0 <= 30.0))
+            .count()
     }
 
     /// Each path's mean level over the last few seconds: the link over 2 s,
     /// each access point over its last scans (5 s).
     fn fingerprint(&self, now: f64) -> Vec<(String, f64)> {
         let mean = |v: Vec<f64>| (!v.is_empty()).then(|| v.iter().sum::<f64>() / v.len() as f64);
-        let link = mean(self.rssi.iter().filter(|s| now - s.t <= 2.0).map(|s| s.value).collect());
+        let link = mean(
+            self.rssi
+                .iter()
+                .filter(|s| now - s.t <= 2.0)
+                .map(|s| s.value)
+                .collect(),
+        );
         let aps = self.aps.iter().filter_map(|(mac, v)| {
             let m = mean(v.iter().filter(|s| now - s.0 <= 5.0).map(|s| s.1).collect())?;
-            Some((mac.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(":"), m))
+            Some((
+                mac.iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect::<Vec<_>>()
+                    .join(":"),
+                m,
+            ))
         });
-        link.map(|l| ("link".to_string(), l)).into_iter().chain(aps).collect()
+        link.map(|l| ("link".to_string(), l))
+            .into_iter()
+            .chain(aps)
+            .collect()
     }
 
     pub fn push_csi(&mut self, t: f64, f: &CsiFrame) {
         self.nodes.insert(f.node);
         let mean = f.amps.iter().map(|a| f64::from(*a)).sum::<f64>() / f.amps.len() as f64;
-        self.csi.push_back(Sample { t, value: mean, amps: f.amps.clone() });
+        self.csi.push_back(Sample {
+            t,
+            value: mean,
+            amps: f.amps.clone(),
+        });
         while self.csi.front().is_some_and(|s| t - s.t > KEEP) {
             self.csi.pop_front();
         }
@@ -488,14 +604,24 @@ impl Analyzer {
                 .sum::<f64>();
             Some(per / n as f64)
         } else {
-            let w: Vec<f64> = self.rssi.iter().filter(|s| now - s.t <= 3.0).map(|s| s.value).collect();
+            let w: Vec<f64> = self
+                .rssi
+                .iter()
+                .filter(|s| now - s.t <= 3.0)
+                .map(|s| s.value)
+                .collect();
             let link = (w.len() >= 3).then(|| std_dev(w.iter().copied()));
             // The scans: each access point's spread over its last few scans,
             // averaged over the half that moved most (the paths a person crosses).
             let mut per: Vec<f64> = self
                 .aps
                 .values()
-                .map(|v| v.iter().filter(|s| now - s.0 <= 8.0).map(|s| s.1).collect::<Vec<_>>())
+                .map(|v| {
+                    v.iter()
+                        .filter(|s| now - s.0 <= 8.0)
+                        .map(|s| s.1)
+                        .collect::<Vec<_>>()
+                })
                 .filter(|v| v.len() >= 3)
                 .map(|v| std_dev(v.into_iter()))
                 .collect();
@@ -516,11 +642,23 @@ impl Analyzer {
             (Some(a), Some(b)) if b.t > a.t => b.t - a.t,
             _ => 0.0,
         };
-        let rate = if span > 0.0 { (series.len() - 1) as f64 / span } else { 0.0 };
+        let rate = if span > 0.0 {
+            (series.len() - 1) as f64 / span
+        } else {
+            0.0
+        };
         let signal_history: Vec<f64> = series.iter().map(|s| s.value).collect();
-        let level = if csi { None } else { self.rssi.back().map(|s| s.value) };
+        let level = if csi {
+            None
+        } else {
+            self.rssi.back().map(|s| s.value)
+        };
         let source = match (csi, self.heard(now)) {
-            (true, _) => format!("ESP32 CSI ({} node{})", self.nodes.len(), if self.nodes.len() == 1 { "" } else { "s" }),
+            (true, _) => format!(
+                "ESP32 CSI ({} node{})",
+                self.nodes.len(),
+                if self.nodes.len() == 1 { "" } else { "s" }
+            ),
             (false, 0) => format!("this {HOST}'s WiFi"),
             (false, 1) => format!("this {HOST}'s WiFi + 1 access point"),
             (false, n) => format!("this {HOST}'s WiFi + {n} access points"),
@@ -555,7 +693,12 @@ impl Analyzer {
             self.last_motion_at = Some(now);
         }
         let breath = if csi && motion < 0.25 {
-            let pts: Vec<(f64, f64)> = self.csi.iter().filter(|s| now - s.t <= 30.0).map(|s| (s.t, s.value)).collect();
+            let pts: Vec<(f64, f64)> = self
+                .csi
+                .iter()
+                .filter(|s| now - s.t <= 30.0)
+                .map(|s| (s.t, s.value))
+                .collect();
             breathing(&pts).filter(|(_, c)| *c >= 0.3)
         } else {
             None
@@ -580,7 +723,11 @@ impl Analyzer {
             breathing: breath,
             motion_history: self.motions.iter().map(|m| m.1).collect(),
             signal_history,
-            fingerprint: if csi { Vec::new() } else { self.fingerprint(now) },
+            fingerprint: if csi {
+                Vec::new()
+            } else {
+                self.fingerprint(now)
+            },
         }
     }
 }
@@ -596,7 +743,10 @@ pub enum Event {
 
 /// Senses for `seconds` (or until [`stop`]), calling `on` four times a second.
 /// Listens for ESP32 CSI on UDP 5005 and samples this machine's WiFi.
-pub async fn run(seconds: Option<f64>, on: &(dyn Fn(Event) + Send + Sync)) -> Result<Reading, String> {
+pub async fn run(
+    seconds: Option<f64>,
+    on: &(dyn Fn(Event) + Send + Sync),
+) -> Result<Reading, String> {
     STOP.store(false, Ordering::SeqCst);
     on(Event::Start);
     let started = Instant::now();
@@ -629,14 +779,17 @@ pub async fn run(seconds: Option<f64>, on: &(dyn Fn(Event) + Send + Sync)) -> Re
             }
         })
     });
-    let udp = tokio::net::UdpSocket::bind(("0.0.0.0", CSI_PORT)).await.ok();
+    let udp = tokio::net::UdpSocket::bind(("0.0.0.0", CSI_PORT))
+        .await
+        .ok();
     let listen = {
         let an = an.clone();
         async move {
             let Some(sock) = udp else { return };
             let mut buf = vec![0u8; 4096];
             while !STOP.load(Ordering::SeqCst) {
-                if let Ok(Ok((n, _))) = tokio::time::timeout(Duration::from_millis(200), sock.recv_from(&mut buf)).await
+                if let Ok(Ok((n, _))) =
+                    tokio::time::timeout(Duration::from_millis(200), sock.recv_from(&mut buf)).await
                     && let Some(f) = parse_csi(&buf[..n])
                     && let Ok(mut a) = an.lock()
                 {
@@ -648,7 +801,19 @@ pub async fn run(seconds: Option<f64>, on: &(dyn Fn(Event) + Send + Sync)) -> Re
     let sample = {
         let an = an.clone();
         async move {
-            let mut last = Reading { source: String::new(), csi: false, rate_hz: 0.0, seconds: 0.0, level: None, motion: 0.0, presence: Presence::Learning, breathing: None, motion_history: Vec::new(), signal_history: Vec::new(), fingerprint: Vec::new() };
+            let mut last = Reading {
+                source: String::new(),
+                csi: false,
+                rate_hz: 0.0,
+                seconds: 0.0,
+                level: None,
+                motion: 0.0,
+                presence: Presence::Learning,
+                breathing: None,
+                motion_history: Vec::new(),
+                signal_history: Vec::new(),
+                fingerprint: Vec::new(),
+            };
             loop {
                 let now = started.elapsed().as_secs_f64();
                 if STOP.load(Ordering::SeqCst) || seconds.is_some_and(|s| now >= s) {
@@ -679,7 +844,10 @@ pub async fn run(seconds: Option<f64>, on: &(dyn Fn(Event) + Send + Sync)) -> Re
 /// Windows: the WLAN API reads the link ten times a second and scans every
 /// access point every two seconds, on a thread of its own until the run stops.
 #[cfg(windows)]
-fn native_wifi(an: std::sync::Arc<std::sync::Mutex<Analyzer>>, started: Instant) -> Option<std::thread::JoinHandle<()>> {
+fn native_wifi(
+    an: std::sync::Arc<std::sync::Mutex<Analyzer>>,
+    started: Instant,
+) -> Option<std::thread::JoinHandle<()>> {
     let w = wlan::Wlan::open()?;
     w.rssi()?;
     Some(std::thread::spawn(move || {
@@ -706,7 +874,10 @@ fn native_wifi(an: std::sync::Arc<std::sync::Mutex<Analyzer>>, started: Instant)
 }
 
 #[cfg(not(windows))]
-fn native_wifi(_: std::sync::Arc<std::sync::Mutex<Analyzer>>, _: Instant) -> Option<std::thread::JoinHandle<()>> {
+fn native_wifi(
+    _: std::sync::Arc<std::sync::Mutex<Analyzer>>,
+    _: Instant,
+) -> Option<std::thread::JoinHandle<()>> {
     None
 }
 
@@ -733,8 +904,14 @@ mod tests {
         assert_eq!((f.node, f.seq, f.freq_mhz, f.rssi), (3, 7, 2462, -50));
         assert_eq!(f.amps, vec![12.0; 4]);
         assert!(parse_csi(b"not a frame at all, really").is_none());
-        assert_eq!(parse_netsh("    Signal                 : 89% \n    Rssi                   : -45\n"), Some(-45.0));
-        assert_eq!(parse_netsh("    Sinal                  : 80%\n"), Some(-60.0));
+        assert_eq!(
+            parse_netsh("    Signal                 : 89% \n    Rssi                   : -45\n"),
+            Some(-45.0)
+        );
+        assert_eq!(
+            parse_netsh("    Sinal                  : 80%\n"),
+            Some(-60.0)
+        );
         let proc = "Inter-| sta-|   Quality        |   Discarded packets\n face | tus | link level noise |  nwid  crypt\n wlan0: 0000   54.  -56.  -256        0      0\n";
         assert_eq!(parse_proc_wireless(proc), Some(-56.0));
     }
@@ -756,7 +933,11 @@ mod tests {
         assert_eq!(quiet.presence, Presence::Empty);
         assert_eq!(quiet.source, "this computer's WiFi + 3 access points");
         assert_eq!(quiet.fingerprint[0], ("link".to_string(), -43.0));
-        assert!(quiet.fingerprint.contains(&("02:02:02:02:02:02".to_string(), -57.0)));
+        assert!(
+            quiet
+                .fingerprint
+                .contains(&("02:02:02:02:02:02".to_string(), -57.0))
+        );
         // Someone walks: the link the driver smooths stays at -43, the scans swing.
         let mut moving = quiet;
         for i in 40..60 {
@@ -764,7 +945,14 @@ mod tests {
             a.push_rssi(t, -43.0);
             if i % 4 == 0 {
                 let swing = if i % 8 == 0 { 3.0 } else { -2.0 };
-                a.push_scan(t, &[(router, -45.0 + swing), (band, -57.0 - swing), (neighbour, -95.0)]);
+                a.push_scan(
+                    t,
+                    &[
+                        (router, -45.0 + swing),
+                        (band, -57.0 - swing),
+                        (neighbour, -95.0),
+                    ],
+                );
             }
             moving = a.reading(t, t);
         }
@@ -774,7 +962,11 @@ mod tests {
     #[test]
     fn a_missing_command_says_so_and_a_hung_one_is_cut_short() {
         assert_eq!(bounded("codeturbo-no-such-command", &[], 1), Err(true));
-        let (quick, slow): (&[&str], &[&str]) = if cfg!(windows) { (&["/c", "echo hi"], &["/c", "ping -n 6 127.0.0.1 >nul"]) } else { (&["-c", "echo hi"], &["-c", "sleep 5"]) };
+        let (quick, slow): (&[&str], &[&str]) = if cfg!(windows) {
+            (&["/c", "echo hi"], &["/c", "ping -n 6 127.0.0.1 >nul"])
+        } else {
+            (&["-c", "echo hi"], &["-c", "sleep 5"])
+        };
         let shell = if cfg!(windows) { "cmd" } else { "sh" };
         assert!(bounded(shell, quick, 5).unwrap().unwrap().contains("hi"));
         let t = Instant::now();
@@ -802,10 +994,16 @@ mod tests {
     #[test]
     fn breathing_is_found_in_a_still_signal() {
         // 15 breaths a minute (0.25 Hz), sampled at 10 Hz for 30 s, with noise.
-        let pts: Vec<(f64, f64)> = (0..300).map(|i| {
-            let t = i as f64 / 10.0;
-            (t, 20.0 + (std::f64::consts::TAU * 0.25 * t).sin() + ((i * 7919) % 13) as f64 * 0.02)
-        }).collect();
+        let pts: Vec<(f64, f64)> = (0..300)
+            .map(|i| {
+                let t = i as f64 / 10.0;
+                (
+                    t,
+                    20.0 + (std::f64::consts::TAU * 0.25 * t).sin()
+                        + ((i * 7919) % 13) as f64 * 0.02,
+                )
+            })
+            .collect();
         let (bpm, conf) = breathing(&pts).unwrap();
         assert!((bpm - 15.0).abs() < 1.0 && conf > 0.5, "{bpm} {conf}");
     }
@@ -847,8 +1045,17 @@ mod tests {
             let mut a = an.lock().unwrap();
             let raw = a.raw_motion(now, false);
             let r = a.reading(now, now);
-            let fp: Vec<String> = r.fingerprint.iter().map(|(k, v)| format!("{}={v:.1}", &k[k.len().saturating_sub(2)..])).collect();
-            println!("{now:5.1} raw {raw:?} motion {:.2} {:?} {}", r.motion, r.presence, fp.join(" "));
+            let fp: Vec<String> = r
+                .fingerprint
+                .iter()
+                .map(|(k, v)| format!("{}={v:.1}", &k[k.len().saturating_sub(2)..]))
+                .collect();
+            println!(
+                "{now:5.1} raw {raw:?} motion {:.2} {:?} {}",
+                r.motion,
+                r.presence,
+                fp.join(" ")
+            );
         }
         STOP.store(true, Ordering::SeqCst);
         native.join().unwrap();
@@ -869,8 +1076,11 @@ mod tests {
             std::thread::sleep(Duration::from_millis(400));
         }
         let r = a.reading(t0.elapsed().as_secs_f64(), 12.0);
-        println!("{n} samples
-{}", r.summary());
+        println!(
+            "{n} samples
+{}",
+            r.summary()
+        );
         assert!(n > 5);
     }
 }

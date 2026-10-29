@@ -2,9 +2,9 @@
 
 use coturbo_agent::plan::{PlanChoice, PlanReview};
 use coturbo_agent::{ApprovalRequest, Decision, Event, Host, Stop, TaskReport};
-use coturbo_verify::Finding;
 use coturbo_providers::{BoxFuture, Usage};
 use coturbo_tools::ToolOutput;
+use coturbo_verify::Finding;
 use serde_json::Value;
 use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
@@ -46,7 +46,11 @@ pub fn elapsed(d: std::time::Duration) -> String {
 /// How a task ended, with the verification result.
 pub fn stop_note(report: &TaskReport) -> String {
     let turns = report.turns;
-    let rounds = if turns == 1 { "1 round".to_string() } else { format!("{turns} rounds") };
+    let rounds = if turns == 1 {
+        "1 round".to_string()
+    } else {
+        format!("{turns} rounds")
+    };
     let stop = match report.stop {
         Stop::Done => format!("done in {rounds}"),
         Stop::MaxTurns => format!("stopped: round limit reached ({turns})"),
@@ -94,7 +98,9 @@ pub fn parse_answer(line: &str) -> Option<Decision> {
     match word.to_ascii_lowercase().as_str() {
         "o" | "once" | "y" | "yes" | "" => Some(Decision::Once),
         "s" | "session" | "a" | "always" => Some(Decision::Session),
-        "d" | "deny" | "n" | "no" => Some(Decision::Deny((!rest.is_empty()).then(|| rest.to_string()))),
+        "d" | "deny" | "n" | "no" => {
+            Some(Decision::Deny((!rest.is_empty()).then(|| rest.to_string())))
+        }
         _ => None,
     }
 }
@@ -191,9 +197,14 @@ impl TermHost {
             s.stop();
         }
         if !std::io::stdin().is_terminal() {
-            return Decision::Deny(Some("no terminal to ask the user; rerun with --auto-approve".into()));
+            return Decision::Deny(Some(
+                "no terminal to ask the user; rerun with --auto-approve".into(),
+            ));
         }
-        let arg = ["command", "path"].iter().find_map(|k| req.input[*k].as_str()).unwrap_or("");
+        let arg = ["command", "path"]
+            .iter()
+            .find_map(|k| req.input[*k].as_str())
+            .unwrap_or("");
         eprintln!("\n\x1b[33m? {} {}\x1b[0m", req.tool, arg);
         if let Some(diff) = &req.preview {
             eprint!("{}", color_diff(diff));
@@ -201,7 +212,9 @@ impl TermHost {
         loop {
             eprint!("  [o]nce  [s]ession  [d]eny <reason> › ");
             let _ = std::io::stderr().flush();
-            let Some(line) = read_line() else { return Decision::Deny(Some("cancelled".into())) };
+            let Some(line) = read_line() else {
+                return Decision::Deny(Some("cancelled".into()));
+            };
             if let Some(d) = parse_answer(&line) {
                 return d;
             }
@@ -215,7 +228,12 @@ impl TermHost {
         }
         eprint!("{question} [y/N] › ");
         let _ = std::io::stderr().flush();
-        read_line().is_some_and(|l| matches!(l.trim().to_ascii_lowercase().as_str(), "y" | "yes" | "s" | "sim"))
+        read_line().is_some_and(|l| {
+            matches!(
+                l.trim().to_ascii_lowercase().as_str(),
+                "y" | "yes" | "s" | "sim"
+            )
+        })
     }
 
     /// Asks once whether the project's `.codeturbo.toml` commands may run.
@@ -223,7 +241,9 @@ impl TermHost {
         if commands.is_empty() {
             return true;
         }
-        eprintln!("\x1b[33m? this project's .codeturbo.toml wants the verification gate to run:\x1b[0m");
+        eprintln!(
+            "\x1b[33m? this project's .codeturbo.toml wants the verification gate to run:\x1b[0m"
+        );
         for c in commands {
             eprintln!("    {c}");
         }
@@ -240,16 +260,27 @@ impl TermHost {
         let full = self.root.join(&plan.path);
         let mut content = plan.content.clone();
         loop {
-            eprintln!("\n\x1b[1;36m── plan: {} ({}% context) ──\x1b[0m\n{}", plan.path, plan.context_pct, content.trim_end());
+            eprintln!(
+                "\n\x1b[1;36m── plan: {} ({}% context) ──\x1b[0m\n{}",
+                plan.path,
+                plan.context_pct,
+                content.trim_end()
+            );
             eprintln!("\x1b[1;36m──\x1b[0m");
             for (i, label) in PLAN_MENU.iter().enumerate() {
                 let off = i == 2 && !plan.keep_context_allowed();
-                let mark = if off { " (context > 95%: unavailable)" } else { "" };
+                let mark = if off {
+                    " (context > 95%: unavailable)"
+                } else {
+                    ""
+                };
                 eprintln!("  {}. {label}{mark}", i + 1);
             }
             eprint!("  e. edit in $EDITOR   › ");
             let _ = std::io::stderr().flush();
-            let Some(line) = read_line() else { return PlanChoice::SaveQuit };
+            let Some(line) = read_line() else {
+                return PlanChoice::SaveQuit;
+            };
             match parse_plan_choice(&line, plan.keep_context_allowed()) {
                 Some(PlanMenu::Choice(c)) => return c,
                 Some(PlanMenu::Refine) => {
@@ -261,7 +292,13 @@ impl TermHost {
                 Some(PlanMenu::Edit) => {
                     let editor = std::env::var("VISUAL")
                         .or_else(|_| std::env::var("EDITOR"))
-                        .unwrap_or_else(|_| if cfg!(windows) { "notepad".into() } else { "vi".into() });
+                        .unwrap_or_else(|_| {
+                            if cfg!(windows) {
+                                "notepad".into()
+                            } else {
+                                "vi".into()
+                            }
+                        });
                     let status = std::process::Command::new(&editor).arg(&full).status();
                     if let Err(e) = status {
                         eprintln!("  ! cannot start {editor}: {e}");
@@ -308,19 +345,31 @@ impl Host for TermHost {
                 let _ = out.flush();
             }
             Event::Limits(headers) => self.limits = crate::view::limits_summary(headers),
-            Event::ToolEnd { name, input, output, diff } => {
+            Event::ToolEnd {
+                name,
+                input,
+                output,
+                diff,
+            } => {
                 eprintln!("\n{}", tool_line(name, input, output));
                 if let Some(d) = diff {
                     let (add, del) = crate::view::diff_stat(d);
                     eprintln!("    \x1b[32m+{add}\x1b[0m \x1b[31m-{del}\x1b[0m");
                     let color = std::io::stderr().is_terminal();
-                    let width = terminal_size::terminal_size().map_or(100, |(w, _)| w.0 as usize).min(140);
+                    let width = terminal_size::terminal_size()
+                        .map_or(100, |(w, _)| w.0 as usize)
+                        .min(140);
                     for line in crate::view::render_diff(d, width.saturating_sub(4), color) {
                         eprintln!("    {line}");
                     }
                 }
             }
-            Event::Turn { turn, task, secs, window } => {
+            Event::Turn {
+                turn,
+                task,
+                secs,
+                window,
+            } => {
                 let cost = self.pricer.as_ref().and_then(|p| p.cost(turn));
                 let line = crate::view::turn_line(turn, secs, window, cost, self.limits.as_deref());
                 eprintln!("\x1b[2m  {line}\x1b[0m");

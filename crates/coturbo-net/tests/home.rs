@@ -39,7 +39,9 @@ fn decipher(c: &[u8]) -> Vec<u8> {
 #[tokio::test]
 async fn a_kasa_plug_is_found_and_switched() {
     let _one = ONE_AT_A_TIME.lock().await;
-    let Ok(listener) = TcpListener::bind((Ipv4Addr::LOCALHOST, 9999)).await else { return };
+    let Ok(listener) = TcpListener::bind((Ipv4Addr::LOCALHOST, 9999)).await else {
+        return;
+    };
     let plug = tokio::spawn(async move {
         let mut relay = 0;
         let mut seen = Vec::new();
@@ -68,7 +70,10 @@ async fn a_kasa_plug_is_found_and_switched() {
     });
     assert_eq!(detect(HERE).await, Kind::Kasa);
     let status = control(HERE, None, Act::Status, None).await.unwrap();
-    assert!(status.contains("Desk lamp") && status.contains("off"), "{status}");
+    assert!(
+        status.contains("Desk lamp") && status.contains("off"),
+        "{status}"
+    );
     control(HERE, None, Act::On, None).await.unwrap();
     control(HERE, None, Act::Toggle, None).await.unwrap();
     assert_eq!(plug.await.unwrap(), vec![1, 0], "on, then toggled back off");
@@ -97,17 +102,27 @@ async fn read_mqtt(s: &mut tokio::net::TcpStream) -> Option<(u8, Vec<u8>)> {
 #[tokio::test]
 async fn zigbee_through_an_mqtt_broker() {
     let _one = ONE_AT_A_TIME.lock().await;
-    let Ok(listener) = TcpListener::bind((Ipv4Addr::LOCALHOST, 1883)).await else { return };
+    let Ok(listener) = TcpListener::bind((Ipv4Addr::LOCALHOST, 1883)).await else {
+        return;
+    };
     let broker = tokio::spawn(async move {
         let mut published = None;
         for _ in 0..20 {
-            let Ok((mut s, _)) = listener.accept().await else { break };
+            let Ok((mut s, _)) = listener.accept().await else {
+                break;
+            };
             // A port probe connects and leaves without a word.
-            let Some((0x10, _)) = read_mqtt(&mut s).await else { continue };
+            let Some((0x10, _)) = read_mqtt(&mut s).await else {
+                continue;
+            };
             s.write_all(&[0x20, 0x02, 0x00, 0x00]).await.unwrap();
-            let Some((h, body)) = read_mqtt(&mut s).await else { continue };
+            let Some((h, body)) = read_mqtt(&mut s).await else {
+                continue;
+            };
             if h == 0x82 {
-                s.write_all(&[0x90, 0x03, body[0], body[1], 0x00]).await.unwrap();
+                s.write_all(&[0x90, 0x03, body[0], body[1], 0x00])
+                    .await
+                    .unwrap();
                 let devices = r#"[{"type":"Coordinator","friendly_name":"Coordinator"},{"type":"Router","friendly_name":"sala lamp","definition":{"description":"Smart bulb"}}]"#;
                 let topic = "zigbee2mqtt/bridge/devices";
                 let mut p = (topic.len() as u16).to_be_bytes().to_vec();
@@ -130,7 +145,10 @@ async fn zigbee_through_an_mqtt_broker() {
                 s.write_all(&frame).await.unwrap();
             } else if h & 0xF0 == 0x30 {
                 let tlen = u16::from_be_bytes([body[0], body[1]]) as usize;
-                published = Some((String::from_utf8_lossy(&body[2..2 + tlen]).into_owned(), String::from_utf8_lossy(&body[2 + tlen..]).into_owned()));
+                published = Some((
+                    String::from_utf8_lossy(&body[2..2 + tlen]).into_owned(),
+                    String::from_utf8_lossy(&body[2 + tlen..]).into_owned(),
+                ));
                 break;
             }
         }
@@ -142,7 +160,26 @@ async fn zigbee_through_an_mqtt_broker() {
         return; // something else answers on this machine's other ports
     }
     let list = control(HERE, None, Act::Status, None).await.unwrap();
-    assert!(list.contains("1 Zigbee device(s): sala lamp (Smart bulb)"), "{list}");
-    control(HERE, None, Act::Publish { topic: "zigbee2mqtt/sala lamp/set".into(), payload: r#"{"state":"ON"}"#.into() }, None).await.unwrap();
-    assert_eq!(broker.await.unwrap(), Some(("zigbee2mqtt/sala lamp/set".into(), r#"{"state":"ON"}"#.into())));
+    assert!(
+        list.contains("1 Zigbee device(s): sala lamp (Smart bulb)"),
+        "{list}"
+    );
+    control(
+        HERE,
+        None,
+        Act::Publish {
+            topic: "zigbee2mqtt/sala lamp/set".into(),
+            payload: r#"{"state":"ON"}"#.into(),
+        },
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        broker.await.unwrap(),
+        Some((
+            "zigbee2mqtt/sala lamp/set".into(),
+            r#"{"state":"ON"}"#.into()
+        ))
+    );
 }

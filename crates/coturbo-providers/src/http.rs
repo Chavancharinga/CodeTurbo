@@ -59,8 +59,15 @@ pub(crate) async fn stream_sse(
                 .get("retry-after")
                 .and_then(|v| v.to_str().ok()?.parse::<u64>().ok())
                 .unwrap_or(1 << attempt);
-            let why = if status == 429 { "the provider's usage limit was reached".to_string() } else { format!("the provider answered {status}") };
-            on_frame(Frame::Retry(format!("{why}; trying again in {wait}s ({}/{MAX_RETRIES})", attempt + 1)))?;
+            let why = if status == 429 {
+                "the provider's usage limit was reached".to_string()
+            } else {
+                format!("the provider answered {status}")
+            };
+            on_frame(Frame::Retry(format!(
+                "{why}; trying again in {wait}s ({}/{MAX_RETRIES})",
+                attempt + 1
+            )))?;
             tokio::time::sleep(Duration::from_secs(wait.min(60))).await;
             attempt += 1;
             continue;

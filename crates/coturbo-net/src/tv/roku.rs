@@ -14,23 +14,45 @@ fn tag<'a>(xml: &'a str, name: &str) -> &'a str {
 }
 
 async fn get(ip: IpAddr, path: &str) -> Result<String, String> {
-    http().get(format!("http://{ip}:8060/{path}")).send().await.map_err(|e| e.to_string())?.text().await.map_err(|e| e.to_string())
+    http()
+        .get(format!("http://{ip}:8060/{path}"))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .text()
+        .await
+        .map_err(|e| e.to_string())
 }
 
 async fn post(ip: IpAddr, path: &str) -> Result<(), String> {
-    let r = http().post(format!("http://{ip}:8060/{path}")).send().await.map_err(|e| e.to_string())?;
-    if r.status().is_success() { Ok(()) } else { Err(format!("the Roku answered {}", r.status())) }
+    let r = http()
+        .post(format!("http://{ip}:8060/{path}"))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if r.status().is_success() {
+        Ok(())
+    } else {
+        Err(format!("the Roku answered {}", r.status()))
+    }
 }
 
 fn key_name(key: &str) -> String {
-    match key.trim().to_lowercase().replace([' ', '_', '-'], "").as_str() {
+    match key
+        .trim()
+        .to_lowercase()
+        .replace([' ', '_', '-'], "")
+        .as_str()
+    {
         "ok" | "enter" | "select" => "Select".into(),
         "volumeup" => "VolumeUp".into(),
         "volumedown" => "VolumeDown".into(),
         "playpause" | "play" | "pause" => "Play".into(),
         other => {
             let mut c = other.chars();
-            c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or_default()
+            c.next()
+                .map(|f| f.to_uppercase().collect::<String>() + c.as_str())
+                .unwrap_or_default()
         }
     }
 }
@@ -77,16 +99,34 @@ pub(crate) async fn control(ip: IpAddr, action: &Action) -> Result<String, Strin
             let id = if want == "youtube" {
                 "837".to_string()
             } else {
-                apps(ip).await?.into_iter().find(|(_, n)| super::app_alias(n).contains(&want)).map(|(id, _)| id).ok_or_else(|| format!("{app} is not installed"))?
+                apps(ip)
+                    .await?
+                    .into_iter()
+                    .find(|(_, n)| super::app_alias(n).contains(&want))
+                    .map(|(id, _)| id)
+                    .ok_or_else(|| format!("{app} is not installed"))?
             };
-            let query = content.as_ref().map(|c| format!("?contentId={}", c.replace(' ', "%20"))).unwrap_or_default();
-            post(ip, &format!("launch/{id}{query}")).await.map(|_| format!("{app} opened"))
+            let query = content
+                .as_ref()
+                .map(|c| format!("?contentId={}", c.replace(' ', "%20")))
+                .unwrap_or_default();
+            post(ip, &format!("launch/{id}{query}"))
+                .await
+                .map(|_| format!("{app} opened"))
         }
-        Action::Key(k) => press(ip, &key_name(k), 1).await.map(|_| format!("{k} pressed")),
+        Action::Key(k) => press(ip, &key_name(k), 1)
+            .await
+            .map(|_| format!("{k} pressed")),
         Action::PowerOff => press(ip, "PowerOff", 1).await.map(|_| "turned off".into()),
-        Action::VolumeUp(n) => press(ip, "VolumeUp", *n).await.map(|_| format!("volume up {n}")),
-        Action::VolumeDown(n) => press(ip, "VolumeDown", *n).await.map(|_| format!("volume down {n}")),
-        Action::Mute => press(ip, "VolumeMute", 1).await.map(|_| "mute toggled".into()),
+        Action::VolumeUp(n) => press(ip, "VolumeUp", *n)
+            .await
+            .map(|_| format!("volume up {n}")),
+        Action::VolumeDown(n) => press(ip, "VolumeDown", *n)
+            .await
+            .map(|_| format!("volume down {n}")),
+        Action::Mute => press(ip, "VolumeMute", 1)
+            .await
+            .map(|_| "mute toggled".into()),
         Action::SetVolume(_) => Err("Roku only takes volume up and down steps".into()),
         Action::PowerOn { .. } => unreachable!("handled before"),
     }

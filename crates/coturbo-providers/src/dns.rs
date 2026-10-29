@@ -22,7 +22,8 @@ fn needs_own_resolver() -> bool {
 
 /// The name servers to ask: Termux's list, else Google's and Cloudflare's.
 fn servers() -> Vec<IpAddr> {
-    let prefix = std::env::var("PREFIX").unwrap_or_else(|_| "/data/data/com.termux/files/usr".into());
+    let prefix =
+        std::env::var("PREFIX").unwrap_or_else(|_| "/data/data/com.termux/files/usr".into());
     let listed: Vec<IpAddr> = std::fs::read_to_string(format!("{prefix}/etc/resolv.conf"))
         .unwrap_or_default()
         .lines()
@@ -30,7 +31,10 @@ fn servers() -> Vec<IpAddr> {
         .filter_map(|ip| ip.trim().parse().ok())
         .collect();
     if listed.is_empty() {
-        vec![IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)), IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1))]
+        vec![
+            IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)),
+            IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)),
+        ]
     } else {
         listed
     }
@@ -43,7 +47,8 @@ impl reqwest::dns::Resolve for Direct {
         let host = name.as_str().to_string();
         Box::pin(async move {
             let ips = lookup(&host).await?;
-            let addrs: reqwest::dns::Addrs = Box::new(ips.into_iter().map(|ip| SocketAddr::new(ip, 0)));
+            let addrs: reqwest::dns::Addrs =
+                Box::new(ips.into_iter().map(|ip| SocketAddr::new(ip, 0)));
             Ok(addrs)
         })
     }
@@ -68,10 +73,19 @@ pub async fn lookup(host: &str) -> Result<Vec<IpAddr>, Box<dyn std::error::Error
 }
 
 async fn ask(server: IpAddr, host: &str, qtype: u16) -> Result<Vec<IpAddr>, String> {
-    let bind: SocketAddr = if server.is_ipv4() { "0.0.0.0:0".parse().unwrap() } else { "[::]:0".parse().unwrap() };
-    let socket = tokio::net::UdpSocket::bind(bind).await.map_err(|e| e.to_string())?;
+    let bind: SocketAddr = if server.is_ipv4() {
+        "0.0.0.0:0".parse().unwrap()
+    } else {
+        "[::]:0".parse().unwrap()
+    };
+    let socket = tokio::net::UdpSocket::bind(bind)
+        .await
+        .map_err(|e| e.to_string())?;
     let id = (std::process::id() as u16) ^ (host.len() as u16).rotate_left(7) ^ qtype;
-    socket.send_to(&query(id, host, qtype), SocketAddr::new(server, 53)).await.map_err(|e| e.to_string())?;
+    socket
+        .send_to(&query(id, host, qtype), SocketAddr::new(server, 53))
+        .await
+        .map_err(|e| e.to_string())?;
     let mut buf = [0u8; 1500];
     let n = tokio::time::timeout(Duration::from_secs(3), socket.recv(&mut buf))
         .await
@@ -114,7 +128,9 @@ pub fn parse_answer(msg: &[u8], id: u16, qtype: u16) -> Option<Vec<IpAddr>> {
         let len = u16::from_be_bytes([head[8], head[9]]) as usize;
         let data = msg.get(at + 10..at + 10 + len)?;
         match (kind, len) {
-            (1, 4) if qtype == 1 => out.push(IpAddr::V4(Ipv4Addr::new(data[0], data[1], data[2], data[3]))),
+            (1, 4) if qtype == 1 => out.push(IpAddr::V4(Ipv4Addr::new(
+                data[0], data[1], data[2], data[3],
+            ))),
             (28, 16) if qtype == 28 => {
                 let b: [u8; 16] = data.try_into().ok()?;
                 out.push(IpAddr::V6(Ipv6Addr::from(b)));
@@ -155,7 +171,10 @@ mod tests {
         // CNAME pointing elsewhere, then the A record.
         msg.extend_from_slice(&[0xC0, 12, 0, 5, 0, 1, 0, 0, 0, 60, 0, 2, 0xC0, 12]);
         msg.extend_from_slice(&[0xC0, 12, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4, 93, 184, 216, 34]);
-        assert_eq!(parse_answer(&msg, 7, 1), Some(vec![IpAddr::V4(Ipv4Addr::new(93, 184, 216, 34))]));
+        assert_eq!(
+            parse_answer(&msg, 7, 1),
+            Some(vec![IpAddr::V4(Ipv4Addr::new(93, 184, 216, 34))])
+        );
         assert_eq!(parse_answer(&msg, 8, 1), None, "another query's answer");
     }
 

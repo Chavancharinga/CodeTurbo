@@ -42,14 +42,24 @@ fn record(body: &[u8]) -> Vec<String> {
     for t in types {
         let (text, size) = match t {
             0 => ("NULL".to_string(), 0),
-            1 => (if data < body.len() { (body[data] as i8).to_string() } else { "0".into() }, 1),
+            1 => (
+                if data < body.len() {
+                    (body[data] as i8).to_string()
+                } else {
+                    "0".into()
+                },
+                1,
+            ),
             2..=6 => ("<int>".to_string(), [0usize, 1, 2, 3, 4, 6, 8][t as usize]),
             7 => ("<real>".to_string(), 8),
             8 => ("0".to_string(), 0),
             9 => ("1".to_string(), 0),
             t if t >= 13 && t % 2 == 1 => {
                 let len = ((t - 13) / 2) as usize;
-                let s = body.get(data..data + len).map(|b| String::from_utf8_lossy(b).into_owned()).unwrap_or_default();
+                let s = body
+                    .get(data..data + len)
+                    .map(|b| String::from_utf8_lossy(b).into_owned())
+                    .unwrap_or_default();
                 (s, len)
             }
             t if t >= 12 => ("<blob>".to_string(), ((t - 12) / 2) as usize),
@@ -104,7 +114,10 @@ pub fn inspect(data: &[u8]) -> Result<String, String> {
         p => p,
     };
     let pages = u32_be(data, 28);
-    let mut r = format!("SQLite database: page size {page_size}, {pages} pages ({} KB)\n", data.len() / 1024);
+    let mut r = format!(
+        "SQLite database: page size {page_size}, {pages} pages ({} KB)\n",
+        data.len() / 1024
+    );
     let rows = schema(data, page_size);
     if rows.is_empty() {
         r.push_str("Schema: não foi possível ler direto (tabela sqlite_master em múltiplas páginas); abra com o REA externo.\n");
@@ -112,14 +125,22 @@ pub fn inspect(data: &[u8]) -> Result<String, String> {
     }
     let kinds = ["table", "index", "view", "trigger"];
     for kind in kinds {
-        let items: Vec<&(String, String, String)> = rows.iter().filter(|(t, _, _)| t == kind).collect();
+        let items: Vec<&(String, String, String)> =
+            rows.iter().filter(|(t, _, _)| t == kind).collect();
         if items.is_empty() {
             continue;
         }
         r.push_str(&format!("{}s ({}):\n", kind, items.len()));
         for (_, name, sql) in items.iter().take(40) {
-            let def = sql.replace(['\n', '\r'], " ").split_whitespace().collect::<Vec<_>>().join(" ");
-            r.push_str(&format!("  {name}: {}\n", def.chars().take(200).collect::<String>()));
+            let def = sql
+                .replace(['\n', '\r'], " ")
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+            r.push_str(&format!(
+                "  {name}: {}\n",
+                def.chars().take(200).collect::<String>()
+            ));
         }
     }
     Ok(r)

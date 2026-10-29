@@ -8,11 +8,19 @@ use std::path::Path;
 
 /// Whether the external `rea` CLI is on PATH.
 pub fn installed() -> bool {
-    let exts: &[&str] = if cfg!(windows) { &["cmd", "bat", "exe", ""] } else { &[""] };
+    let exts: &[&str] = if cfg!(windows) {
+        &["cmd", "bat", "exe", ""]
+    } else {
+        &[""]
+    };
     std::env::var_os("PATH").is_some_and(|p| {
         std::env::split_paths(&p).any(|d| {
             exts.iter().any(|e| {
-                let f = if e.is_empty() { d.join("rea") } else { d.join(format!("rea.{e}")) };
+                let f = if e.is_empty() {
+                    d.join("rea")
+                } else {
+                    d.join(format!("rea.{e}"))
+                };
                 f.is_file()
             })
         })
@@ -27,21 +35,43 @@ pub fn suggestions(kind: &str, target: &str) -> String {
     }
     let cmds: &[(&str, &str)] = match kind {
         "site" => &[
-            ("rea analyze-web-bundle {t}", "captura e reconstrói o bundle da página"),
-            ("rea capture-browser-scenario {t}", "roda um cenário no navegador e devolve evidências"),
+            (
+                "rea analyze-web-bundle {t}",
+                "captura e reconstrói o bundle da página",
+            ),
+            (
+                "rea capture-browser-scenario {t}",
+                "roda um cenário no navegador e devolve evidências",
+            ),
         ],
         "js" => &[
-            ("rea analyze-javascript-application {t} --json", "reconstrói o app JavaScript/Electron estaticamente"),
-            ("rea function {t} <nome>", "analisa uma função específica com evidências"),
+            (
+                "rea analyze-javascript-application {t} --json",
+                "reconstrói o app JavaScript/Electron estaticamente",
+            ),
+            (
+                "rea function {t} <nome>",
+                "analisa uma função específica com evidências",
+            ),
             ("rea decompile {t}", "lê uma parte do app como código"),
         ],
         "binary" => &[
-            ("rea function {t} <nome>", "decompila uma função (precisa de Ghidra/Hopper/IDA)"),
-            ("rea decompile {t}", "pseudocódigo C das funções (precisa de Ghidra/Hopper/IDA)"),
+            (
+                "rea function {t} <nome>",
+                "decompila uma função (precisa de Ghidra/Hopper/IDA)",
+            ),
+            (
+                "rea decompile {t}",
+                "pseudocódigo C das funções (precisa de Ghidra/Hopper/IDA)",
+            ),
         ],
         _ => &[("rea analyze {t}", "visão geral do alvo com evidências")],
     };
-    let list = cmds.iter().map(|(c, d)| format!("  {}  — {d}", c.replace("{t}", target))).collect::<Vec<_>>().join("\n");
+    let list = cmds
+        .iter()
+        .map(|(c, d)| format!("  {}  — {d}", c.replace("{t}", target)))
+        .collect::<Vec<_>>()
+        .join("\n");
     format!(
         "\n\nAnálise mais profunda disponível pelo REA externo (instalado). Rode pelo bash quando precisar de mais do que a análise estática acima:\n{list}\n\
          (Para pseudocódigo C de binário nativo, instale o Ghidra e defina GHIDRA_INSTALL_DIR; o `rea doctor` confirma.)"
@@ -64,6 +94,9 @@ pub async fn run(cwd: &Path, args: &[&str], timeout_secs: u64) -> Result<String,
     if out.status.success() {
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())
     } else {
-        Err(format!("rea falhou: {}", String::from_utf8_lossy(&out.stderr).trim()))
+        Err(format!(
+            "rea falhou: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ))
     }
 }

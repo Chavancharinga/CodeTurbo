@@ -42,16 +42,26 @@ fn unique_profile() -> PathBuf {
 pub async fn launch(browser: &Path, size: (u32, u32), visible: bool) -> Result<Launched, String> {
     let profile = unique_profile();
     let mut cmd = tokio::process::Command::new(browser);
-    cmd.args(["--no-first-run", "--no-default-browser-check", "--allow-file-access-from-files", "--remote-debugging-port=0"]);
+    cmd.args([
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--allow-file-access-from-files",
+        "--remote-debugging-port=0",
+    ]);
     if visible {
         // A small window of its own, away from the user's profile and tabs.
-        cmd.args(["--new-window", "--disable-features=msEdgeWelcomePage,msEdgeSplitWindow", "--disable-session-crashed-bubble"]);
+        cmd.args([
+            "--new-window",
+            "--disable-features=msEdgeWelcomePage,msEdgeSplitWindow",
+            "--disable-session-crashed-bubble",
+        ]);
     } else {
         cmd.args(["--headless=new", "--disable-gpu"]);
     }
     // Hosted CI runners (and root) forbid the browser's own sandbox, and on
     // Android (Termux) Chromium only starts without it.
-    let android = cfg!(target_os = "android") || std::env::var("PREFIX").is_ok_and(|p| p.contains("com.termux"));
+    let android = cfg!(target_os = "android")
+        || std::env::var("PREFIX").is_ok_and(|p| p.contains("com.termux"));
     if (cfg!(target_os = "linux") && std::env::var_os("CI").is_some()) || android {
         cmd.arg("--no-sandbox");
     }
@@ -60,23 +70,39 @@ pub async fn launch(browser: &Path, size: (u32, u32), visible: bool) -> Result<L
         .arg("about:blank")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
-        .stderr(std::fs::File::create(profile.with_extension("log")).map_or_else(|_| std::process::Stdio::null(), Into::into))
+        .stderr(
+            std::fs::File::create(profile.with_extension("log"))
+                .map_or_else(|_| std::process::Stdio::null(), Into::into),
+        )
         .kill_on_drop(true);
-    let child = cmd.spawn().map_err(|e| format!("could not open the browser: {e}"))?;
+    let child = cmd
+        .spawn()
+        .map_err(|e| format!("could not open the browser: {e}"))?;
     // The browser writes the port it picked to this file.
     let file = profile.join("DevToolsActivePort");
     for _ in 0..150 {
         if let Ok(text) = std::fs::read_to_string(&file)
-            && let Some(port) = text.lines().next().and_then(|l| l.trim().parse::<u16>().ok())
+            && let Some(port) = text
+                .lines()
+                .next()
+                .and_then(|l| l.trim().parse::<u16>().ok())
         {
-            return Ok(Launched { child, profile, port, closed: false });
+            return Ok(Launched {
+                child,
+                profile,
+                port,
+                closed: false,
+            });
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     let log = std::fs::read_to_string(profile.with_extension("log")).unwrap_or_default();
     let _ = std::fs::remove_file(profile.with_extension("log"));
     let tail: Vec<&str> = log.lines().rev().take(4).collect();
-    Err(format!("the browser did not report its debugging port in 15 s ({})", tail.into_iter().rev().collect::<Vec<_>>().join(" | ")))
+    Err(format!(
+        "the browser did not report its debugging port in 15 s ({})",
+        tail.into_iter().rev().collect::<Vec<_>>().join(" | ")
+    ))
 }
 
 impl Launched {
@@ -86,7 +112,12 @@ impl Launched {
         for _ in 0..100 {
             if let Ok(resp) = reqwest::get(&url).await
                 && let Ok(list) = resp.json::<Value>().await
-                && let Some(ws) = list.as_array().into_iter().flatten().find(|t| t["type"] == "page").and_then(|t| t["webSocketDebuggerUrl"].as_str())
+                && let Some(ws) = list
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .find(|t| t["type"] == "page")
+                    .and_then(|t| t["webSocketDebuggerUrl"].as_str())
             {
                 return Ok(ws.to_string());
             }
@@ -112,13 +143,18 @@ impl Launched {
 
 /// Asks the browser on `port` to close itself.
 async fn ask_to_close(port: u16) {
-    let version = tokio::time::timeout(Duration::from_secs(2), reqwest::get(format!("http://127.0.0.1:{port}/json/version"))).await;
+    let version = tokio::time::timeout(
+        Duration::from_secs(2),
+        reqwest::get(format!("http://127.0.0.1:{port}/json/version")),
+    )
+    .await;
     if let Ok(Ok(resp)) = version
         && let Ok(v) = resp.json::<Value>().await
         && let Some(url) = v["webSocketDebuggerUrl"].as_str()
         && let Ok(Ok(mut c)) = tokio::time::timeout(Duration::from_secs(2), Cdp::connect(url)).await
     {
-        let _ = tokio::time::timeout(Duration::from_secs(3), c.call("Browser.close", json!({}))).await;
+        let _ =
+            tokio::time::timeout(Duration::from_secs(3), c.call("Browser.close", json!({}))).await;
     }
 }
 
@@ -133,7 +169,10 @@ impl Drop for Launched {
         let _ = self.child.start_kill();
         // Off the current runtime, which may be shutting down.
         let worker = std::thread::spawn(move || {
-            if let Ok(rt) = tokio::runtime::Builder::new_current_thread().enable_all().build() {
+            if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
                 rt.block_on(ask_to_close(port));
             }
             for _ in 0..10 {
@@ -149,8 +188,14 @@ impl Drop for Launched {
 
 impl Cdp {
     pub async fn connect(url: &str) -> Result<Self, String> {
-        let (ws, _) = connect_async(url).await.map_err(|e| format!("could not talk to the browser: {e}"))?;
-        Ok(Self { ws, next: 0, events: Vec::new() })
+        let (ws, _) = connect_async(url)
+            .await
+            .map_err(|e| format!("could not talk to the browser: {e}"))?;
+        Ok(Self {
+            ws,
+            next: 0,
+            events: Vec::new(),
+        })
     }
 
     /// Runs a command and waits for its answer; events that arrive meanwhile
@@ -159,14 +204,24 @@ impl Cdp {
         self.next += 1;
         let id = self.next;
         let msg = json!({"id": id, "method": method, "params": params}).to_string();
-        self.ws.send(Message::Text(msg.into())).await.map_err(|e| e.to_string())?;
+        self.ws
+            .send(Message::Text(msg.into()))
+            .await
+            .map_err(|e| e.to_string())?;
         let wait = async {
             while let Some(m) = self.ws.next().await {
-                let Message::Text(t) = m.map_err(|e| e.to_string())? else { continue };
-                let Ok(v) = serde_json::from_str::<Value>(&t) else { continue };
+                let Message::Text(t) = m.map_err(|e| e.to_string())? else {
+                    continue;
+                };
+                let Ok(v) = serde_json::from_str::<Value>(&t) else {
+                    continue;
+                };
                 if v["id"].as_u64() == Some(id) {
                     return match v.get("error") {
-                        Some(e) => Err(format!("{method}: {}", e["message"].as_str().unwrap_or("error"))),
+                        Some(e) => Err(format!(
+                            "{method}: {}",
+                            e["message"].as_str().unwrap_or("error")
+                        )),
                         None => Ok(v["result"].clone()),
                     };
                 }
@@ -176,7 +231,9 @@ impl Cdp {
             }
             Err("the browser closed the connection".to_string())
         };
-        tokio::time::timeout(COMMAND_TIMEOUT, wait).await.map_err(|_| format!("{method}: no answer in {}s", COMMAND_TIMEOUT.as_secs()))?
+        tokio::time::timeout(COMMAND_TIMEOUT, wait)
+            .await
+            .map_err(|_| format!("{method}: no answer in {}s", COMMAND_TIMEOUT.as_secs()))?
     }
 
     /// Reads for up to `ms` milliseconds, keeping whatever events arrive.

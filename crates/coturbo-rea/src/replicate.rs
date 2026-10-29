@@ -13,8 +13,9 @@ fn has_interface(kind: &str, report: &str) -> bool {
     match kind {
         "site" | "js" => true,
         _ => {
-            const GUI: [&str; 8] =
-                ["USER32", "GDI32", "COMCTL32", "AppKit", "Cocoa", "gtk", "Qt5", "Qt6"];
+            const GUI: [&str; 8] = [
+                "USER32", "GDI32", "COMCTL32", "AppKit", "Cocoa", "gtk", "Qt5", "Qt6",
+            ];
             let apk = report.contains("AndroidManifest") || report.contains(".apk");
             apk || GUI.iter().any(|g| report.contains(g))
         }

@@ -48,11 +48,17 @@ impl Input {
     }
 
     fn prev(&self) -> Option<usize> {
-        self.text[..self.cursor].char_indices().next_back().map(|(i, _)| i)
+        self.text[..self.cursor]
+            .char_indices()
+            .next_back()
+            .map(|(i, _)| i)
     }
 
     fn next(&self) -> Option<usize> {
-        self.text[self.cursor..].chars().next().map(|c| self.cursor + c.len_utf8())
+        self.text[self.cursor..]
+            .chars()
+            .next()
+            .map(|c| self.cursor + c.len_utf8())
     }
 
     pub fn backspace(&mut self) {
@@ -107,7 +113,9 @@ impl Input {
     }
 
     fn line_end(&self) -> usize {
-        self.text[self.cursor..].find('\n').map_or(self.text.len(), |i| self.cursor + i)
+        self.text[self.cursor..]
+            .find('\n')
+            .map_or(self.text.len(), |i| self.cursor + i)
     }
 
     pub fn home(&mut self) {

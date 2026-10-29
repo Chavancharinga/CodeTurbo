@@ -3,7 +3,12 @@
 use std::path::{Path, PathBuf};
 
 fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
-    let mut entries: Vec<_> = std::fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.path()).collect();
+    let mut entries: Vec<_> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .collect();
     entries.sort();
     for p in entries {
         if p.is_dir() {
@@ -21,9 +26,20 @@ fn main() {
     walk(&root, &mut files);
     let mut code = String::from("&[\n");
     for f in files {
-        let rel = f.strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/");
-        code.push_str(&format!("    ({rel:?}, include_str!({:?})),\n", f.to_string_lossy()));
+        let rel = f
+            .strip_prefix(&root)
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
+        code.push_str(&format!(
+            "    ({rel:?}, include_str!({:?})),\n",
+            f.to_string_lossy()
+        ));
     }
     code.push(']');
-    std::fs::write(PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("builtin.rs"), code).unwrap();
+    std::fs::write(
+        PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("builtin.rs"),
+        code,
+    )
+    .unwrap();
 }

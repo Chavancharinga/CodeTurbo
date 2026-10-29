@@ -12,7 +12,8 @@ pub mod sub;
 
 use approval::{ApprovalConfig, SessionGrants, Verdict};
 use coturbo_providers::{
-    BoxFuture, ContentBlock, Delta, INVALID_JSON_KEY, Message, Provider, ProviderError, Request, Role, Usage,
+    BoxFuture, ContentBlock, Delta, INVALID_JSON_KEY, Message, Provider, ProviderError, Request,
+    Role, Usage,
 };
 use coturbo_tools::{EDIT_TOOLS, Mode, Tier, ToolOutput, Tools};
 use coturbo_verify::{Finding, GateConfig, Snapshot, gate};
@@ -106,23 +107,54 @@ pub enum Event<'a> {
     Thinking(&'a str),
     /// Rate-limit headers of the last response.
     Limits(&'a [(String, String)]),
-    ToolStart { name: &'a str, input: &'a Value },
+    ToolStart {
+        name: &'a str,
+        input: &'a Value,
+    },
     /// `diff` is the unified diff a successful edit applied.
-    ToolEnd { name: &'a str, input: &'a Value, output: &'a ToolOutput, diff: Option<&'a str> },
+    ToolEnd {
+        name: &'a str,
+        input: &'a Value,
+        output: &'a ToolOutput,
+        diff: Option<&'a str>,
+    },
     /// One model response: its usage, the task total so far, how long it
     /// took, and the model's context window.
-    Turn { turn: &'a Usage, task: &'a Usage, secs: f64, window: u32 },
+    Turn {
+        turn: &'a Usage,
+        task: &'a Usage,
+        secs: f64,
+        window: u32,
+    },
     /// The final gate ran; `summary` is exactly what the model is told.
-    Gate { ok: bool, summary: &'a str },
+    Gate {
+        ok: bool,
+        summary: &'a str,
+    },
     Notice(&'a str),
     /// A step of the final checks (build, lint, tests) starts or ends.
     /// `expected` is how long it took last time, when it has run before.
-    Step { name: &'a str, phase: StepPhase, index: usize, total: usize, secs: f32, expected: Option<f32> },
+    Step {
+        name: &'a str,
+        phase: StepPhase,
+        index: usize,
+        total: usize,
+        secs: f32,
+        expected: Option<f32>,
+    },
     /// The checks failed and the model is asked to fix it: attempt `attempt` of `of`.
-    Fixing { attempt: u32, of: u32 },
+    Fixing {
+        attempt: u32,
+        of: u32,
+    },
     /// The model is writing a tool call: which tool, the file once known,
     /// and how much it has written.
-    Composing { tool: &'a str, path: Option<&'a str>, chars: usize, code: Option<&'a str> },
+    Composing {
+        tool: &'a str,
+        path: Option<&'a str>,
+        chars: usize,
+        code: Option<&'a str>,
+    },
 }
 
 /// Where a step of the final checks is.
@@ -158,7 +190,9 @@ pub trait Host: Send {
 
     /// Asked only for calls the approval policy marks `Prompt`.
     fn approve<'a>(&'a mut self, _req: &'a ApprovalRequest) -> BoxFuture<'a, Decision> {
-        Box::pin(async { Decision::Deny(Some("no interactive approver; use --auto-approve".into())) })
+        Box::pin(async {
+            Decision::Deny(Some("no interactive approver; use --auto-approve".into()))
+        })
     }
 
     /// Asked when the model proposes a plan. Without a user, nothing is executed.
@@ -174,7 +208,11 @@ pub trait Host: Send {
 
     /// A question the model asks the user, with options to pick (the user
     /// may also type their own answer). `None`: nobody to ask.
-    fn ask_user<'a>(&'a mut self, _question: &'a str, _options: &'a [String]) -> BoxFuture<'a, Option<String>> {
+    fn ask_user<'a>(
+        &'a mut self,
+        _question: &'a str,
+        _options: &'a [String],
+    ) -> BoxFuture<'a, Option<String>> {
         Box::pin(async { None })
     }
 }
@@ -200,17 +238,31 @@ pub const RULES_FILE: &str = ".codeturbo/rules.md";
 
 /// The project's standing rules, for the system prompt.
 pub fn stream_rules(root: &std::path::Path) -> String {
-    let Ok(text) = std::fs::read_to_string(root.join(RULES_FILE)) else { return String::new() };
-    let rules: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')).collect();
+    let Ok(text) = std::fs::read_to_string(root.join(RULES_FILE)) else {
+        return String::new();
+    };
+    let rules: Vec<&str> = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .collect();
     if rules.is_empty() {
         return String::new();
     }
-    let list = rules.iter().map(|r| format!("- {}", r.trim_start_matches(['-', '*', ' ']))).collect::<Vec<_>>().join("
-");
-    format!("
+    let list = rules
+        .iter()
+        .map(|r| format!("- {}", r.trim_start_matches(['-', '*', ' '])))
+        .collect::<Vec<_>>()
+        .join(
+            "
+",
+        );
+    format!(
+        "
 
 Standing rules from the user — always follow, never repeat these mistakes:
-{list}")
+{list}"
+    )
 }
 
 /// Appends a rule to [`RULES_FILE`].
@@ -234,7 +286,9 @@ pub fn add_rule(root: &std::path::Path, rule: &str) -> Result<(), String> {
 pub fn project_memory(root: &std::path::Path) -> String {
     let mut out = String::new();
     for name in MEMORY_FILES {
-        let Ok(text) = std::fs::read_to_string(root.join(name)) else { continue };
+        let Ok(text) = std::fs::read_to_string(root.join(name)) else {
+            continue;
+        };
         let text = text.trim();
         if text.is_empty() {
             continue;
@@ -243,10 +297,13 @@ pub fn project_memory(root: &std::path::Path) -> String {
         while !text.is_char_boundary(cut) {
             cut -= 1;
         }
-        out.push_str(&format!("
+        out.push_str(&format!(
+            "
 
 Project instructions from {name} (follow them):
-{}", &text[..cut]));
+{}",
+            &text[..cut]
+        ));
     }
     out
 }
@@ -262,7 +319,9 @@ pub fn remembered(root: &std::path::Path) -> String {
     if index.is_empty() {
         return rule.to_string();
     }
-    format!("{rule}\n\nRemembered from earlier sessions (read one in full with recall; they reflect what was true when saved):\n{index}")
+    format!(
+        "{rule}\n\nRemembered from earlier sessions (read one in full with recall; they reflect what was true when saved):\n{index}"
+    )
 }
 
 /// Images whose paths appear in `text` (absolute, or relative to `root`),
@@ -270,7 +329,9 @@ pub fn remembered(root: &std::path::Path) -> String {
 pub fn images_in(text: &str, root: &std::path::Path) -> Vec<ContentBlock> {
     use base64::Engine;
     let mut out = Vec::new();
-    for word in text.split(|c: char| c.is_whitespace() || matches!(c, '`' | '"' | '\'' | '(' | ')' | '<' | '>')) {
+    for word in text
+        .split(|c: char| c.is_whitespace() || matches!(c, '`' | '"' | '\'' | '(' | ')' | '<' | '>'))
+    {
         let w = word.trim_end_matches([',', '.', ';', ':']);
         let lower = w.to_lowercase();
         let media = if lower.ends_with(".png") {
@@ -285,12 +346,19 @@ pub fn images_in(text: &str, root: &std::path::Path) -> Vec<ContentBlock> {
             continue;
         };
         let p = std::path::Path::new(w);
-        let path = if p.is_absolute() { p.to_path_buf() } else { root.join(p) };
+        let path = if p.is_absolute() {
+            p.to_path_buf()
+        } else {
+            root.join(p)
+        };
         if let Ok(bytes) = std::fs::read(&path)
             && bytes.len() < 5 * 1024 * 1024
             && out.len() < 4
         {
-            out.push(ContentBlock::Image { media_type: media.into(), data: base64::engine::general_purpose::STANDARD.encode(bytes) });
+            out.push(ContentBlock::Image {
+                media_type: media.into(),
+                data: base64::engine::general_purpose::STANDARD.encode(bytes),
+            });
         }
     }
     out
@@ -298,11 +366,13 @@ pub fn images_in(text: &str, root: &std::path::Path) -> Vec<ContentBlock> {
 
 /// Where the agent runs, so it uses what this machine has.
 pub fn environment() -> String {
-    let termux = cfg!(target_os = "android") || std::env::var("PREFIX").is_ok_and(|p| p.contains("com.termux"));
+    let termux = cfg!(target_os = "android")
+        || std::env::var("PREFIX").is_ok_and(|p| p.contains("com.termux"));
     if termux {
         // Chromium from Termux's x11-repo runs without a window: the in-terminal browser works.
         let path = std::env::var_os("PATH").unwrap_or_default();
-        let chromium = std::env::split_paths(&path).any(|d| d.join("chromium-browser").is_file() || d.join("chromium").is_file());
+        let chromium = std::env::split_paths(&path)
+            .any(|d| d.join("chromium-browser").is_file() || d.join("chromium").is_file());
         let browser = if chromium {
             "Chromium is installed, so browse (the page in the terminal) and design_review work; observe_app does not (no windows on Android)."
         } else {
@@ -345,7 +415,10 @@ fn system_prompt(mode: Mode) -> String {
 /// How a `propose_plan` call ends the current phase.
 enum Handoff {
     /// Start a new phase from the plan, after compacting or clearing history.
-    Run { compact: bool, prompt: String },
+    Run {
+        compact: bool,
+        prompt: String,
+    },
     Saved,
 }
 
@@ -390,7 +463,11 @@ impl<'a> Agent<'a> {
             provider,
             tools,
             config,
-            system: system_prompt(tools.mode()) + &project_memory(tools.root()) + &stream_rules(tools.root()) + &remembered(tools.root()) + &coturbo_tools::skills::catalogue(tools.root()),
+            system: system_prompt(tools.mode())
+                + &project_memory(tools.root())
+                + &stream_rules(tools.root())
+                + &remembered(tools.root())
+                + &coturbo_tools::skills::catalogue(tools.root()),
             history: Vec::new(),
             pending_summary: None,
             last: None,
@@ -423,7 +500,10 @@ impl<'a> Agent<'a> {
         }
         restored.sort();
         restored.dedup();
-        let note = format!("[The user undid the previous task's changes to: {}]\n\n", restored.join(", "));
+        let note = format!(
+            "[The user undid the previous task's changes to: {}]\n\n",
+            restored.join(", ")
+        );
         self.pending_summary = Some(self.pending_summary.take().unwrap_or_default() + &note);
         Ok(restored)
     }
@@ -438,9 +518,17 @@ impl<'a> Agent<'a> {
                 if let ContentBlock::ToolResult { content, .. } = b
                     && content.len() > 400
                 {
-                    let first = content.lines().next().unwrap_or("").chars().take(160).collect::<String>();
+                    let first = content
+                        .lines()
+                        .next()
+                        .unwrap_or("")
+                        .chars()
+                        .take(160)
+                        .collect::<String>();
                     let lines = content.lines().count();
-                    *content = format!("{first}\n[output elided to save context: {lines} lines; read again if needed]");
+                    *content = format!(
+                        "{first}\n[output elided to save context: {lines} lines; read again if needed]"
+                    );
                     n += 1;
                 }
             }
@@ -463,8 +551,12 @@ impl<'a> Agent<'a> {
             },
             _ => return,
         };
-        let Ok(path) = self.tools.resolve(rel) else { return };
-        let Some(current) = self.checkpoints.last_mut() else { return };
+        let Ok(path) = self.tools.resolve(rel) else {
+            return;
+        };
+        let Some(current) = self.checkpoints.last_mut() else {
+            return;
+        };
         if current.iter().any(|(p, _, _)| *p == path) {
             return;
         }
@@ -481,13 +573,25 @@ impl<'a> Agent<'a> {
             for b in &m.content {
                 match b {
                     ContentBlock::ToolUse { name, input, .. } => {
-                        let arg = ["path", "command", "pattern", "symbol"].iter().find_map(|k| input[*k].as_str()).unwrap_or("");
+                        let arg = ["path", "command", "pattern", "symbol"]
+                            .iter()
+                            .find_map(|k| input[*k].as_str())
+                            .unwrap_or("");
                         steps.push(format!("- {name} {arg}"));
                     }
-                    ContentBlock::ToolResult { is_error: true, content, .. } => {
-                        steps.push(format!("  failed: {}", content.lines().next().unwrap_or("")));
+                    ContentBlock::ToolResult {
+                        is_error: true,
+                        content,
+                        ..
+                    } => {
+                        steps.push(format!(
+                            "  failed: {}",
+                            content.lines().next().unwrap_or("")
+                        ));
                     }
-                    ContentBlock::Text { text } if m.role == Role::Assistant => last_text.clone_from(text),
+                    ContentBlock::Text { text } if m.role == Role::Assistant => {
+                        last_text.clone_from(text)
+                    }
                     _ => {}
                 }
             }
@@ -499,16 +603,24 @@ impl<'a> Agent<'a> {
              Steps so far (latest last):\n{}\nFiles changed so far: {}\nLast note: {}\n\
              Continue the task from here; re-read any file you need.",
             steps[keep..].join("\n"),
-            if files.is_empty() { "none".into() } else { files },
+            if files.is_empty() {
+                "none".into()
+            } else {
+                files
+            },
             last_text.chars().take(1500).collect::<String>()
         );
-        self.history = vec![Message { role: Role::User, content: vec![ContentBlock::Text { text: summary }] }];
+        self.history = vec![Message {
+            role: Role::User,
+            content: vec![ContentBlock::Text { text: summary }],
+        }];
         self.last_prompt = 0;
     }
 
     /// Rebuilds the system prompt so a just-added rule takes effect.
     pub fn reload_rules(&mut self, root: &std::path::Path) {
-        self.system = system_prompt(self.tools.mode()) + &project_memory(root) + &stream_rules(root);
+        self.system =
+            system_prompt(self.tools.mode()) + &project_memory(root) + &stream_rules(root);
     }
 
     pub fn session_usage(&self) -> Usage {
@@ -527,7 +639,9 @@ impl<'a> Agent<'a> {
     /// Replaces the whole history with a deterministic summary of the last
     /// task. Earlier thinking blocks are not replayed, so nothing is edited.
     pub fn compact(&mut self) {
-        let Some((prompt, report)) = self.last.take() else { return };
+        let Some((prompt, report)) = self.last.take() else {
+            return;
+        };
         let mut text = report.final_text.clone();
         if text.len() > SUMMARY_TEXT_MAX {
             let mut cut = SUMMARY_TEXT_MAX;
@@ -552,11 +666,25 @@ impl<'a> Agent<'a> {
 
     /// Runs one task. On a provider error the history is restored to what it
     /// was before the task, so the next task starts from a valid state.
-    pub async fn run_task(&mut self, prompt: &str, host: &mut dyn Host) -> Result<TaskReport, ProviderError> {
-        self.started = Some((self.history.len(), self.pending_summary.clone(), self.plan_mode));
+    pub async fn run_task(
+        &mut self,
+        prompt: &str,
+        host: &mut dyn Host,
+    ) -> Result<TaskReport, ProviderError> {
+        self.started = Some((
+            self.history.len(),
+            self.pending_summary.clone(),
+            self.plan_mode,
+        ));
         self.checkpoints.push(Vec::new());
         let root = self.tools.root().to_path_buf();
-        hooks::event(&self.config.hooks, &root, "task_start", &serde_json::json!({"prompt": prompt})).await;
+        hooks::event(
+            &self.config.hooks,
+            &root,
+            "task_start",
+            &serde_json::json!({"prompt": prompt}),
+        )
+        .await;
         let r = self.run_inner(prompt, host).await;
         let detail = match &r {
             Ok(rep) => serde_json::json!({"ok": true, "answer": rep.final_text}),
@@ -584,7 +712,11 @@ impl<'a> Agent<'a> {
         }
     }
 
-    async fn run_inner(&mut self, prompt: &str, host: &mut dyn Host) -> Result<TaskReport, ProviderError> {
+    async fn run_inner(
+        &mut self,
+        prompt: &str,
+        host: &mut dyn Host,
+    ) -> Result<TaskReport, ProviderError> {
         let mut total = TaskReport::empty();
         let mut next = prompt.to_string();
         self.snapshot.clear();
@@ -598,7 +730,10 @@ impl<'a> Agent<'a> {
             total.edited.extend(report.edited.iter().cloned());
             total.verified = report.verified;
             match handoff {
-                Some(Handoff::Run { compact, prompt: plan_prompt }) => {
+                Some(Handoff::Run {
+                    compact,
+                    prompt: plan_prompt,
+                }) => {
                     if compact {
                         self.last = Some((next, report));
                         self.compact();
@@ -615,7 +750,11 @@ impl<'a> Agent<'a> {
                 None => break,
             }
         }
-        if total.verified.is_none() && self.config.gate.is_some() && code_edits(&total.edited) && total.stop != Stop::Done {
+        if total.verified.is_none()
+            && self.config.gate.is_some()
+            && code_edits(&total.edited)
+            && total.stop != Stop::Done
+        {
             // Stopped (turn limit, refusal) before the gate could pass.
             total.verified = Some(false);
         }
@@ -630,17 +769,28 @@ impl<'a> Agent<'a> {
         prompt: &str,
         host: &mut dyn Host,
     ) -> Result<(TaskReport, Option<Handoff>), ProviderError> {
-        let prompt = if self.plan_mode { format!("{}{prompt}", plan::PLAN_NOTICE) } else { prompt.to_string() };
+        let prompt = if self.plan_mode {
+            format!("{}{prompt}", plan::PLAN_NOTICE)
+        } else {
+            prompt.to_string()
+        };
         let user_text = match self.pending_summary.take() {
             Some(s) => format!("{s}{prompt}"),
             None => prompt,
         };
         let task = user_text.clone();
         // Pictures the user points to by path travel with the message.
-        let pictures = if self.config.vision { images_in(&user_text, self.tools.root()) } else { Vec::new() };
+        let pictures = if self.config.vision {
+            images_in(&user_text, self.tools.root())
+        } else {
+            Vec::new()
+        };
         let mut content = vec![ContentBlock::Text { text: user_text }];
         content.extend(pictures);
-        self.history.push(Message { role: Role::User, content });
+        self.history.push(Message {
+            role: Role::User,
+            content,
+        });
 
         let mut report = TaskReport::empty();
         let mut handoff = None;
@@ -653,12 +803,20 @@ impl<'a> Agent<'a> {
             }
             report.turns += 1;
             let window = self.config.context_window as u64;
-            if window > 0 && self.last_prompt * 10 >= window * 6 && self.last_prompt * 10 < window * 8 && self.shake(4) > 0 {
-                host.on_event(Event::Notice("context above 60%: old tool results were summarized"));
+            if window > 0
+                && self.last_prompt * 10 >= window * 6
+                && self.last_prompt * 10 < window * 8
+                && self.shake(4) > 0
+            {
+                host.on_event(Event::Notice(
+                    "context above 60%: old tool results were summarized",
+                ));
             }
             if window > 0 && self.last_prompt * 10 >= window * 8 && self.history.len() > 2 {
                 self.compact_midway(&task, &report);
-                host.on_event(Event::Notice("context above 80%: the conversation was summarized to continue"));
+                host.on_event(Event::Notice(
+                    "context above 80%: the conversation was summarized to continue",
+                ));
             }
             let model = match (&self.config.plan_model, self.plan_mode) {
                 (Some(m), true) => m.clone(),
@@ -682,9 +840,17 @@ impl<'a> Agent<'a> {
                     Delta::Thinking(t) => host.on_event(Event::Thinking(t)),
                     Delta::Limits(l) => host.on_event(Event::Limits(l)),
                     Delta::Notice(msg) => host.on_event(Event::Notice(msg)),
-                    Delta::Composing { tool, path, chars, code } => {
-                        host.on_event(Event::Composing { tool, path: path.as_deref(), chars: *chars, code: code.as_deref() })
-                    }
+                    Delta::Composing {
+                        tool,
+                        path,
+                        chars,
+                        code,
+                    } => host.on_event(Event::Composing {
+                        tool,
+                        path: path.as_deref(),
+                        chars: *chars,
+                        code: code.as_deref(),
+                    }),
                 })
                 .await?;
             let secs = started.elapsed().as_secs_f64();
@@ -692,7 +858,12 @@ impl<'a> Agent<'a> {
             self.session += resp.usage;
             self.last_prompt = resp.usage.prompt_total();
             let window = self.config.context_window;
-            host.on_event(Event::Turn { turn: &resp.usage, task: &report.usage, secs, window });
+            host.on_event(Event::Turn {
+                turn: &resp.usage,
+                task: &report.usage,
+                secs,
+                window,
+            });
 
             report.final_text = resp
                 .content
@@ -707,7 +878,9 @@ impl<'a> Agent<'a> {
                 .content
                 .iter()
                 .filter_map(|b| match b {
-                    ContentBlock::ToolUse { id, name, input } => Some((id.clone(), name.clone(), input.clone())),
+                    ContentBlock::ToolUse { id, name, input } => {
+                        Some((id.clone(), name.clone(), input.clone()))
+                    }
                     _ => None,
                 })
                 .collect();
@@ -715,13 +888,21 @@ impl<'a> Agent<'a> {
             // A reply with no text and no tool call (a local model whose
             // malformed tool call was dropped by the server) is asked again,
             // without touching the history.
-            let empty = calls.is_empty() && report.final_text.trim().is_empty() && !truncated && resp.stop_reason != "refusal";
+            let empty = calls.is_empty()
+                && report.final_text.trim().is_empty()
+                && !truncated
+                && resp.stop_reason != "refusal";
             if empty && empty_retries < EMPTY_RETRIES {
                 empty_retries += 1;
-                host.on_event(Event::Notice("the model answered with nothing; asking again"));
+                host.on_event(Event::Notice(
+                    "the model answered with nothing; asking again",
+                ));
                 continue;
             }
-            self.history.push(Message { role: Role::Assistant, content: resp.content });
+            self.history.push(Message {
+                role: Role::Assistant,
+                content: resp.content,
+            });
 
             if resp.stop_reason == "refusal" {
                 break Stop::Refused;
@@ -731,7 +912,9 @@ impl<'a> Agent<'a> {
                     // Cut off mid-answer: ask it to continue.
                     self.history.push(Message {
                         role: Role::User,
-                        content: vec![ContentBlock::Text { text: "Continue.".into() }],
+                        content: vec![ContentBlock::Text {
+                            text: "Continue.".into(),
+                        }],
                     });
                     continue;
                 }
@@ -741,7 +924,10 @@ impl<'a> Agent<'a> {
                 host.on_event(Event::Waiting("verifying"));
                 let edited: Vec<String> = report.edited.iter().cloned().collect();
                 let (ok, summary) = self.verify(host, &edited).await;
-                host.on_event(Event::Gate { ok: ok.unwrap_or(true), summary: &summary });
+                host.on_event(Event::Gate {
+                    ok: ok.unwrap_or(true),
+                    summary: &summary,
+                });
                 match ok {
                     None => break Stop::Done,
                     Some(true) => {
@@ -754,9 +940,15 @@ impl<'a> Agent<'a> {
                     }
                     Some(false) => {
                         fix_rounds += 1;
-                        host.on_event(Event::Fixing { attempt: fix_rounds, of: self.config.max_fix_rounds });
+                        host.on_event(Event::Fixing {
+                            attempt: fix_rounds,
+                            of: self.config.max_fix_rounds,
+                        });
                         report.verified = Some(false);
-                        self.history.push(Message { role: Role::User, content: vec![ContentBlock::Text { text: summary }] });
+                        self.history.push(Message {
+                            role: Role::User,
+                            content: vec![ContentBlock::Text { text: summary }],
+                        });
                         continue;
                     }
                 }
@@ -764,18 +956,28 @@ impl<'a> Agent<'a> {
 
             // Subagents of this round run first, all at the same time.
             let mut sub_results: HashMap<String, ToolOutput> = HashMap::new();
-            let subs: Vec<sub::SubTask> = calls.iter().filter(|(_, n, _)| n == "agent").map(|(id, _, input)| sub::SubTask::from_input(id, input)).collect();
+            let subs: Vec<sub::SubTask> = calls
+                .iter()
+                .filter(|(_, n, _)| n == "agent")
+                .map(|(id, _, input)| sub::SubTask::from_input(id, input))
+                .collect();
             if !subs.is_empty() && !truncated && handoff.is_none() {
                 if self.depth > 0 {
                     for s in subs {
-                        sub_results.insert(s.id, ToolOutput::err("a subagent cannot start other subagents; do the work yourself"));
+                        sub_results.insert(
+                            s.id,
+                            ToolOutput::err(
+                                "a subagent cannot start other subagents; do the work yourself",
+                            ),
+                        );
                     }
                 } else {
                     for (_, name, input) in calls.iter().filter(|(_, n, _)| n == "agent") {
                         host.on_event(Event::ToolStart { name, input });
                     }
                     host.on_event(Event::Waiting("agents"));
-                    sub_results.extend(sub::run_all(self.provider, self.tools, &self.config, subs).await);
+                    sub_results
+                        .extend(sub::run_all(self.provider, self.tools, &self.config, subs).await);
                 }
             }
             // The reads of this round run together: they change nothing, so
@@ -787,10 +989,20 @@ impl<'a> Agent<'a> {
                     .iter()
                     .filter(|(id, n, i)| {
                         !sub_results.contains_key(id)
-                            && !matches!(n.as_str(), "agent" | "propose_plan" | "ask_user" | "tasks")
+                            && !matches!(
+                                n.as_str(),
+                                "agent" | "propose_plan" | "ask_user" | "tasks"
+                            )
                             && i.get(INVALID_JSON_KEY).is_none()
                             && coturbo_tools::tier(n) == coturbo_tools::Tier::Read
-                            && approval::resolve(n, coturbo_tools::Tier::Read, i, &self.config.approval, &self.grants, self.plan_mode) == Verdict::Allow
+                            && approval::resolve(
+                                n,
+                                coturbo_tools::Tier::Read,
+                                i,
+                                &self.config.approval,
+                                &self.grants,
+                                self.plan_mode,
+                            ) == Verdict::Allow
                     })
                     .cloned()
                     .collect();
@@ -798,23 +1010,41 @@ impl<'a> Agent<'a> {
                     for (_, name, input) in &reads {
                         host.on_event(Event::ToolStart { name, input });
                     }
-                    let (root, tools, hook_list) = (self.tools.root().to_path_buf(), self.tools, &self.config.hooks);
-                    let done = futures_util::future::join_all(reads.iter().map(|(id, name, input)| {
-                        let root = &root;
-                        async move {
-                            if let hooks::Verdict::Block(why) = hooks::before(hook_list, root, name, input).await {
-                                return (id.clone(), ToolOutput::err(format!("blocked by a hook: {why}")));
+                    let (root, tools, hook_list) = (
+                        self.tools.root().to_path_buf(),
+                        self.tools,
+                        &self.config.hooks,
+                    );
+                    let done =
+                        futures_util::future::join_all(reads.iter().map(|(id, name, input)| {
+                            let root = &root;
+                            async move {
+                                if let hooks::Verdict::Block(why) =
+                                    hooks::before(hook_list, root, name, input).await
+                                {
+                                    return (
+                                        id.clone(),
+                                        ToolOutput::err(format!("blocked by a hook: {why}")),
+                                    );
+                                }
+                                let mut out = tools.call(name, input).await;
+                                let notes = hooks::after(
+                                    hook_list,
+                                    root,
+                                    name,
+                                    input,
+                                    &out.content,
+                                    out.is_error,
+                                )
+                                .await;
+                                if !notes.is_empty() {
+                                    out.content.push('\n');
+                                    out.content.push_str(&notes);
+                                }
+                                (id.clone(), out)
                             }
-                            let mut out = tools.call(name, input).await;
-                            let notes = hooks::after(hook_list, root, name, input, &out.content, out.is_error).await;
-                            if !notes.is_empty() {
-                                out.content.push('\n');
-                                out.content.push_str(&notes);
-                            }
-                            (id.clone(), out)
-                        }
-                    }))
-                    .await;
+                        }))
+                        .await;
                     read_results.extend(done);
                 }
             }
@@ -824,7 +1054,9 @@ impl<'a> Agent<'a> {
             for (id, name, input) in calls {
                 let mut diff = None;
                 let out = if truncated {
-                    ToolOutput::err("tool call was cut off by the output limit; not executed — retry with a smaller input")
+                    ToolOutput::err(
+                        "tool call was cut off by the output limit; not executed — retry with a smaller input",
+                    )
                 } else if let Some(raw) = input.get(INVALID_JSON_KEY) {
                     ToolOutput::err(format!("invalid JSON input, not executed: {raw}"))
                 } else if handoff.is_some() {
@@ -834,17 +1066,27 @@ impl<'a> Agent<'a> {
                 } else if let Some(out) = read_results.remove(&id) {
                     out
                 } else {
-                    host.on_event(Event::ToolStart { name: &name, input: &input });
+                    host.on_event(Event::ToolStart {
+                        name: &name,
+                        input: &input,
+                    });
                     if name == "propose_plan" {
                         let (out, h) = self.propose_plan(&input, host).await;
                         handoff = h;
                         out
                     } else if name == "ask_user" {
                         let question = input["question"].as_str().unwrap_or("").to_string();
-                        let options: Vec<String> = input["options"].as_array().into_iter().flatten().filter_map(|o| o.as_str().map(str::to_string)).collect();
+                        let options: Vec<String> = input["options"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|o| o.as_str().map(str::to_string))
+                            .collect();
                         match host.ask_user(&question, &options).await {
                             Some(answer) => ToolOutput::ok(format!("The user answered: {answer}")),
-                            None => ToolOutput::err("there is no one to ask right now; decide with your best judgement and say what you chose"),
+                            None => ToolOutput::err(
+                                "there is no one to ask right now; decide with your best judgement and say what you chose",
+                            ),
                         }
                     } else {
                         let (out, d) = self.gated_call(&name, &input, host).await;
@@ -859,18 +1101,36 @@ impl<'a> Agent<'a> {
                     report.edited.insert(p.replace('\\', "/"));
                 }
                 let diff = diff.filter(|_| !out.is_error);
-                host.on_event(Event::ToolEnd { name: &name, input: &input, output: &out, diff: diff.as_deref() });
+                host.on_event(Event::ToolEnd {
+                    name: &name,
+                    input: &input,
+                    output: &out,
+                    diff: diff.as_deref(),
+                });
                 let mut content = out.content;
                 if self.config.vision {
-                    images.extend(out.images.into_iter().map(|(media_type, data)| ContentBlock::Image { media_type, data }));
+                    images.extend(
+                        out.images
+                            .into_iter()
+                            .map(|(media_type, data)| ContentBlock::Image { media_type, data }),
+                    );
                 } else if !out.images.is_empty() {
-                    content.push_str("\n(this model cannot see images; the screenshot was saved for the user)");
+                    content.push_str(
+                        "\n(this model cannot see images; the screenshot was saved for the user)",
+                    );
                 }
-                results.push(ContentBlock::ToolResult { tool_use_id: id, content, is_error: out.is_error });
+                results.push(ContentBlock::ToolResult {
+                    tool_use_id: id,
+                    content,
+                    is_error: out.is_error,
+                });
             }
             // Images after every result: tool results must come first.
             results.extend(images);
-            self.history.push(Message { role: Role::User, content: results });
+            self.history.push(Message {
+                role: Role::User,
+                content: results,
+            });
             if handoff.is_some() {
                 break Stop::Done;
             }
@@ -880,33 +1140,68 @@ impl<'a> Agent<'a> {
     }
 
     /// Shows the proposed plan to the user and applies their choice.
-    async fn propose_plan(&mut self, input: &Value, host: &mut dyn Host) -> (ToolOutput, Option<Handoff>) {
+    async fn propose_plan(
+        &mut self,
+        input: &Value,
+        host: &mut dyn Host,
+    ) -> (ToolOutput, Option<Handoff>) {
         if !self.plan_mode {
-            return (ToolOutput::err("plan mode is not active; carry on with the task"), None);
+            return (
+                ToolOutput::err("plan mode is not active; carry on with the task"),
+                None,
+            );
         }
         let slug = input["slug"].as_str().unwrap_or("");
         let Some(path) = plan::plan_path(slug) else {
-            return (ToolOutput::err(format!("invalid slug `{slug}`: use letters, digits, `-` or `_`")), None);
+            return (
+                ToolOutput::err(format!(
+                    "invalid slug `{slug}`: use letters, digits, `-` or `_`"
+                )),
+                None,
+            );
         };
-        let read = self.tools.resolve(&path).and_then(|p| std::fs::read_to_string(p).map_err(|e| e.to_string()));
+        let read = self
+            .tools
+            .resolve(&path)
+            .and_then(|p| std::fs::read_to_string(p).map_err(|e| e.to_string()));
         let content = match read {
             Ok(c) if !c.trim().is_empty() => c,
-            Ok(_) => return (ToolOutput::err(format!("{path} is empty; write the plan first")), None),
-            Err(e) => return (ToolOutput::err(format!("cannot read {path}: {e}; write the plan first")), None),
+            Ok(_) => {
+                return (
+                    ToolOutput::err(format!("{path} is empty; write the plan first")),
+                    None,
+                );
+            }
+            Err(e) => {
+                return (
+                    ToolOutput::err(format!("cannot read {path}: {e}; write the plan first")),
+                    None,
+                );
+            }
         };
         let window = u64::from(self.config.context_window.max(1));
         let context_pct = (self.last_prompt.saturating_mul(100) / window).min(100) as u32;
-        let review = PlanReview { slug: slug.to_string(), path: path.clone(), content, context_pct };
+        let review = PlanReview {
+            slug: slug.to_string(),
+            path: path.clone(),
+            content,
+            context_pct,
+        };
         let mut choice = host.review_plan(&review).await;
         if choice == PlanChoice::KeepContext && !review.keep_context_allowed() {
             choice = PlanChoice::Compact;
-            host.on_event(Event::Notice("context above 95%: compacting before implementing"));
+            host.on_event(Event::Notice(
+                "context above 95%: compacting before implementing",
+            ));
         }
         match choice {
             PlanChoice::Refine(feedback) => (ToolOutput::ok(plan::refine_message(&feedback)), None),
             PlanChoice::SaveQuit => {
                 self.plan_mode = false;
-                (ToolOutput::ok(plan::saved_message(&path)), Some(Handoff::Saved))
+                (
+                    ToolOutput::ok(plan::saved_message(&path)),
+                    Some(Handoff::Saved),
+                )
             }
             PlanChoice::KeepContext => {
                 self.plan_mode = false;
@@ -924,7 +1219,10 @@ impl<'a> Agent<'a> {
                     .unwrap_or(review.content);
                 let prompt = plan::execute_prompt(&path, &content);
                 let compact = choice == PlanChoice::Compact;
-                (ToolOutput::ok(plan::APPROVED_HANDOFF), Some(Handoff::Run { compact, prompt }))
+                (
+                    ToolOutput::ok(plan::APPROVED_HANDOFF),
+                    Some(Handoff::Run { compact, prompt }),
+                )
             }
         }
     }
@@ -951,7 +1249,11 @@ impl<'a> Agent<'a> {
             }
         }
         if !rejected.is_empty() {
-            let list = rejected.iter().map(|r| format!("- {r}")).collect::<Vec<_>>().join("\n");
+            let list = rejected
+                .iter()
+                .map(|r| format!("- {r}"))
+                .collect::<Vec<_>>()
+                .join("\n");
             return (
                 Some(false),
                 format!(
@@ -966,26 +1268,57 @@ impl<'a> Agent<'a> {
         let mut took: Vec<(String, f32)> = Vec::new();
         let report = gate::run_gate_with(&root, &steps, &cfg, &mut |p| match p {
             gate::GateProgress::Started { name, index, total } => {
-                host.on_event(Event::Step { name, phase: StepPhase::Start, index, total, secs: 0.0, expected: known.get(name).copied() });
+                host.on_event(Event::Step {
+                    name,
+                    phase: StepPhase::Start,
+                    index,
+                    total,
+                    secs: 0.0,
+                    expected: known.get(name).copied(),
+                });
             }
-            gate::GateProgress::Finished { result, index, total, secs } => {
-                let phase = if result.ok { StepPhase::Passed } else { StepPhase::Failed };
+            gate::GateProgress::Finished {
+                result,
+                index,
+                total,
+                secs,
+            } => {
+                let phase = if result.ok {
+                    StepPhase::Passed
+                } else {
+                    StepPhase::Failed
+                };
                 if result.ok && !result.skipped {
                     took.push((result.name.clone(), secs));
                 }
-                host.on_event(Event::Step { name: &result.name, phase, index, total, secs, expected: known.get(&result.name).copied() });
+                host.on_event(Event::Step {
+                    name: &result.name,
+                    phase,
+                    index,
+                    total,
+                    secs,
+                    expected: known.get(&result.name).copied(),
+                });
             }
         })
         .await;
         self.step_secs.extend(took);
-        let ok = if report.nothing_ran() { None } else { Some(report.ok()) };
+        let ok = if report.nothing_ran() {
+            None
+        } else {
+            Some(report.ok())
+        };
         if edited.iter().any(|f| coturbo_design::fiscal::is_ui_file(f)) {
             host.on_event(Event::Waiting("design"));
         }
         match coturbo_design::review(&root, edited).await {
             // Interface files changed: the design review counts like a gate step.
             Some(design) => {
-                let summary = if report.nothing_ran() { design.summary } else { format!("{}\n{}", report.summary(), design.summary) };
+                let summary = if report.nothing_ran() {
+                    design.summary
+                } else {
+                    format!("{}\n{}", report.summary(), design.summary)
+                };
                 (Some(ok.unwrap_or(true) && design.ok), summary)
             }
             None => (ok, report.summary()),
@@ -994,9 +1327,21 @@ impl<'a> Agent<'a> {
 
     /// Applies the approval policy, asking the host when needed. Returns the
     /// output and, for edit tools, the diff they apply.
-    async fn gated_call(&mut self, name: &str, input: &Value, host: &mut dyn Host) -> (ToolOutput, Option<String>) {
+    async fn gated_call(
+        &mut self,
+        name: &str,
+        input: &Value,
+        host: &mut dyn Host,
+    ) -> (ToolOutput, Option<String>) {
         let tier = coturbo_tools::tier(name);
-        let verdict = approval::resolve(name, tier, input, &self.config.approval, &self.grants, self.plan_mode);
+        let verdict = approval::resolve(
+            name,
+            tier,
+            input,
+            &self.config.approval,
+            &self.grants,
+            self.plan_mode,
+        );
         if let Verdict::Deny(why) = verdict {
             return (ToolOutput::err(format!("denied: {why}")), None);
         }
@@ -1007,7 +1352,12 @@ impl<'a> Agent<'a> {
             None => None,
         };
         if verdict == Verdict::Prompt {
-            let req = ApprovalRequest { tool: name.to_string(), tier, input: input.clone(), preview: preview.clone() };
+            let req = ApprovalRequest {
+                tool: name.to_string(),
+                tier,
+                input: input.clone(),
+                preview: preview.clone(),
+            };
             match host.approve(&req).await {
                 Decision::Once => {}
                 Decision::Session => self.grants.grant(name, input),
@@ -1025,15 +1375,26 @@ impl<'a> Agent<'a> {
             && let Ok(abs) = self.tools.resolve(p)
             && let Ok(rel) = abs.strip_prefix(self.tools.root())
         {
-            self.snapshot.record(self.tools.root(), &rel.to_string_lossy());
+            self.snapshot
+                .record(self.tools.root(), &rel.to_string_lossy());
         }
         self.checkpoint(name, input);
         let root = self.tools.root().to_path_buf();
-        if let hooks::Verdict::Block(why) = hooks::before(&self.config.hooks, &root, name, input).await {
+        if let hooks::Verdict::Block(why) =
+            hooks::before(&self.config.hooks, &root, name, input).await
+        {
             return (ToolOutput::err(format!("blocked by a hook: {why}")), None);
         }
         let mut out = self.tools.call(name, input).await;
-        let notes = hooks::after(&self.config.hooks, &root, name, input, &out.content, out.is_error).await;
+        let notes = hooks::after(
+            &self.config.hooks,
+            &root,
+            name,
+            input,
+            &out.content,
+            out.is_error,
+        )
+        .await;
         if !notes.is_empty() {
             out.content.push('\n');
             out.content.push_str(&notes);

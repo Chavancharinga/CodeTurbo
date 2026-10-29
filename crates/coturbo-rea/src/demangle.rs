@@ -19,7 +19,9 @@ pub fn demangle(name: &str) -> String {
         }
     }
     if name.starts_with("_Z") || name.starts_with("__Z") {
-        let opts = cpp_demangle::DemangleOptions::new().no_params().no_return_type();
+        let opts = cpp_demangle::DemangleOptions::new()
+            .no_params()
+            .no_return_type();
         if let Ok(sym) = cpp_demangle::Symbol::new(name)
             && let Ok(s) = sym.demangle_with_options(&opts)
         {
@@ -46,7 +48,10 @@ mod tests {
 
     #[test]
     fn msvc_vira_classe_metodo() {
-        assert_eq!(demangle("?OnSkew@CPaintTool@@QEAAXW4SkewDirection@@H@Z"), "CPaintTool::OnSkew");
+        assert_eq!(
+            demangle("?OnSkew@CPaintTool@@QEAAXW4SkewDirection@@H@Z"),
+            "CPaintTool::OnSkew"
+        );
     }
 
     #[test]

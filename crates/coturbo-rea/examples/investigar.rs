@@ -5,7 +5,9 @@
 async fn main() {
     let mut args = std::env::args().skip(1);
     let target = args.next().expect("uso: investigar <alvo> [pergunta]");
-    let question = args.next().unwrap_or_else(|| "o que este programa faz e como funciona".to_string());
+    let question = args
+        .next()
+        .unwrap_or_else(|| "o que este programa faz e como funciona".to_string());
     let root = std::env::current_dir().unwrap();
     match coturbo_rea::investigate(&root, &target, &question).await {
         Ok(report) => {

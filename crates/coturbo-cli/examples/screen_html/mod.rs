@@ -20,7 +20,6 @@ fn hex(c: Color, default: &str) -> String {
     }
 }
 
-
 /// The screen as an HTML page.
 /// Only the `<pre>` of the screen, to put several on one page.
 pub fn fragment(buf: &Buffer) -> String {
@@ -34,7 +33,9 @@ pub fn fragment(buf: &Buffer) -> String {
             let c = &buf[(x, y)];
             let key = (c.fg, c.bg, c.modifier);
             let mut text = String::new();
-            while x < buf.area.width && (buf[(x, y)].fg, buf[(x, y)].bg, buf[(x, y)].modifier) == key {
+            while x < buf.area.width
+                && (buf[(x, y)].fg, buf[(x, y)].bg, buf[(x, y)].modifier) == key
+            {
                 text.push_str(buf[(x, y)].symbol());
                 x += 1;
             }
@@ -56,5 +57,8 @@ pub fn fragment(buf: &Buffer) -> String {
 
 /// The screen as a whole HTML page.
 pub fn html(buf: &Buffer) -> String {
-    format!("<!doctype html><meta charset=utf-8><body style='margin:0;background:#0d1117'>{}", fragment(buf))
+    format!(
+        "<!doctype html><meta charset=utf-8><body style='margin:0;background:#0d1117'>{}",
+        fragment(buf)
+    )
 }

@@ -10,8 +10,19 @@ use std::time::Duration;
 use tokio_tungstenite::tungstenite::Message;
 
 pub(crate) async fn info(ip: IpAddr) -> Result<Value, String> {
-    let v: Value = http().get(format!("http://{ip}:8001/api/v2/")).send().await.map_err(|e| e.to_string())?.json().await.map_err(|e| e.to_string())?;
-    if v["device"].is_object() { Ok(v["device"].clone()) } else { Err("not a Samsung TV".into()) }
+    let v: Value = http()
+        .get(format!("http://{ip}:8001/api/v2/"))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .json()
+        .await
+        .map_err(|e| e.to_string())?;
+    if v["device"].is_object() {
+        Ok(v["device"].clone())
+    } else {
+        Err("not a Samsung TV".into())
+    }
 }
 
 /// Well-known Tizen app ids.
@@ -60,19 +71,29 @@ fn remote_key(code: &str) -> Message {
 async fn connect(ip: IpAddr) -> Result<Socket, String> {
     use base64::Engine;
     let name = base64::engine::general_purpose::STANDARD.encode("CodeTurbo");
-    let token = load_secret("samsung", ip).map(|t| format!("&token={t}")).unwrap_or_default();
+    let token = load_secret("samsung", ip)
+        .map(|t| format!("&token={t}"))
+        .unwrap_or_default();
     let url = format!("wss://{ip}:8002/api/v2/channels/samsung.remote.control?name={name}{token}");
     let mut ws = match websocket(&url).await {
         Ok(ws) => ws,
         // Older models only have the plain socket.
-        Err(_) => websocket(&format!("ws://{ip}:8001/api/v2/channels/samsung.remote.control?name={name}")).await?,
+        Err(_) => {
+            websocket(&format!(
+                "ws://{ip}:8001/api/v2/channels/samsung.remote.control?name={name}"
+            ))
+            .await?
+        }
     };
     // Up to 30 s for someone to press Allow on the TV.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     loop {
         let msg = tokio::time::timeout_at(deadline, ws.next())
             .await
-            .map_err(|_| "the TV did not answer: accept \"CodeTurbo\" on the TV screen and try again".to_string())?
+            .map_err(|_| {
+                "the TV did not answer: accept \"CodeTurbo\" on the TV screen and try again"
+                    .to_string()
+            })?
             .ok_or("the TV closed the connection")?
             .map_err(|e| e.to_string())?;
         let Message::Text(text) = msg else { continue };
@@ -84,7 +105,12 @@ async fn connect(ip: IpAddr) -> Result<Socket, String> {
                 }
                 return Ok(ws);
             }
-            Some("ms.channel.unauthorized") => return Err("the TV refused: allow \"CodeTurbo\" in the TV's Device Connection Manager".into()),
+            Some("ms.channel.unauthorized") => {
+                return Err(
+                    "the TV refused: allow \"CodeTurbo\" in the TV's Device Connection Manager"
+                        .into(),
+                );
+            }
             _ => {}
         }
     }
@@ -103,7 +129,9 @@ async fn press(ip: IpAddr, codes: &[String]) -> Result<(), String> {
 async fn installed(ip: IpAddr) -> Result<Vec<(String, String)>, String> {
     let mut ws = connect(ip).await?;
     let ask = json!({"method": "ms.channel.emit", "params": {"event": "ed.installedApp.get", "to": "host"}});
-    ws.send(Message::Text(ask.to_string().into())).await.map_err(|e| e.to_string())?;
+    ws.send(Message::Text(ask.to_string().into()))
+        .await
+        .map_err(|e| e.to_string())?;
     let deadline = tokio::time::Instant::now() + Duration::from_secs(8);
     while let Ok(Some(Ok(msg))) = tokio::time::timeout_at(deadline, ws.next()).await {
         let Message::Text(text) = msg else { continue };
@@ -114,7 +142,12 @@ async fn installed(ip: IpAddr) -> Result<Vec<(String, String)>, String> {
                 .as_array()
                 .into_iter()
                 .flatten()
-                .filter_map(|a| Some((a["name"].as_str()?.to_string(), a["appId"].as_str()?.to_string())))
+                .filter_map(|a| {
+                    Some((
+                        a["name"].as_str()?.to_string(),
+                        a["appId"].as_str()?.to_string(),
+                    ))
+                })
                 .collect());
         }
     }
@@ -135,13 +168,18 @@ async fn launch(ip: IpAddr, app: &str) -> Result<String, String> {
         }
     };
     // The REST call works on most models; the remote socket on the rest.
-    let rest = http().post(format!("http://{ip}:8001/api/v2/applications/{id}")).send().await;
+    let rest = http()
+        .post(format!("http://{ip}:8001/api/v2/applications/{id}"))
+        .send()
+        .await;
     if rest.as_ref().is_ok_and(|r| r.status().is_success()) {
         return Ok(format!("{app} opened"));
     }
     let mut ws = connect(ip).await?;
     let msg = json!({"method": "ms.channel.emit", "params": {"event": "ed.apps.launch", "to": "host", "data": {"appId": id, "action_type": "DEEP_LINK"}}});
-    ws.send(Message::Text(msg.to_string().into())).await.map_err(|e| e.to_string())?;
+    ws.send(Message::Text(msg.to_string().into()))
+        .await
+        .map_err(|e| e.to_string())?;
     let _ = ws.close(None).await;
     Ok(format!("{app} opened"))
 }
@@ -158,7 +196,10 @@ pub(crate) async fn control(ip: IpAddr, action: &Action) -> Result<String, Strin
                 s("OS"),
                 s("PowerState"),
                 s("wifiMac"),
-                d["firmwareVersion"].as_str().or(d["FirmwareVersion"].as_str()).unwrap_or("not reported"),
+                d["firmwareVersion"]
+                    .as_str()
+                    .or(d["FirmwareVersion"].as_str())
+                    .unwrap_or("not reported"),
             ))
         }
         Action::Apps => {
@@ -167,12 +208,24 @@ pub(crate) async fn control(ip: IpAddr, action: &Action) -> Result<String, Strin
             Ok(format!("{} apps: {}", list.len(), list.join(", ")))
         }
         Action::Launch { app, .. } => launch(ip, app).await,
-        Action::Key(k) => press(ip, &[key_code(k)]).await.map(|_| format!("{} pressed", key_code(k))),
-        Action::PowerOff => press(ip, &["KEY_POWER".into()]).await.map(|_| "turned off".into()),
-        Action::VolumeUp(n) => press(ip, &vec!["KEY_VOLUP".to_string(); (*n).max(1) as usize]).await.map(|_| format!("volume up {n}")),
-        Action::VolumeDown(n) => press(ip, &vec!["KEY_VOLDOWN".to_string(); (*n).max(1) as usize]).await.map(|_| format!("volume down {n}")),
-        Action::Mute => press(ip, &["KEY_MUTE".into()]).await.map(|_| "mute toggled".into()),
-        Action::SetVolume(_) => Err("Samsung TVs only take volume up and down steps over the network".into()),
+        Action::Key(k) => press(ip, &[key_code(k)])
+            .await
+            .map(|_| format!("{} pressed", key_code(k))),
+        Action::PowerOff => press(ip, &["KEY_POWER".into()])
+            .await
+            .map(|_| "turned off".into()),
+        Action::VolumeUp(n) => press(ip, &vec!["KEY_VOLUP".to_string(); (*n).max(1) as usize])
+            .await
+            .map(|_| format!("volume up {n}")),
+        Action::VolumeDown(n) => press(ip, &vec!["KEY_VOLDOWN".to_string(); (*n).max(1) as usize])
+            .await
+            .map(|_| format!("volume down {n}")),
+        Action::Mute => press(ip, &["KEY_MUTE".into()])
+            .await
+            .map(|_| "mute toggled".into()),
+        Action::SetVolume(_) => {
+            Err("Samsung TVs only take volume up and down steps over the network".into())
+        }
         Action::PowerOn { .. } => unreachable!("handled before"),
     }
 }

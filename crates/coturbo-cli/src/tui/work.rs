@@ -74,7 +74,8 @@ impl Work {
                 state: u.state,
                 note: u.note,
                 started: now,
-                took: matches!(u.state, StageState::Done | StageState::Failed).then_some(Duration::ZERO),
+                took: matches!(u.state, StageState::Done | StageState::Failed)
+                    .then_some(Duration::ZERO),
                 expected: u.expected,
             });
             return;
@@ -92,7 +93,9 @@ impl Work {
                 row.started = now;
                 row.took = None;
             }
-            (StageState::Running, StageState::Done | StageState::Failed) => row.took = Some(now.saturating_duration_since(row.started)),
+            (StageState::Running, StageState::Done | StageState::Failed) => {
+                row.took = Some(now.saturating_duration_since(row.started))
+            }
             _ => {}
         }
     }
@@ -102,7 +105,9 @@ impl Work {
         if self.stages.is_empty() && self.tasks.is_empty() {
             return false;
         }
-        busy || self.touched.is_some_and(|t| now.saturating_duration_since(t) < LINGER)
+        busy || self
+            .touched
+            .is_some_and(|t| now.saturating_duration_since(t) < LINGER)
     }
 
     /// The panel's lines for a screen `width` wide at time `now`.
@@ -128,7 +133,9 @@ impl Work {
 }
 
 fn lerp(a: (u8, u8, u8), b: (u8, u8, u8), t: f32) -> Color {
-    let m = |x: u8, y: u8| (f32::from(x) + (f32::from(y) - f32::from(x)) * t.clamp(0.0, 1.0)).round() as u8;
+    let m = |x: u8, y: u8| {
+        (f32::from(x) + (f32::from(y) - f32::from(x)) * t.clamp(0.0, 1.0)).round() as u8
+    };
     Color::Rgb(m(a.0, b.0), m(a.1, b.1), m(a.2, b.2))
 }
 
@@ -153,13 +160,25 @@ fn stage_line(row: &StageRow, width: usize, bar_w: usize, now: Instant, ms: u128
     let mut spans = vec![
         Span::styled(glyph, Style::new().fg(base).add_modifier(Modifier::BOLD)),
         Span::raw(" "),
-        Span::styled(format!("{:<7}", row.name), Style::new().fg(if row.state == StageState::Pending { DIM } else { SOFT }).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            format!("{:<7}", row.name),
+            Style::new()
+                .fg(if row.state == StageState::Pending {
+                    DIM
+                } else {
+                    SOFT
+                })
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::raw(" "),
     ];
     for i in 0..bar_w {
         if i < filled {
             let hot = row.state == StageState::Running && i.abs_diff(glint.saturating_sub(4)) <= 1;
-            spans.push(Span::styled("█", Style::new().fg(if hot { SOFT } else { base })));
+            spans.push(Span::styled(
+                "█",
+                Style::new().fg(if hot { SOFT } else { base }),
+            ));
         } else {
             spans.push(Span::styled("░", Style::new().fg(EMPTY)));
         }
@@ -173,7 +192,13 @@ fn stage_line(row: &StageRow, width: usize, bar_w: usize, now: Instant, ms: u128
     if !row.note.is_empty() && width > used + 4 {
         let room = width - used - 2;
         let note: String = if row.note.chars().count() > room {
-            format!("{}…", row.note.chars().take(room.saturating_sub(1)).collect::<String>())
+            format!(
+                "{}…",
+                row.note
+                    .chars()
+                    .take(room.saturating_sub(1))
+                    .collect::<String>()
+            )
         } else {
             row.note.clone()
         };
@@ -189,32 +214,62 @@ fn task_lines(tasks: &[TaskItem], width: usize, ms: u128) -> Vec<Line<'static>> 
         Span::styled(format!("  {done}/{}", tasks.len()), Style::new().fg(DIM)),
     ])];
     // With many steps, the window follows the one in progress.
-    let doing = tasks.iter().position(|t| t.state == TaskState::Doing).or_else(|| tasks.iter().position(|t| t.state == TaskState::Pending)).unwrap_or(0);
-    let start = if tasks.len() <= MAX_TASKS { 0 } else { doing.saturating_sub(2).min(tasks.len() - MAX_TASKS) };
+    let doing = tasks
+        .iter()
+        .position(|t| t.state == TaskState::Doing)
+        .or_else(|| tasks.iter().position(|t| t.state == TaskState::Pending))
+        .unwrap_or(0);
+    let start = if tasks.len() <= MAX_TASKS {
+        0
+    } else {
+        doing.saturating_sub(2).min(tasks.len() - MAX_TASKS)
+    };
     for t in tasks.iter().skip(start).take(MAX_TASKS) {
         let (glyph, color, bold) = match t.state {
             TaskState::Done => ("✓".to_string(), GREEN, false),
-            TaskState::Doing => (SPIN[(ms / 90) as usize % SPIN.len()].to_string(), BLUE, true),
+            TaskState::Doing => (
+                SPIN[(ms / 90) as usize % SPIN.len()].to_string(),
+                BLUE,
+                true,
+            ),
             TaskState::Pending => ("○".to_string(), DIM, false),
         };
         let room = width.saturating_sub(8);
         let title: String = if t.title.chars().count() > room {
-            format!("{}…", t.title.chars().take(room.saturating_sub(1)).collect::<String>())
+            format!(
+                "{}…",
+                t.title
+                    .chars()
+                    .take(room.saturating_sub(1))
+                    .collect::<String>()
+            )
         } else {
             t.title.clone()
         };
-        let mut style = Style::new().fg(if t.state == TaskState::Pending { DIM } else { SOFT });
+        let mut style = Style::new().fg(if t.state == TaskState::Pending {
+            DIM
+        } else {
+            SOFT
+        });
         if t.state == TaskState::Done {
             style = style.fg(DIM);
         }
         if bold {
             style = style.add_modifier(Modifier::BOLD);
         }
-        out.push(Line::from(vec![Span::raw("  "), Span::styled(glyph, Style::new().fg(color)), Span::raw(" "), Span::styled(title, style)]));
+        out.push(Line::from(vec![
+            Span::raw("  "),
+            Span::styled(glyph, Style::new().fg(color)),
+            Span::raw(" "),
+            Span::styled(title, style),
+        ]));
     }
     let hidden = tasks.len().saturating_sub(MAX_TASKS);
     if hidden > 0 {
-        out.push(Line::styled(format!("    … and {hidden} more"), Style::new().fg(DIM)));
+        out.push(Line::styled(
+            format!("    … and {hidden} more"),
+            Style::new().fg(DIM),
+        ));
     }
     out
 }

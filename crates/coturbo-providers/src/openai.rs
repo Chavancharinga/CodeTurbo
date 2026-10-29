@@ -1,8 +1,8 @@
 //! OpenAI-compatible Chat Completions (OpenAI, OpenRouter, Ollama, ...).
 
 use crate::{
-    BoxFuture, ContentBlock, Delta, Provider, ProviderError, Request, Response, Role, TextSink, Usage,
-    http, parse_tool_input,
+    BoxFuture, ContentBlock, Delta, Provider, ProviderError, Request, Response, Role, TextSink,
+    Usage, http, parse_tool_input,
 };
 use serde_json::{Value, json};
 
@@ -15,7 +15,11 @@ pub struct OpenAiCompat {
 impl OpenAiCompat {
     /// `base_url` up to and including the version, e.g. `https://api.openai.com/v1`.
     pub fn new(base_url: impl Into<String>, api_key: Option<String>) -> Self {
-        Self { client: http::client(), api_key, base_url: base_url.into() }
+        Self {
+            client: http::client(),
+            api_key,
+            base_url: base_url.into(),
+        }
     }
 
     pub fn openai() -> Result<Self, ProviderError> {
@@ -62,7 +66,9 @@ pub fn build_body(req: &Request) -> Value {
                 }
                 if !images.is_empty() {
                     // Tool messages carry text only: images follow as a user message.
-                    let mut content = vec![json!({"type": "text", "text": if text.is_empty() { "Image attached." } else { text.as_str() }})];
+                    let mut content = vec![
+                        json!({"type": "text", "text": if text.is_empty() { "Image attached." } else { text.as_str() }}),
+                    ];
                     content.extend(images);
                     messages.push(json!({"role": "user", "content": content}));
                 } else if !text.is_empty() {
@@ -100,9 +106,11 @@ pub fn build_body(req: &Request) -> Value {
         body["tools"] = req
             .tools
             .iter()
-            .map(|t| json!({"type": "function", "function": {
-                "name": t.name, "description": t.description, "parameters": t.input_schema,
-            }}))
+            .map(|t| {
+                json!({"type": "function", "function": {
+                    "name": t.name, "description": t.description, "parameters": t.input_schema,
+                }})
+            })
             .collect();
     }
     body
@@ -137,7 +145,9 @@ impl StreamAcc {
         }
         if let Some(us) = ev.get("usage").filter(|u| u.is_object()) {
             let prompt = us["prompt_tokens"].as_u64().unwrap_or(0);
-            let cached = us["prompt_tokens_details"]["cached_tokens"].as_u64().unwrap_or(0);
+            let cached = us["prompt_tokens_details"]["cached_tokens"]
+                .as_u64()
+                .unwrap_or(0);
             self.usage = Usage {
                 input: prompt.saturating_sub(cached),
                 cache_write: 0,
@@ -145,7 +155,9 @@ impl StreamAcc {
                 output: us["completion_tokens"].as_u64().unwrap_or(0),
             };
         }
-        let Some(choice) = ev["choices"].get(0) else { return Ok(None) };
+        let Some(choice) = ev["choices"].get(0) else {
+            return Ok(None);
+        };
         if let Some(r) = choice["finish_reason"].as_str() {
             self.finish = r.to_string();
         }
@@ -166,10 +178,17 @@ impl StreamAcc {
             if let Some(a) = tc["function"]["arguments"].as_str() {
                 c.args.push_str(a);
             }
-            composing = Some(Delta::Composing { tool: c.name.clone(), path: crate::partial_path(&c.args), chars: c.args.len(), code: crate::partial_code(&c.args) });
+            composing = Some(Delta::Composing {
+                tool: c.name.clone(),
+                path: crate::partial_path(&c.args),
+                chars: c.args.len(),
+                code: crate::partial_code(&c.args),
+            });
         }
         // Reasoning models (DeepSeek, OpenRouter, ...) stream it beside content.
-        let reasoning = d["reasoning_content"].as_str().or_else(|| d["reasoning"].as_str());
+        let reasoning = d["reasoning_content"]
+            .as_str()
+            .or_else(|| d["reasoning"].as_str());
         if let Some(r) = reasoning.filter(|r| !r.is_empty()) {
             return Ok(Some(Delta::Thinking(r.to_string())));
         }
@@ -189,7 +208,11 @@ impl StreamAcc {
         }
         let has_calls = !self.calls.is_empty();
         for c in self.calls {
-            content.push(ContentBlock::ToolUse { id: c.id, name: c.name, input: parse_tool_input(&c.args) });
+            content.push(ContentBlock::ToolUse {
+                id: c.id,
+                name: c.name,
+                input: parse_tool_input(&c.args),
+            });
         }
         let stop_reason = match self.finish.as_str() {
             "tool_calls" => "tool_use".to_string(),
@@ -198,7 +221,11 @@ impl StreamAcc {
             "stop" | "" => "end_turn".to_string(),
             other => other.to_string(),
         };
-        Response { content, stop_reason, usage: self.usage }
+        Response {
+            content,
+            stop_reason,
+            usage: self.usage,
+        }
     }
 }
 
@@ -230,7 +257,12 @@ impl Provider for OpenAiCompat {
                     let mut rb = self.client.post(&url).json(&body);
                     if self.base_url.contains("openrouter.ai") {
                         // App attribution: lists CodeTurbo in OpenRouter's app rankings.
-                        rb = rb.header("HTTP-Referer", "https://github.com/Chavancharinga/CodeTurbo").header("X-Title", "CodeTurbo");
+                        rb = rb
+                            .header(
+                                "HTTP-Referer",
+                                "https://github.com/Chavancharinga/CodeTurbo",
+                            )
+                            .header("X-Title", "CodeTurbo");
                     }
                     match &self.api_key {
                         Some(k) => rb.bearer_auth(k),

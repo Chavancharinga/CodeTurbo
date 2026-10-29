@@ -31,13 +31,26 @@ async fn main() {
     std::fs::create_dir_all(&site).unwrap();
     std::fs::write(site.join("index.html"), SITE).unwrap();
     let browser = coturbo_design::render::find_browser().expect("Edge ou Chrome");
-    let mut b = Browser::open_with(&browser, (880, 560), true).await.expect("abre a janela");
-    let url = std::env::args().nth(1).unwrap_or_else(|| "index.html".into());
+    let mut b = Browser::open_with(&browser, (880, 560), true)
+        .await
+        .expect("abre a janela");
+    let url = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "index.html".into());
     let steps: Vec<Vec<Action>> = vec![
         vec![Action::Open(url), Action::Wait(1200)],
-        vec![Action::Click(Target::Text("Adicionar ao carrinho".into())), Action::Wait(700)],
-        vec![Action::Fill(Target::Selector("#mail".into()), "ana@exemplo.com".into()), Action::Wait(500)],
-        vec![Action::Click(Target::Text("Fazer pedido".into())), Action::Wait(9000)],
+        vec![
+            Action::Click(Target::Text("Adicionar ao carrinho".into())),
+            Action::Wait(700),
+        ],
+        vec![
+            Action::Fill(Target::Selector("#mail".into()), "ana@exemplo.com".into()),
+            Action::Wait(500),
+        ],
+        vec![
+            Action::Click(Target::Text("Fazer pedido".into())),
+            Action::Wait(9000),
+        ],
     ];
     for s in steps {
         let r = b.run(&site, &s, &mut |_| {}).await.expect("passo");

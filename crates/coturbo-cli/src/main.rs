@@ -10,7 +10,12 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 #[derive(Parser)]
-#[command(name = "codeturbo", version, about = "A coding agent that delivers verified code for fewer tokens. With no subcommand it opens the interface.", disable_help_subcommand = true)]
+#[command(
+    name = "codeturbo",
+    version,
+    about = "A coding agent that delivers verified code for fewer tokens. With no subcommand it opens the interface.",
+    disable_help_subcommand = true
+)]
 struct Cli {
     /// Task sent as soon as the interface opens.
     prompt: Option<String>,
@@ -121,7 +126,10 @@ const STACK: usize = 32 * 1024 * 1024;
 
 fn main() -> ExitCode {
     let run = || {
-        let rt = tokio::runtime::Builder::new_multi_thread().enable_all().thread_stack_size(STACK).build();
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .thread_stack_size(STACK)
+            .build();
         match rt {
             Ok(rt) => rt.block_on(start()),
             Err(e) => {
@@ -130,7 +138,11 @@ fn main() -> ExitCode {
             }
         }
     };
-    match std::thread::Builder::new().name("codeturbo".into()).stack_size(STACK).spawn(run) {
+    match std::thread::Builder::new()
+        .name("codeturbo".into())
+        .stack_size(STACK)
+        .spawn(run)
+    {
         Ok(t) => t.join().unwrap_or(ExitCode::FAILURE),
         Err(_) => run(),
     }
@@ -150,7 +162,10 @@ async fn start() -> ExitCode {
 /// The update check's result, waiting at most a moment for it: it runs
 /// while the intro plays, so it is usually ready.
 async fn update_notice(check: Option<tokio::task::JoinHandle<Option<String>>>) -> Option<String> {
-    let tag = tokio::time::timeout(std::time::Duration::from_millis(1500), check?).await.ok()?.ok()??;
+    let tag = tokio::time::timeout(std::time::Duration::from_millis(1500), check?)
+        .await
+        .ok()?
+        .ok()??;
     Some(update::notice(&tag))
 }
 
@@ -190,10 +205,24 @@ async fn real_main(cli: Cli) -> Result<ExitCode, String> {
     };
     if cli.cmd.is_none() {
         if !(std::io::stdin().is_terminal() && std::io::stdout().is_terminal()) {
-            return Err("the interface needs a terminal; for a task without it use: codeturbo run \"...\"".into());
+            return Err(
+                "the interface needs a terminal; for a task without it use: codeturbo run \"...\""
+                    .into(),
+            );
         }
         let (plan, verbose, prompt) = (cli.opts.plan, cli.opts.verbose, cli.prompt);
-        return session::run(Launch { cfg, prices, dir, root, mode, plan, verbose, prompt, update: check }).await;
+        return session::run(Launch {
+            cfg,
+            prices,
+            dir,
+            root,
+            mode,
+            plan,
+            verbose,
+            prompt,
+            update: check,
+        })
+        .await;
     }
     if matches!(cli.cmd, Some(Cmd::Run { .. })) {
         let mut trust = settings::Trust::load(dir.as_deref());
@@ -206,10 +235,15 @@ async fn real_main(cli: Cli) -> Result<ExitCode, String> {
                 ));
             }
             eprintln!("First time in this folder: {}", root.display());
-            eprint!("CodeTurbo will read, change files and run commands here. Trust this folder? [y/N] ");
+            eprint!(
+                "CodeTurbo will read, change files and run commands here. Trust this folder? [y/N] "
+            );
             let mut answer = String::new();
             let _ = std::io::stdin().read_line(&mut answer);
-            if !matches!(answer.trim().to_lowercase().as_str(), "s" | "sim" | "y" | "yes") {
+            if !matches!(
+                answer.trim().to_lowercase().as_str(),
+                "s" | "sim" | "y" | "yes"
+            ) {
                 return Err("folder not trusted".into());
             }
             trust.add(dir.as_deref(), &root)?;
@@ -218,7 +252,11 @@ async fn real_main(cli: Cli) -> Result<ExitCode, String> {
     let creds = settings::Credentials::load(dir.as_deref());
     let provider = config::make_provider(&cfg, settings::api_key(&cfg.provider, &creds))?;
     provider.warm(&cfg.model, cfg.effort.as_deref());
-    let pricer = Pricer { table: prices, model: cfg.model.clone(), provider: cfg.provider.clone() };
+    let pricer = Pricer {
+        table: prices,
+        model: cfg.model.clone(),
+        provider: cfg.provider.clone(),
+    };
     let mut host = TermHost {
         verbose: cli.opts.verbose,
         pricer: Some(pricer.clone()),
@@ -253,11 +291,25 @@ async fn real_main(cli: Cli) -> Result<ExitCode, String> {
             if let Some(msg) = update_notice(check.take()).await {
                 eprintln!("\x1b[33m{msg}\x1b[0m");
             }
-            let ok = matches!(report.stop, Stop::Done | Stop::PlanSaved) && report.verified != Some(false);
-            Ok(if ok { ExitCode::SUCCESS } else { ExitCode::FAILURE })
+            let ok = matches!(report.stop, Stop::Done | Stop::PlanSaved)
+                && report.verified != Some(false);
+            Ok(if ok {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::FAILURE
+            })
         }
-        Some(Cmd::Bench { tasks, fixture, modes, out, only }) => {
-            let modes = modes.split(',').map(|m| parse_mode(m.trim())).collect::<Result<Vec<Mode>, _>>()?;
+        Some(Cmd::Bench {
+            tasks,
+            fixture,
+            modes,
+            out,
+            only,
+        }) => {
+            let modes = modes
+                .split(',')
+                .map(|m| parse_mode(m.trim()))
+                .collect::<Result<Vec<Mode>, _>>()?;
             let mut tasks = bench::load_tasks(&tasks)?;
             if let Some(f) = &only {
                 tasks.retain(|t| t.id.contains(f.as_str()));
@@ -266,7 +318,10 @@ async fn real_main(cli: Cli) -> Result<ExitCode, String> {
                 return Err("no task to run".into());
             }
             // Bench runs unattended in throwaway copies of the fixture.
-            let acfg = AgentConfig { approval: ApprovalConfig::yolo(), ..agent_config(&cfg)? };
+            let acfg = AgentConfig {
+                approval: ApprovalConfig::yolo(),
+                ..agent_config(&cfg)?
+            };
             let mut runs = Vec::new();
             for task in &tasks {
                 for &m in &modes {
@@ -290,7 +345,8 @@ async fn real_main(cli: Cli) -> Result<ExitCode, String> {
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_secs())
                 .unwrap_or(0);
-            let json = serde_json::to_string_pretty(&bench::to_json(&cfg.model, &runs)).map_err(|e| e.to_string())?;
+            let json = serde_json::to_string_pretty(&bench::to_json(&cfg.model, &runs))
+                .map_err(|e| e.to_string())?;
             let md = bench::markdown(&cfg.model, &runs);
             let (jp, mp) = (out.join(format!("{ts}.json")), out.join(format!("{ts}.md")));
             std::fs::write(&jp, json).map_err(|e| format!("{}: {e}", jp.display()))?;
@@ -299,6 +355,8 @@ async fn real_main(cli: Cli) -> Result<ExitCode, String> {
             eprintln!("gravados {} e {}", jp.display(), mp.display());
             Ok(ExitCode::SUCCESS)
         }
-        Some(Cmd::Splash | Cmd::Update) | None => unreachable!("handled before the provider is built"),
+        Some(Cmd::Splash | Cmd::Update) | None => {
+            unreachable!("handled before the provider is built")
+        }
     }
 }

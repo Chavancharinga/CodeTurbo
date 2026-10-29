@@ -93,26 +93,42 @@ struct Session {
 
 impl Session {
     async fn open(ip: IpAddr) -> Result<Session, String> {
-        let tcp = tokio::time::timeout(Duration::from_secs(4), tokio::net::TcpStream::connect((ip, 8009)))
-            .await
-            .map_err(|_| "the TV did not answer on the Cast port".to_string())?
-            .map_err(|e| format!("no Google Cast on {ip} ({e})"))?;
+        let tcp = tokio::time::timeout(
+            Duration::from_secs(4),
+            tokio::net::TcpStream::connect((ip, 8009)),
+        )
+        .await
+        .map_err(|_| "the TV did not answer on the Cast port".to_string())?
+        .map_err(|e| format!("no Google Cast on {ip} ({e})"))?;
         let name = rustls::pki_types::ServerName::IpAddress(ip.into());
-        let stream = tokio_rustls::TlsConnector::from(super::lan_tls()).connect(name, tcp).await.map_err(|e| e.to_string())?;
+        let stream = tokio_rustls::TlsConnector::from(super::lan_tls())
+            .connect(name, tcp)
+            .await
+            .map_err(|e| e.to_string())?;
         let mut s = Session { stream, next_id: 1 };
-        s.send("receiver-0", CONNECTION, json!({"type": "CONNECT"})).await?;
+        s.send("receiver-0", CONNECTION, json!({"type": "CONNECT"}))
+            .await?;
         Ok(s)
     }
 
     async fn send(&mut self, to: &str, ns: &str, payload: Value) -> Result<(), String> {
-        self.stream.write_all(&encode("sender-0", to, ns, &payload.to_string())).await.map_err(|e| e.to_string())
+        self.stream
+            .write_all(&encode("sender-0", to, ns, &payload.to_string()))
+            .await
+            .map_err(|e| e.to_string())
     }
 
     async fn read(&mut self) -> Result<(String, Value), String> {
         let mut len = [0u8; 4];
-        self.stream.read_exact(&mut len).await.map_err(|e| e.to_string())?;
+        self.stream
+            .read_exact(&mut len)
+            .await
+            .map_err(|e| e.to_string())?;
         let mut body = vec![0u8; u32::from_be_bytes(len) as usize];
-        self.stream.read_exact(&mut body).await.map_err(|e| e.to_string())?;
+        self.stream
+            .read_exact(&mut body)
+            .await
+            .map_err(|e| e.to_string())?;
         let (ns, payload) = decode(&body).ok_or("unreadable Cast message")?;
         Ok((ns, serde_json::from_str(&payload).unwrap_or(Value::Null)))
     }
@@ -125,14 +141,20 @@ impl Session {
         self.send(to, ns, payload).await?;
         let deadline = tokio::time::Instant::now() + Duration::from_secs(8);
         loop {
-            let (ns, v) = tokio::time::timeout_at(deadline, self.read()).await.map_err(|_| "the TV did not answer".to_string())??;
+            let (ns, v) = tokio::time::timeout_at(deadline, self.read())
+                .await
+                .map_err(|_| "the TV did not answer".to_string())??;
             if ns == HEARTBEAT && v["type"] == "PING" {
-                self.send("receiver-0", HEARTBEAT, json!({"type": "PONG"})).await?;
+                self.send("receiver-0", HEARTBEAT, json!({"type": "PONG"}))
+                    .await?;
                 continue;
             }
             if v["requestId"].as_u64() == Some(id) {
                 if v["type"] == "INVALID_REQUEST" || v["type"] == "LAUNCH_ERROR" {
-                    return Err(format!("the TV refused: {}", v["reason"].as_str().unwrap_or("invalid request")));
+                    return Err(format!(
+                        "the TV refused: {}",
+                        v["reason"].as_str().unwrap_or("invalid request")
+                    ));
                 }
                 return Ok(v);
             }
@@ -140,18 +162,36 @@ impl Session {
     }
 
     async fn status(&mut self) -> Result<Value, String> {
-        Ok(self.request("receiver-0", RECEIVER, json!({"type": "GET_STATUS"})).await?["status"].clone())
+        Ok(self
+            .request("receiver-0", RECEIVER, json!({"type": "GET_STATUS"}))
+            .await?["status"]
+            .clone())
     }
 
     /// Play or pause what the running app is playing.
     async fn media(&mut self, command: &str) -> Result<(), String> {
         let status = self.status().await?;
         let app = status["applications"].get(0).ok_or("nothing is playing")?;
-        let transport = app["transportId"].as_str().ok_or("the app has no media channel")?.to_string();
-        self.send(&transport, CONNECTION, json!({"type": "CONNECT"})).await?;
-        let m = self.request(&transport, MEDIA, json!({"type": "GET_STATUS"})).await?;
-        let session = m["status"].get(0).and_then(|s| s["mediaSessionId"].as_u64()).ok_or("nothing is playing in the app")?;
-        self.request(&transport, MEDIA, json!({"type": command, "mediaSessionId": session})).await.map(|_| ())
+        let transport = app["transportId"]
+            .as_str()
+            .ok_or("the app has no media channel")?
+            .to_string();
+        self.send(&transport, CONNECTION, json!({"type": "CONNECT"}))
+            .await?;
+        let m = self
+            .request(&transport, MEDIA, json!({"type": "GET_STATUS"}))
+            .await?;
+        let session = m["status"]
+            .get(0)
+            .and_then(|s| s["mediaSessionId"].as_u64())
+            .ok_or("nothing is playing in the app")?;
+        self.request(
+            &transport,
+            MEDIA,
+            json!({"type": command, "mediaSessionId": session}),
+        )
+        .await
+        .map(|_| ())
     }
 }
 
@@ -168,21 +208,35 @@ fn app_id(app: &str) -> Option<&'static str> {
 
 fn describe(status: &Value) -> String {
     let vol = &status["volume"];
-    let level = vol["level"].as_f64().map(|l| format!("volume {}%", (l * 100.0).round())).unwrap_or_default();
-    let muted = if vol["muted"].as_bool() == Some(true) { " (muted)" } else { "" };
+    let level = vol["level"]
+        .as_f64()
+        .map(|l| format!("volume {}%", (l * 100.0).round()))
+        .unwrap_or_default();
+    let muted = if vol["muted"].as_bool() == Some(true) {
+        " (muted)"
+    } else {
+        ""
+    };
     let app = status["applications"].get(0).map(|a| {
         let name = a["displayName"].as_str().unwrap_or("an app");
-        match a["statusText"].as_str().filter(|t| !t.is_empty() && *t != name) {
+        match a["statusText"]
+            .as_str()
+            .filter(|t| !t.is_empty() && *t != name)
+        {
             Some(t) => format!("showing {name}: {t}"),
             None => format!("showing {name}"),
         }
     });
-    format!("{level}{muted} · {}", app.unwrap_or_else(|| "nothing open".into()))
+    format!(
+        "{level}{muted} · {}",
+        app.unwrap_or_else(|| "nothing open".into())
+    )
 }
 
 pub(crate) async fn control(ip: IpAddr, action: &Action) -> Result<String, String> {
     let mut s = Session::open(ip).await?;
-    let set_volume = |level: f64| json!({"type": "SET_VOLUME", "volume": {"level": level.clamp(0.0, 1.0)}});
+    let set_volume =
+        |level: f64| json!({"type": "SET_VOLUME", "volume": {"level": level.clamp(0.0, 1.0)}});
     match action {
         Action::Info => {
             let eureka: Value = match super::http().get(format!("http://{ip}:8008/setup/eureka_info")).send().await {
@@ -252,7 +306,12 @@ mod tests {
 
     #[test]
     fn messages_round_trip() {
-        let framed = encode("sender-0", "receiver-0", RECEIVER, r#"{"type":"GET_STATUS","requestId":1}"#);
+        let framed = encode(
+            "sender-0",
+            "receiver-0",
+            RECEIVER,
+            r#"{"type":"GET_STATUS","requestId":1}"#,
+        );
         let len = u32::from_be_bytes(framed[..4].try_into().unwrap()) as usize;
         assert_eq!(len, framed.len() - 4);
         let (ns, payload) = decode(&framed[4..]).unwrap();

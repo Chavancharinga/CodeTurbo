@@ -4,11 +4,19 @@
 pub type Rgb = (u8, u8, u8);
 
 fn to_gamma(x: f64) -> f64 {
-    if x <= 0.003_130_8 { 12.92 * x } else { 1.055 * x.powf(1.0 / 2.4) - 0.055 }
+    if x <= 0.003_130_8 {
+        12.92 * x
+    } else {
+        1.055 * x.powf(1.0 / 2.4) - 0.055
+    }
 }
 
 fn to_linear(x: f64) -> f64 {
-    if x <= 0.040_45 { x / 12.92 } else { ((x + 0.055) / 1.055).powf(2.4) }
+    if x <= 0.040_45 {
+        x / 12.92
+    } else {
+        ((x + 0.055) / 1.055).powf(2.4)
+    }
 }
 
 /// Linear sRGB of an OKLCH color, possibly out of gamut.
@@ -56,7 +64,11 @@ pub fn parse_hex(s: &str) -> Option<Rgb> {
 
 /// OKLCH `(l, c, h)` of an sRGB color.
 pub fn to_oklch((r, g, b): Rgb) -> (f64, f64, f64) {
-    let (r, g, b) = (to_linear(r as f64 / 255.0), to_linear(g as f64 / 255.0), to_linear(b as f64 / 255.0));
+    let (r, g, b) = (
+        to_linear(r as f64 / 255.0),
+        to_linear(g as f64 / 255.0),
+        to_linear(b as f64 / 255.0),
+    );
     let l = (0.412_221_470_8 * r + 0.536_332_536_3 * g + 0.051_445_992_9 * b).cbrt();
     let m = (0.211_903_498_2 * r + 0.680_699_545_1 * g + 0.107_396_956_6 * b).cbrt();
     let s = (0.088_302_461_9 * r + 0.281_718_837_6 * g + 0.629_978_700_5 * b).cbrt();
