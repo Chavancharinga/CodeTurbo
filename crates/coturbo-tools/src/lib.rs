@@ -11,6 +11,7 @@ pub mod skills;
 mod research;
 pub mod sense_window;
 mod web;
+pub mod images;
 mod shell;
 
 use coturbo_providers::ToolSpec;
@@ -59,7 +60,7 @@ pub fn tier(name: &str) -> Tier {
         "read_file" | "read_symbol" | "list_files" | "grep" | "workspace_diagnostics" | "propose_plan" | "tasks" | "network_scan" | "tool_search" | "web_search" | "web_fetch" | "agent" | "recall" | "skill" | "lsp" | "ask_user" | "ci" | "jobs" | "last30days" | "wifi_sense" => Tier::Read,
         "remember" | "forget" | "schedule" => Tier::Write,
         "name_device" => Tier::Write,
-        n if EDIT_TOOLS.contains(&n) || n == "design_brief" || n == "layout_grid" => Tier::Write,
+        n if EDIT_TOOLS.contains(&n) || n == "design_brief" || n == "layout_grid" || n == "find_images" => Tier::Write,
         "design_review" => Tier::Read,
         _ => Tier::Exec,
     }
@@ -286,6 +287,11 @@ impl Tools {
                     }),
                     &["subject", "audience", "tone", "signature"],
                 ),
+            ),
+            spec(
+                "find_images",
+                "Real photos of the subject for a page, with free licences (Wikimedia Commons): searches, downloads the best large ones into assets/images/ and writes their credits to assets/images/CREDITS.md. Call it for any page about something people judge with their eyes (beauty, food, fashion, places, products, people), once per motif (e.g. \"gel nails\", \"nail art\", \"manicure salon\"), before writing the HTML.",
+                obj(json!({"query": s("the subject in two or three words, in English"), "count": {"type": "integer", "description": "how many photos, 1-12 (default 6)"}}), &["query"]),
             ),
             spec(
                 "layout_grid",
@@ -1067,6 +1073,7 @@ impl Tools {
             "design_brief" => self.design_brief(input),
             "design_review" => self.design_review(input).await,
             "layout_grid" => self.layout_grid(input),
+            "find_images" => images::find(&self.root, input).await,
             "investigate" => {
                 let question = input["question"].as_str().unwrap_or("");
                 match coturbo_rea::investigate(&self.root, arg(input, "target").unwrap_or(""), question).await {

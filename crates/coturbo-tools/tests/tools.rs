@@ -610,3 +610,32 @@ async fn layout_grid_places_the_elements_on_every_screen() {
     assert!(read(dir.path(), "layout-preview.html").contains("Layout grid"));
     assert!(t.call("layout_grid", &json!({"elements": []})).await.is_error);
 }
+
+#[test]
+fn commons_answers_become_free_large_photos() {
+    let answer = serde_json::json!({"query": {"pages": {
+        "1": {"index": 2, "title": "File:Gel_nails_red.jpg", "imageinfo": [{"mime": "image/jpeg", "width": 3000, "height": 2000,
+            "thumburl": "https://upload.wikimedia.org/a/1600px-Gel_nails_red.jpg", "thumbwidth": 1600, "thumbheight": 1067,
+            "descriptionurl": "https://commons.wikimedia.org/wiki/File:Gel_nails_red.jpg",
+            "extmetadata": {"LicenseShortName": {"value": "CC BY-SA 4.0"}, "Artist": {"value": "<a href=\"x\">Ana</a>"}, "ImageDescription": {"value": "Red <b>gel</b> nails"}}}]},
+        "2": {"index": 1, "title": "File:Icon.png", "imageinfo": [{"mime": "image/png", "width": 64, "height": 64, "url": "https://x/icon.png", "extmetadata": {"LicenseShortName": {"value": "CC0"}}}]},
+        "3": {"index": 3, "title": "File:Nc.jpg", "imageinfo": [{"mime": "image/jpeg", "width": 2000, "height": 2000, "url": "https://x/nc.jpg", "extmetadata": {"LicenseShortName": {"value": "CC BY-NC 2.0"}}}]}
+    }}});
+    let found = coturbo_tools::images::parse(&answer);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].alt, "Red gel nails");
+    assert_eq!(found[0].author, "Ana");
+    assert_eq!((found[0].width, found[0].height), (1600, 1067));
+}
+
+#[tokio::test]
+#[ignore = "reaches Wikimedia Commons"]
+async fn live_find_images() {
+    let dir = std::path::PathBuf::from(std::env::var("CT_IMAGES_DIR").unwrap_or_else(|_| "target/live-images".into()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let t = Tools::new(&dir, Mode::Ast);
+    let out = t.call("find_images", &json!({"query": "gel nails", "count": 4})).await;
+    println!("{}", out.content);
+    assert!(!out.is_error && out.content.contains("assets/images/gel-nails-1"), "{}", out.content);
+    assert!(dir.join("assets/images/CREDITS.md").exists());
+}

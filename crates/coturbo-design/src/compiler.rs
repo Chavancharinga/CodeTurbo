@@ -266,11 +266,11 @@ pub fn compile(b: &Brief) -> Tokens {
         vec![("sm", pick(0)), ("md", pick(1)), ("lg", pick(2))]
     } else {
         match tone {
-        Tone::Editorial => vec![("sm", 0), ("md", 2), ("lg", 4)],
-        Tone::Technical => vec![("sm", 0), ("md", 3), ("lg", 6)],
+        Tone::Editorial => vec![("sm", 2), ("md", 8), ("lg", 20)],
+        Tone::Technical => vec![("sm", 2), ("md", 6), ("lg", 12)],
         Tone::Playful => vec![("sm", 6), ("md", 14), ("lg", 32)],
-        Tone::Warm => vec![("sm", 4), ("md", 10), ("lg", 22)],
-        Tone::Balanced => vec![("sm", 3), ("md", 8), ("lg", 16)],
+        Tone::Warm => vec![("sm", 6), ("md", 14), ("lg", 28)],
+        Tone::Balanced => vec![("sm", 6), ("md", 12), ("lg", 24)],
         }
     };
     let ink_hex = hex(ink);

@@ -86,7 +86,8 @@ const bold=e=>{const s=getComputedStyle(e);if(/^(IMG|VIDEO|CANVAS|PICTURE)$/.tes
 const H=Math.max(1,document.documentElement.scrollHeight);const spans=[];for(const e of all){const r=R(e);if(r.width>=W*0.5&&bold(e))spans.push([r.top+scrollY,r.bottom+scrollY]);}
 spans.sort((a,b)=>a[0]-b[0]);let cov=0,end=-1e9;for(const [a,b] of spans){if(b<=end)continue;cov+=b-Math.max(a,end);end=b;}
 const colour=(bold(document.body)||bold(document.documentElement))?100:Math.round(cov/H*100);const screens=Math.round(H/innerHeight*10);
-const out=JSON.stringify({colour,screens,rounded,radii:radii.size,shadowed,shadows:shadows.size,centered,text,rows,tiny,overlaps,tight,broken,hscroll,scrollers,small,cut,edge,under,contrast,noalt,unlabeled,nolang,noviewport,longlines,sizes:sizes.size,inks:inks.size,fills:fills.size});host.setAttribute('data-codeturbo',out);console.log('CT_PROBE:'+out);};
+const photos=[...document.querySelectorAll('img,picture,video,body *')].filter(e=>{const r=R(e);if(r.width<240||r.height<160||!vis(e))return false;if(e.tagName==='IMG')return e.naturalWidth>=400;if(/^(VIDEO|PICTURE)$/.test(e.tagName))return true;return /url\(/.test(getComputedStyle(e).backgroundImage);}).length;
+const out=JSON.stringify({colour,screens,photos,rounded,radii:radii.size,shadowed,shadows:shadows.size,centered,text,rows,tiny,overlaps,tight,broken,hscroll,scrollers,small,cut,edge,under,contrast,noalt,unlabeled,nolang,noviewport,longlines,sizes:sizes.size,inks:inks.size,fills:fills.size});host.setAttribute('data-codeturbo',out);console.log('CT_PROBE:'+out);};
 if(document.readyState==='complete')setTimeout(go,300);else addEventListener('load',()=>setTimeout(go,300));})();</script>"#;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -139,6 +140,8 @@ pub struct Metrics {
     pub colour: usize,
     /// The page's height in tenths of a screen.
     pub screens: usize,
+    /// Photos (or videos) drawn at least 240x160.
+    pub photos: usize,
 }
 
 /// Measurements at every screen size checked.
@@ -225,6 +228,7 @@ pub fn parse_metrics(dom: &str) -> Option<Metrics> {
         fills: n("fills"),
         colour: n("colour"),
         screens: n("screens"),
+        photos: n("photos"),
     })
 }
 
@@ -262,7 +266,7 @@ pub fn judge(p: &Page) -> Vec<Finding> {
     let broken = if p.desktop.broken.is_empty() { &p.mobile.broken } else { &p.desktop.broken };
     if !broken.is_empty() {
         add(Severity::P0, "render-broken-image", format!(
-            "image that does not load: {}; without a real file, replace it with an inline SVG illustration or a block made in HTML and CSS, or remove it",
+            "image that does not load: {}; without a real file, get a photo with find_images, or remove it",
             sample(broken)
         ));
     }
@@ -337,6 +341,9 @@ pub fn judge(p: &Page) -> Vec<Finding> {
             "only {}% of the page carries colour, photos or illustrations: the brand lives on the buttons alone; put whole sections on --color-deep, --color-primary or --color-tint (DESIGN.md, colour plan) and show the subject in images or SVG",
             d.colour
         ));
+    }
+    if d.screens >= 40 && d.photos == 0 {
+        add(Severity::P1, "render-no-photos", "a long page with no photograph: it reads as a dated template; show the subject in real photos (the user's, or find_images) in the opening, a gallery and beside the people (DESIGN.md, imagery and art direction)".into());
     }
     let m = &p.desktop;
     if m.rows >= 3 {

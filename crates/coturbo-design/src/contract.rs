@@ -153,10 +153,24 @@ pub fn markdown(t: &Tokens) -> String {
          `--color-tint` and `--color-bg`; the accent marks numerals, ornaments and small details. Keep at least a third \
          of the page off the plain background: the check measures it on the rendered page.\n\n\
          ## Imagery\n\n\
-         A subject people buy with their eyes (beauty, food, fashion, places, products) has to be shown. Use the user's \
-         photos in `<img>` with `aspect-ratio`, `object-fit: cover` and a real alt; without them, draw the subject in \
-         inline SVG or CSS (its shapes, colours and textures, in the palette) at the opening and between sections. \
-         Text and buttons alone do not sell it.\n\n\
+         A subject people buy with their eyes (beauty, food, fashion, places, products, people) has to be shown in \
+         photographs: the user's own, or free ones from `find_images` (call it once per motif before writing the page). \
+         Use them in `<img>` with `aspect-ratio`, `object-fit: cover` and an alt saying what each shows. Line drawings \
+         and icons do not replace a photo; the check refuses a long page with none.\n\n\
+         ## Art direction\n\n\
+         The page must look current, not like a 2010 template of stacked boxes:\n\n\
+         - Opening: a photo that fills at least half the width (or a collage of two or three overlapping photos of \
+         different sizes) beside a very large headline; the headline is the biggest thing on the screen.\n\
+         - Scale contrast: one huge element per section (a photo, a numeral, a quote) against small, quiet text.\n\
+         - At least one bento grid: tiles of different sizes in one block (a large photo tile, a number tile, a quote tile, \
+         a short list tile), not a row of equal cards.\n\
+         - A gallery band of the work (photos edge to edge, or a horizontal strip that scrolls with snap points).\n\
+         - Alternate the layout from section to section: photo left, then right, then full width with the text over a \
+         dark overlay; never the same title-then-boxes block twice in a row.\n\
+         - Photos and tiles get the large radius; buttons are generous (48 px tall or more); the header is solid and \
+         sticks to the top.\n\
+         - Motion with restraint: elements fade and rise as they enter (`@starting-style` or a scroll-driven \
+         animation, off under `prefers-reduced-motion`), photos zoom a little on hover.\n\n\
          ## Copy\n\n\
          Write like a conversion copywriter, in the page's language:\n\n\
          - Headline: the outcome the audience wants, concrete (what they will be able to do or earn, and how soon), \
