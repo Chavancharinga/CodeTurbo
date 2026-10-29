@@ -32,7 +32,7 @@ static CTA: LazyLock<Regex> = LazyLock::new(|| re(r"(?is)<(a|button)\b[^>]*>\s*(
 const GENERIC_CTA: &[&str] = &["saiba mais", "clique aqui", "leia mais", "ver mais", "enviar", "learn more", "click here", "read more", "submit", "more info", "mais informações"];
 static MIDDOTS: LazyLock<Regex> = LazyLock::new(|| re(r">[^<>]*\S\s+·\s+[^<>]*\S\s+·\s+\S[^<>]*<"));
 static PROOF: LazyLock<Regex> = LazyLock::new(|| {
-    re(r"(?i)trusted by|loved by|★★★★★|\b4\.[89]\s*/\s*5\b|\b\d[\d,.]*\s*(k|m)?\+\s*(happy\s+)?(users|customers|teams|companies|developers|businesses|clientes|empresas|usuários)|fatur\w*\s+(de\s+|até\s+)?r\$|ganh\w*\s+(até\s+)?r\$|earn\s+(up\s+to\s+)?\$\d|\$[\d,.]+k?\s*(/|per\s+)month")
+    re(r"(?i)trusted by|loved by|★★★★★|\b4\.[89]\s*/\s*5\b|\b\d[\d,.]*\s*(k|m)?\+\s*(happy\s+)?(users|customers|teams|companies|developers|businesses|clientes|empresas|usuários)|fatur\w*\s+(de\s+|até\s+)?r\$|ganh\w*\s+(até\s+)?r\$|earn\s+(up\s+to\s+)?\$\d|\b\d[\d.,]*\s*(k|mil)?\+?\s*(alunas|alunos|students|clientes atendidas|procedimentos)\b|\b4[.,][5-9]\s*(de\s*5|/\s*5|★|estrelas|stars)|\$[\d,.]+k?\s*(/|per\s+)month")
 });
 static CHROME: LazyLock<Regex> =
     LazyLock::new(|| re(r#"(?i)class(?:Name)?\s*=\s*["'][^"']*\b(traffic-lights?|window-dots|browser-(bar|chrome|header|top)|mac-?dots|window-controls|titlebar-dots)\b"#));
@@ -214,7 +214,7 @@ pub(crate) fn check_markup(text: &str, markup: &str, out: &mut Vec<Finding>) {
         add(Severity::P2, "middot-meta", line_of(text, m.start()), "meta joined with middle dots (`A · B · C`), template punctuation (Hallmark gate 63)".into());
     }
     if let Some(m) = PROOF.find(markup) {
-        add(Severity::P2, "invented-proof", line_of(text, m.start()), format!("\"{}\": a metric, rating or logo wall must be the user's real one (Hallmark gate 46a); otherwise leave it out", m.as_str().trim()));
+        add(Severity::P1, "invented-proof", line_of(text, m.start()), format!("\"{}\": a metric, rating, income or student count must be the user's real one (Hallmark gate 46a); the user gave none, so leave it out or write what the offer includes instead", m.as_str().trim()));
     }
     if let Some((i, name)) = PLACEHOLDER_NAMES.iter().filter_map(|n| lower.find(n).map(|i| (i, *n))).min() {
         add(Severity::P1, "placeholder-name", line_of(text, i), format!("placeholder name \"{name}\" (Hallmark gate 19): use the user's real names or none"));

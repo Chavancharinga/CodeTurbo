@@ -186,7 +186,7 @@ pub fn markdown(t: &Tokens) -> String {
          Then mark the elements: `data-intro` on the opening; `data-reveal` on each section (`data-reveal=\"stagger\"` on a \
          list or grid brings its items in one by one); photos in `<figure class=\"frame\" data-parallax><img …></figure>` drift \
          as the page scrolls (use it on the opening photo and every large photo); `data-zoom` on a photo that grows as it enters; \
-         a gallery strip as `<div class=\"marquee\"><div data-marquee>…photos…</div></div>`. Content stays visible without \
+         a gallery strip of photos (not text tags) as `<div class=\"marquee\"><div data-marquee>…photos…</div></div>`. Content stays visible without \
          the script, and it does nothing under `prefers-reduced-motion`.\n\n\
          ## Icons\n\n\
          Drawn for this style; colour through `color`. Copy the `<svg>` you need into the HTML; never emoji or icon fonts.\n\n\

@@ -551,7 +551,13 @@ fn a_call_to_action_that_fits_any_page_is_flagged() {
 #[test]
 fn an_invented_income_promise_counts_as_invented_proof() {
     let page = "<!doctype html><html lang=\"pt\"><body><p>Aprenda a faturar de R$ 3.000 a R$ 7.000 por mês.</p></body></html>";
-    assert!(fiscal::check("index.html", page, None).iter().any(|f| f.rule == "invented-proof"));
+    assert!(fiscal::check("index.html", page, None).iter().any(|f| f.rule == "invented-proof" && f.blocking()));
+    for claim in ["Mais de 2.400 alunas formadas", "+2.400 alunas", "4.9 de 5 estrelas", "6.000 procedimentos"] {
+        let page = format!("<!doctype html><html lang=\"pt\"><body><p>{claim}</p></body></html>");
+        assert!(fiscal::check("index.html", &page, None).iter().any(|f| f.rule == "invented-proof"), "{claim}");
+    }
+    let honest = "<!doctype html><html lang=\"pt\"><body><p>35 aulas em vídeo e 8 módulos</p></body></html>";
+    assert!(!fiscal::check("index.html", honest, None).iter().any(|f| f.rule == "invented-proof"));
 }
 
 #[test]
