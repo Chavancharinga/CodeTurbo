@@ -141,12 +141,19 @@ fn phone() -> bool {
     std::env::var_os("CODETURBO_NO_WINDOW").is_none() && (cfg!(target_os = "android") || std::env::var_os("TERMUX_VERSION").is_some())
 }
 
-/// Opens the view in the phone's browser: Termux:API's opener, or Android's own.
+/// Opens the view in the phone's browser. Termux's own `am` first: it runs
+/// in the Termux app, which is on screen, so Android lets it open another
+/// app; Termux:API's opener runs in the background, where Android 10 and
+/// later may drop the request without a word.
 fn open_on_phone(port: u16) {
     let url = format!("http://127.0.0.1:{port}/");
-    let quiet = |c: &mut std::process::Command| c.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status().is_ok_and(|s| s.success());
-    if !quiet(std::process::Command::new("termux-open-url").arg(&url)) {
-        quiet(std::process::Command::new("am").args(["start", "-a", "android.intent.action.VIEW", "-d", &url]));
+    let said = |c: &mut std::process::Command| {
+        c.stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null()).output().ok().filter(|o| o.status.success()).map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+    };
+    // `am` says "Error" on its output when the activity did not start.
+    let opened = said(std::process::Command::new("am").args(["start", "-a", "android.intent.action.VIEW", "-d", &url])).is_some_and(|out| !out.contains("Error"));
+    if !opened {
+        said(std::process::Command::new("termux-open-url").arg(&url));
     }
 }
 
