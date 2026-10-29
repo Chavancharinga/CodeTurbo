@@ -86,7 +86,7 @@ pub fn parse(answer: &Value) -> Vec<Found> {
 
 pub(crate) async fn find(root: &Path, input: &Value) -> Res {
     let query = arg(input, "query")?;
-    let count = input["count"].as_u64().unwrap_or(6).clamp(1, 12) as usize;
+    let count = input["count"].as_u64().unwrap_or(8).clamp(1, 12) as usize;
     let http = client()?;
     let url = format!(
         "https://commons.wikimedia.org/w/api.php?action=query&format=json&generator=search&gsrnamespace=6&gsrlimit=40\

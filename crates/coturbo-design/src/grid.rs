@@ -201,8 +201,8 @@ pub fn css(elements: &[Element]) -> String {
     for (name, w, h, from) in SCREENS {
         let g = Grid::for_viewport(w, h);
         let mut block = format!(
-            ".layout {{ display: grid; grid-template-columns: repeat({}, minmax(0, 1fr)); column-gap: {}px; row-gap: {}px; grid-auto-rows: minmax({}px, auto); padding-inline: {}px; align-items: start; }}\n",
-            g.columns, g.gutter, UNIT, g.row - UNIT, g.margin
+            ".layout {{ display: grid; grid-template-columns: repeat({}, minmax(0, 1fr)); column-gap: {}px; row-gap: {}px; grid-auto-rows: auto; padding-inline: {}px; align-items: start; }}\n",
+            g.columns, g.gutter, UNIT, g.margin
         );
         for p in place(elements, &g) {
             let _ = writeln!(block, "#{} {{ grid-column: {} / span {}; grid-row: {} / span {}; min-width: 0; }}", css_id(&p.id), p.col, p.span, p.row, p.rows);

@@ -342,8 +342,11 @@ pub fn judge(p: &Page) -> Vec<Finding> {
             d.colour
         ));
     }
-    if d.screens >= 40 && d.photos == 0 {
-        add(Severity::P1, "render-no-photos", "a long page with no photograph: it reads as a dated template; show the subject in real photos (the user's, or find_images) in the opening, a gallery and beside the people (DESIGN.md, imagery and art direction)".into());
+    if d.screens >= 40 && d.photos < 3 {
+        add(Severity::P1, "render-no-photos", format!(
+            "{} photograph(s) on a long page: it reads as a dated template; show the subject in at least three real photos (the user's, or find_images) in the opening, a gallery and the bento tiles (DESIGN.md, imagery and art direction)",
+            d.photos
+        ));
     }
     let m = &p.desktop;
     if m.rows >= 3 {

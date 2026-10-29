@@ -290,8 +290,8 @@ impl Tools {
             ),
             spec(
                 "find_images",
-                "Real photos of the subject for a page, with free licences (Wikimedia Commons): searches, downloads the best large ones into assets/images/ and writes their credits to assets/images/CREDITS.md. Call it for any page about something people judge with their eyes (beauty, food, fashion, places, products, people), once per motif (e.g. \"gel nails\", \"nail art\", \"manicure salon\"), before writing the HTML.",
-                obj(json!({"query": s("the subject in two or three words, in English"), "count": {"type": "integer", "description": "how many photos, 1-12 (default 6)"}}), &["query"]),
+                "Real photos of the subject for a page, with free licences (Wikimedia Commons): searches, downloads the best large ones into assets/images/ and writes their credits to assets/images/CREDITS.md. Call it for any page about something people judge with their eyes (beauty, food, fashion, places, products, people), once per motif (e.g. \"gel nails\", \"nail art\", \"manicure salon\"), before writing the HTML; a page needs six or more photos (opening, gallery, bento tiles), and the check refuses a long page with fewer than three.",
+                obj(json!({"query": s("the subject in two or three words, in English"), "count": {"type": "integer", "description": "how many photos, 1-12 (default 8)"}}), &["query"]),
             ),
             spec(
                 "layout_grid",
