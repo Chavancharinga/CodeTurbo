@@ -20,9 +20,7 @@ impl<'a> Visit<'a> for Bodies {
 
 pub fn is_js(path: &str) -> bool {
     let p = path.to_ascii_lowercase();
-    [".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts"]
-        .iter()
-        .any(|e| p.ends_with(e))
+    [".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts"].iter().any(|e| p.ends_with(e))
 }
 
 /// The skeleton of `src`, or `None` if it does not parse.

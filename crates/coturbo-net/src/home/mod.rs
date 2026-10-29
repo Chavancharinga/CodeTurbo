@@ -42,21 +42,13 @@ pub enum Act {
     Stop,
     Next,
     Previous,
-    Launch {
-        app: String,
-        content: Option<String>,
-    },
+    Launch { app: String, content: Option<String> },
     Key(String),
     Apps,
     /// MQTT: send `payload` to `topic`.
-    Publish {
-        topic: String,
-        payload: String,
-    },
+    Publish { topic: String, payload: String },
     /// MQTT: what arrives on `topic` (wildcards allowed) for a few seconds.
-    Listen {
-        topic: String,
-    },
+    Listen { topic: String },
 }
 
 /// The protocol a device answers in.
@@ -66,9 +58,7 @@ pub enum Kind {
     /// Google Cast speaker or display (no screen remote).
     Cast,
     Hue,
-    Shelly {
-        gen2: bool,
-    },
+    Shelly { gen2: bool },
     Tasmota,
     Wled,
     Kasa,
@@ -104,21 +94,11 @@ impl Kind {
     /// The actions this kind takes, for menus and for the model.
     pub fn actions(&self) -> &'static [&'static str] {
         match self {
-            Kind::Tv(_) => &[
-                "status", "on", "off", "volume", "mute", "play", "pause", "launch", "key", "apps",
-            ],
-            Kind::Cast => &[
-                "status", "volume", "mute", "play", "pause", "stop", "launch",
-            ],
-            Kind::Hue | Kind::Wled | Kind::Yeelight => {
-                &["status", "on", "off", "toggle", "brightness", "color"]
-            }
-            Kind::Shelly { .. } | Kind::Tasmota | Kind::Kasa => {
-                &["status", "on", "off", "toggle", "brightness"]
-            }
-            Kind::Renderer(_) => &[
-                "status", "play", "pause", "stop", "next", "previous", "volume", "mute",
-            ],
+            Kind::Tv(_) => &["status", "on", "off", "volume", "mute", "play", "pause", "launch", "key", "apps"],
+            Kind::Cast => &["status", "volume", "mute", "play", "pause", "stop", "launch"],
+            Kind::Hue | Kind::Wled | Kind::Yeelight => &["status", "on", "off", "toggle", "brightness", "color"],
+            Kind::Shelly { .. } | Kind::Tasmota | Kind::Kasa => &["status", "on", "off", "toggle", "brightness"],
+            Kind::Renderer(_) => &["status", "play", "pause", "stop", "next", "previous", "volume", "mute"],
             Kind::Printer | Kind::Router(_) => &["status"],
             Kind::Mqtt => &["publish", "listen"],
             Kind::Unknown => &["status"],
@@ -141,12 +121,7 @@ fn last_seen(ip: IpAddr) -> Option<Device> {
 }
 
 pub(crate) fn http() -> reqwest::Client {
-    reqwest::Client::builder()
-        .timeout(Duration::from_secs(4))
-        .no_proxy()
-        .danger_accept_invalid_certs(true)
-        .build()
-        .unwrap_or_default()
+    reqwest::Client::builder().timeout(Duration::from_secs(4)).no_proxy().danger_accept_invalid_certs(true).build().unwrap_or_default()
 }
 
 async fn json_at(url: String) -> Option<serde_json::Value> {
@@ -158,24 +133,14 @@ async fn json_at(url: String) -> Option<serde_json::Value> {
 }
 
 async fn open(ip: IpAddr, port: u16) -> bool {
-    matches!(
-        tokio::time::timeout(
-            Duration::from_millis(700),
-            tokio::net::TcpStream::connect((ip, port))
-        )
-        .await,
-        Ok(Ok(_))
-    )
+    matches!(tokio::time::timeout(Duration::from_millis(700), tokio::net::TcpStream::connect((ip, port))).await, Ok(Ok(_)))
 }
 
 /// Finds out what protocol the device at `ip` speaks.
 pub async fn detect(ip: IpAddr) -> Kind {
     let seen = last_seen(ip);
     let upnp = seen.as_ref().map(|d| d.upnp.clone()).unwrap_or_default();
-    let services: Vec<String> = seen
-        .as_ref()
-        .map(|d| d.services.iter().map(|s| s.kind.clone()).collect())
-        .unwrap_or_default();
+    let services: Vec<String> = seen.as_ref().map(|d| d.services.iter().map(|s| s.kind.clone()).collect()).unwrap_or_default();
     let (shelly, tasmota, wled, hue, kasa, yeelight, mqtt, ipp) = tokio::join!(
         json_at(format!("http://{ip}/shelly")),
         json_at(format!("http://{ip}/cm?cmnd=Status")),
@@ -187,9 +152,7 @@ pub async fn detect(ip: IpAddr) -> Kind {
         open(ip, 631),
     );
     if let Some(s) = shelly.filter(|s| s.get("type").is_some() || s.get("gen").is_some()) {
-        return Kind::Shelly {
-            gen2: s["gen"].as_u64().unwrap_or(1) >= 2,
-        };
+        return Kind::Shelly { gen2: s["gen"].as_u64().unwrap_or(1) >= 2 };
     }
     if tasmota.is_some_and(|t| t.get("Status").is_some()) {
         return Kind::Tasmota;
@@ -212,33 +175,19 @@ pub async fn detect(ip: IpAddr) -> Kind {
         crate::tv::Brand::Unknown => {}
         crate::tv::Brand::Cast => {
             // A Cast device with no screen is a speaker; with one, a TV.
-            let tvish = seen
-                .as_ref()
-                .is_some_and(|d| d.identity.kind.contains("TV"))
-                || services.iter().any(|s| s.contains("androidtvremote"));
+            let tvish = seen.as_ref().is_some_and(|d| d.identity.kind.contains("TV")) || services.iter().any(|s| s.contains("androidtvremote"));
             return if tvish { Kind::Tv(tv) } else { Kind::Cast };
         }
         b => return Kind::Tv(b),
     }
     let controls: Vec<(String, String)> = upnp.iter().flat_map(|u| u.controls.clone()).collect();
-    if controls
-        .iter()
-        .any(|(t, _)| t.contains("AVTransport") || t.contains("RenderingControl"))
-    {
+    if controls.iter().any(|(t, _)| t.contains("AVTransport") || t.contains("RenderingControl")) {
         return Kind::Renderer(controls);
     }
-    if controls.iter().any(|(t, _)| {
-        t.contains("WANIPConnection")
-            || t.contains("WANPPPConnection")
-            || t.contains("WANCommonInterfaceConfig")
-    }) {
+    if controls.iter().any(|(t, _)| t.contains("WANIPConnection") || t.contains("WANPPPConnection") || t.contains("WANCommonInterfaceConfig")) {
         return Kind::Router(controls);
     }
-    if ipp
-        || services
-            .iter()
-            .any(|s| s.starts_with("_ipp") || s.starts_with("_printer"))
-    {
+    if ipp || services.iter().any(|s| s.starts_with("_ipp") || s.starts_with("_printer")) {
         return Kind::Printer;
     }
     if mqtt {
@@ -249,12 +198,7 @@ pub async fn detect(ip: IpAddr) -> Kind {
 
 /// Does `act` on the device at `ip` (`mac` wakes a TV that is off).
 /// `target` picks one light, relay or channel inside the device.
-pub async fn control(
-    ip: IpAddr,
-    mac: Option<String>,
-    act: Act,
-    target: Option<&str>,
-) -> Result<String, String> {
+pub async fn control(ip: IpAddr, mac: Option<String>, act: Act, target: Option<&str>) -> Result<String, String> {
     if !crate::is_private(ip) {
         return Err(format!("{ip} is not on the local network"));
     }
@@ -286,12 +230,7 @@ pub async fn control(
         Kind::Unknown if act == Act::Status => match last_seen(ip) {
             Some(d) => {
                 let id = &d.identity;
-                let what = [id.kind.as_str(), id.brand.as_str(), id.model.as_str()]
-                    .iter()
-                    .filter(|s| !s.is_empty())
-                    .copied()
-                    .collect::<Vec<_>>()
-                    .join(" · ");
+                let what = [id.kind.as_str(), id.brand.as_str(), id.model.as_str()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(" · ");
                 let web = if d.open_ports.contains(&80) {
                     format!("; its own page is http://{ip}/")
                 } else if d.open_ports.contains(&443) {
@@ -301,11 +240,7 @@ pub async fn control(
                 };
                 Ok(format!(
                     "{} at {ip}: answering on the network, with no control protocol this engine speaks{web}",
-                    if what.is_empty() {
-                        "device".to_string()
-                    } else {
-                        what
-                    }
+                    if what.is_empty() { "device".to_string() } else { what }
                 ))
             }
             None => Err(format!("{ip} did not answer")),
@@ -314,13 +249,7 @@ pub async fn control(
             "{ip} does not answer in any protocol this engine knows. Try device_control with its own web API (network_scan shows its open ports and services)."
         )),
     };
-    done.map(|t| {
-        if matches!(kind, Kind::Tv(_) | Kind::Unknown) {
-            t
-        } else {
-            format!("{} · {t}", kind.label())
-        }
-    })
+    done.map(|t| if matches!(kind, Kind::Tv(_) | Kind::Unknown) { t } else { format!("{} · {t}", kind.label()) })
 }
 
 fn tv_action(act: &Act, mac: Option<String>) -> Result<crate::tv::Action, String> {
@@ -338,19 +267,12 @@ fn tv_action(act: &Act, mac: Option<String>) -> Result<crate::tv::Action, String
         Act::Stop => T::Key("stop".into()),
         Act::Next => T::Key("next".into()),
         Act::Previous => T::Key("previous".into()),
-        Act::Launch { app, content } => T::Launch {
-            app: app.clone(),
-            content: content.clone(),
-        },
+        Act::Launch { app, content } => T::Launch { app: app.clone(), content: content.clone() },
         Act::Key(k) => T::Key(k.clone()),
         Act::Apps => T::Apps,
         Act::Toggle => return Err("a TV is switched with on or off".into()),
-        Act::Brightness(_) | Act::Color(..) => {
-            return Err("a TV has no brightness or colour control here".into());
-        }
-        Act::Publish { .. } | Act::Listen { .. } => {
-            return Err("publish and listen are for an MQTT broker".into());
-        }
+        Act::Brightness(_) | Act::Color(..) => return Err("a TV has no brightness or colour control here".into()),
+        Act::Publish { .. } | Act::Listen { .. } => return Err("publish and listen are for an MQTT broker".into()),
     })
 }
 
@@ -363,10 +285,7 @@ pub fn kasa_probe() -> Vec<u8> {
 pub fn kasa_answer(m: &[u8]) -> Option<(String, String)> {
     let v: serde_json::Value = serde_json::from_slice(&lights::kasa_decipher(m)).ok()?;
     let sys = &v["system"]["get_sysinfo"];
-    Some((
-        sys["alias"].as_str()?.to_string(),
-        sys["model"].as_str().unwrap_or("").to_string(),
-    ))
+    Some((sys["alias"].as_str()?.to_string(), sys["model"].as_str().unwrap_or("").to_string()))
 }
 
 /// `#ff8800`, `ff8800`, or a few colour names, as RGB.
@@ -405,10 +324,7 @@ mod tests {
 
     #[test]
     fn tv_actions_map_from_the_general_ones() {
-        assert_eq!(
-            tv_action(&Act::Off, None).unwrap(),
-            crate::tv::Action::PowerOff
-        );
+        assert_eq!(tv_action(&Act::Off, None).unwrap(), crate::tv::Action::PowerOff);
         assert!(tv_action(&Act::Brightness(50), None).is_err());
     }
 }

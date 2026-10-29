@@ -38,11 +38,7 @@ impl Existing {
         let mut rest = Vec::new();
         for c in &self.colors {
             let Some(rgb) = parse_hex(c) else { continue };
-            if hue_sat(rgb).1 > 0.25 && (0.03..0.9).contains(&luminance(rgb)) {
-                chroma.push(c.clone())
-            } else {
-                rest.push(c.clone())
-            }
+            if hue_sat(rgb).1 > 0.25 && (0.03..0.9).contains(&luminance(rgb)) { chroma.push(c.clone()) } else { rest.push(c.clone()) }
         }
         chroma.truncate(3);
         rest.truncate(2);
@@ -52,22 +48,8 @@ impl Existing {
 }
 
 const GENERIC: [&str; 16] = [
-    "sans-serif",
-    "serif",
-    "monospace",
-    "system-ui",
-    "-apple-system",
-    "blinkmacsystemfont",
-    "inherit",
-    "initial",
-    "cursive",
-    "ui-sans-serif",
-    "ui-serif",
-    "ui-monospace",
-    "arial",
-    "helvetica",
-    "segoe ui",
-    "apple color emoji",
+    "sans-serif", "serif", "monospace", "system-ui", "-apple-system", "blinkmacsystemfont", "inherit", "initial", "cursive",
+    "ui-sans-serif", "ui-serif", "ui-monospace", "arial", "helvetica", "segoe ui", "apple color emoji",
 ];
 
 fn bump<K: Ord>(m: &mut BTreeMap<K, usize>, k: K) {
@@ -81,11 +63,7 @@ fn ranked<K: Ord + Clone>(m: BTreeMap<K, usize>, take: usize) -> Vec<K> {
 }
 
 fn px(v: &str) -> Option<u32> {
-    v.trim()
-        .strip_suffix("px")?
-        .parse::<f64>()
-        .ok()
-        .map(|f| f.round() as u32)
+    v.trim().strip_suffix("px")?.parse::<f64>().ok().map(|f| f.round() as u32)
 }
 
 /// Reads the design system from `files` (`(relative path, text)`).
@@ -97,21 +75,12 @@ pub fn from_files(files: &[(String, String)]) -> Existing {
     let mut frameworks = Vec::new();
     let mut sources = Vec::new();
     let font_link = regex::Regex::new(r"family=([A-Za-z0-9+]+)").expect("valid regex");
-    let quoted_font = regex::Regex::new(
-        r#"(?i)font(?:Family)?\s*[:=]\s*\{?[^}\n]*?["']([A-Z][A-Za-z0-9 ]+)["']"#,
-    )
-    .expect("valid regex");
-    let json_color =
-        regex::Regex::new(r#"["']?([a-zA-Z0-9_-]+)["']?\s*:\s*["'](#[0-9a-fA-F]{3,6})["']"#)
-            .expect("valid regex");
+    let quoted_font = regex::Regex::new(r#"(?i)font(?:Family)?\s*[:=]\s*\{?[^}\n]*?["']([A-Z][A-Za-z0-9 ]+)["']"#).expect("valid regex");
+    let json_color = regex::Regex::new(r#"["']?([a-zA-Z0-9_-]+)["']?\s*:\s*["'](#[0-9a-fA-F]{3,6})["']"#).expect("valid regex");
     let mut style_texts: Vec<(String, String)> = Vec::new();
     for (path, text) in files {
         let lower = path.to_ascii_lowercase();
-        let name = lower
-            .rsplit(['/', '\\'])
-            .next()
-            .unwrap_or(&lower)
-            .to_string();
+        let name = lower.rsplit(['/', '\\']).next().unwrap_or(&lower).to_string();
         let mut used = false;
         if name.starts_with("tailwind.config") {
             frameworks.push("Tailwind CSS".to_string());
@@ -135,9 +104,7 @@ pub fn from_files(files: &[(String, String)]) -> Existing {
                     frameworks.push(label.to_string());
                 }
             }
-        } else if lower.ends_with(".json")
-            && (name.contains("token") || name.contains("theme") || name.contains("design"))
-        {
+        } else if lower.ends_with(".json") && (name.contains("token") || name.contains("theme") || name.contains("design")) {
             for c in json_color.captures_iter(text) {
                 tokens.insert(format!("--{}", &c[1]), c[2].to_lowercase());
             }
@@ -162,10 +129,7 @@ pub fn from_files(files: &[(String, String)]) -> Existing {
                 "font-family" => {
                     for fam in value.split(',') {
                         let f = fam.trim().trim_matches(['"', '\'']).to_string();
-                        if !f.is_empty()
-                            && !f.starts_with("var(")
-                            && !GENERIC.contains(&f.to_lowercase().as_str())
-                        {
+                        if !f.is_empty() && !f.starts_with("var(") && !GENERIC.contains(&f.to_lowercase().as_str()) {
                             bump(&mut fonts, f);
                             break;
                         }
@@ -176,11 +140,7 @@ pub fn from_files(files: &[(String, String)]) -> Existing {
                         bump(&mut radii, v);
                     }
                 }
-                p if p.starts_with("padding")
-                    || p.starts_with("margin")
-                    || p == "gap"
-                    || p.ends_with("-gap") =>
-                {
+                p if p.starts_with("padding") || p.starts_with("margin") || p == "gap" || p.ends_with("-gap") => {
                     for tok in value.split_whitespace() {
                         if let Some(v) = px(tok).filter(|v| *v >= 2 && *v <= 160) {
                             bump(&mut spacing, v);
@@ -220,26 +180,15 @@ pub fn scan(root: &Path) -> Existing {
         if !entry.file_type().is_some_and(|t| t.is_file()) {
             continue;
         }
-        let rel = entry
-            .path()
-            .strip_prefix(root)
-            .unwrap_or(entry.path())
-            .to_string_lossy()
-            .replace('\\', "/");
+        let rel = entry.path().strip_prefix(root).unwrap_or(entry.path()).to_string_lossy().replace('\\', "/");
         if rel.starts_with(".codeturbo") || rel.contains("node_modules/") {
             continue;
         }
         let lower = rel.to_ascii_lowercase();
         let wanted = fiscal::is_ui_file(&rel)
             || lower.ends_with("package.json")
-            || lower
-                .rsplit('/')
-                .next()
-                .is_some_and(|n| n.starts_with("tailwind.config"))
-            || (lower.ends_with(".json")
-                && ["token", "theme", "design"]
-                    .iter()
-                    .any(|k| lower.contains(k)));
+            || lower.rsplit('/').next().is_some_and(|n| n.starts_with("tailwind.config"))
+            || (lower.ends_with(".json") && ["token", "theme", "design"].iter().any(|k| lower.contains(k)));
         if !wanted || files.len() >= 80 {
             continue;
         }
@@ -260,44 +209,19 @@ pub fn summary(e: &Existing) -> String {
         lines.push(format!("fonts: {}", e.fonts.join(", ")));
     }
     if !e.radii.is_empty() {
-        lines.push(format!(
-            "radii: {}",
-            e.radii
-                .iter()
-                .map(|r| format!("{r}px"))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
+        lines.push(format!("radii: {}", e.radii.iter().map(|r| format!("{r}px")).collect::<Vec<_>>().join(", ")));
     }
     if !e.spacing.is_empty() {
-        lines.push(format!(
-            "most used spacings: {}",
-            e.spacing
-                .iter()
-                .map(|r| format!("{r}px"))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
+        lines.push(format!("most used spacings: {}", e.spacing.iter().map(|r| format!("{r}px")).collect::<Vec<_>>().join(", ")));
     }
     if !e.tokens.is_empty() {
-        lines.push(format!(
-            "{} design variables already defined",
-            e.tokens.len()
-        ));
+        lines.push(format!("{} design variables already defined", e.tokens.len()));
     }
     if !e.frameworks.is_empty() {
         lines.push(format!("libraries: {}", e.frameworks.join(", ")));
     }
     if !e.sources.is_empty() {
-        lines.push(format!(
-            "read from: {}",
-            e.sources
-                .iter()
-                .take(6)
-                .cloned()
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
+        lines.push(format!("read from: {}", e.sources.iter().take(6).cloned().collect::<Vec<_>>().join(", ")));
     }
     lines.join("\n")
 }

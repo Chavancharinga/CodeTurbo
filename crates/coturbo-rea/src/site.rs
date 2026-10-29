@@ -7,13 +7,7 @@ use regex::Regex;
 use std::path::Path;
 
 fn host(url: &str) -> String {
-    url.split("://")
-        .nth(1)
-        .unwrap_or(url)
-        .split(['/', '?', '#'])
-        .next()
-        .unwrap_or("site")
-        .replace(':', "_")
+    url.split("://").nth(1).unwrap_or(url).split(['/', '?', '#']).next().unwrap_or("site").replace(':', "_")
 }
 
 fn absolute(base: &str, href: &str) -> String {
@@ -23,36 +17,21 @@ fn absolute(base: &str, href: &str) -> String {
         format!("https://{rest}")
     } else {
         let origin: String = base.splitn(4, '/').take(3).collect::<Vec<_>>().join("/");
-        if href.starts_with('/') {
-            format!("{origin}{href}")
-        } else {
-            format!(
-                "{}/{href}",
-                base.trim_end_matches(|c| c != '/').trim_end_matches('/')
-            )
-        }
+        if href.starts_with('/') { format!("{origin}{href}") } else { format!("{}/{href}", base.trim_end_matches(|c| c != '/').trim_end_matches('/')) }
     }
 }
 
 /// What the rendered HTML says about structure and technology.
 pub fn describe(dom: &str) -> String {
     let get = |p: &str| Regex::new(p).expect("valid regex");
-    let title = get(r"(?is)<title[^>]*>(.*?)</title>")
-        .captures(dom)
-        .map(|c| c[1].trim().to_string())
-        .unwrap_or_default();
+    let title = get(r"(?is)<title[^>]*>(.*?)</title>").captures(dom).map(|c| c[1].trim().to_string()).unwrap_or_default();
     let mut r = format!("Title: {title}\n");
     let heads: Vec<String> = get(r"(?is)<h([1-3])[^>]*>(.*?)</h[1-3]>")
         .captures_iter(dom)
         .take(25)
         .map(|c| {
             let text = get(r"<[^>]+>").replace_all(&c[2], "");
-            format!(
-                "{}h{} {}",
-                "  ".repeat(c[1].parse::<usize>().unwrap_or(1) - 1),
-                &c[1],
-                text.split_whitespace().collect::<Vec<_>>().join(" ")
-            )
+            format!("{}h{} {}", "  ".repeat(c[1].parse::<usize>().unwrap_or(1) - 1), &c[1], text.split_whitespace().collect::<Vec<_>>().join(" "))
         })
         .collect();
     if !heads.is_empty() {
@@ -62,10 +41,7 @@ pub fn describe(dom: &str) -> String {
         .captures_iter(dom)
         .take(20)
         .map(|c| {
-            let id = get(r#"id="([^"]+)""#)
-                .captures(&c[2])
-                .map(|m| format!("#{}", &m[1]))
-                .unwrap_or_default();
+            let id = get(r#"id="([^"]+)""#).captures(&c[2]).map(|m| format!("#{}", &m[1])).unwrap_or_default();
             format!("{}{id}", c[1].to_lowercase())
         })
         .collect();
@@ -93,14 +69,8 @@ pub fn describe(dom: &str) -> String {
     if !tech.is_empty() {
         r.push_str(&format!("Technology hints: {}\n", tech.join(", ")));
     }
-    let scripts = get(r#"(?i)<script[^>]+src="([^"]+)""#)
-        .captures_iter(dom)
-        .count();
-    r.push_str(&format!(
-        "Scripts loaded: {scripts}; forms: {}; images: {}\n",
-        dom.matches("<form").count(),
-        dom.matches("<img").count()
-    ));
+    let scripts = get(r#"(?i)<script[^>]+src="([^"]+)""#).captures_iter(dom).count();
+    r.push_str(&format!("Scripts loaded: {scripts}; forms: {}; images: {}\n", dom.matches("<form").count(), dom.matches("<img").count()));
     r
 }
 
@@ -119,10 +89,7 @@ pub async fn inspect(root: &Path, url: &str, question: &str) -> Result<Report, S
         .filter_map(|c| c.get(1).or(c.get(2)).map(|m| absolute(url, &m.as_str().replace("&amp;", "&"))))
         .take(5)
         .collect();
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(15)).build().map_err(|e| e.to_string())?;
     let mut files = vec![("page.html".to_string(), dom.clone())];
     for h in &hrefs {
         if let Ok(resp) = client.get(h).send().await
@@ -137,33 +104,21 @@ pub async fn inspect(root: &Path, url: &str, question: &str) -> Result<Report, S
     }
     let terms = crate::terms(question);
     if !terms.is_empty() {
-        let text = Regex::new(r"(?s)<script.*?</script>|<style.*?</style>|<[^>]+>")
-            .expect("valid regex")
-            .replace_all(&dom, " ");
+        let text = Regex::new(r"(?s)<script.*?</script>|<style.*?</style>|<[^>]+>").expect("valid regex").replace_all(&dom, " ");
         let words: Vec<&str> = text.split_whitespace().collect();
         let mut hits = Vec::new();
         for (i, w) in words.iter().enumerate() {
             if terms.iter().any(|t| w.to_lowercase().contains(t)) && hits.len() < 12 {
-                hits.push(format!(
-                    "  …{}…",
-                    words[i.saturating_sub(10)..(i + 10).min(words.len())].join(" ")
-                ));
+                hits.push(format!("  …{}…", words[i.saturating_sub(10)..(i + 10).min(words.len())].join(" ")));
             }
         }
-        r.push_str(&format!(
-            "Text matching {:?}:\n{}\n",
-            terms,
-            hits.join("\n")
-        ));
+        r.push_str(&format!("Text matching {:?}:\n{}\n", terms, hits.join("\n")));
     }
     let dir = root.join(".codeturbo/rea");
     let stem = host(url);
     let desk = dir.join(format!("{stem}.png"));
     let narrow = dir.join(format!("{stem}-estreito.png"));
-    let (a, b) = tokio::join!(
-        render::screenshot(&browser, url, &desk, render::DESKTOP),
-        render::screenshot(&browser, url, &narrow, (520, 900))
-    );
+    let (a, b) = tokio::join!(render::screenshot(&browser, url, &desk, render::DESKTOP), render::screenshot(&browser, url, &narrow, (520, 900)));
     let mut images = Vec::new();
     for (res, p) in [(a, desk), (b, narrow)] {
         if res.is_ok() {

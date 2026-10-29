@@ -44,27 +44,15 @@ async fn main() {
         Action::Click(Target::Text("Fazer pedido".into())),
     ];
     let mut frames: Vec<Frame> = Vec::new();
-    coturbo_browse::run(&browser, &site, &actions, (880, 560), &mut |f| {
-        frames.push(f)
-    })
-    .await
-    .expect("navegação");
+    coturbo_browse::run(&browser, &site, &actions, (880, 560), &mut |f| frames.push(f)).await.expect("navegação");
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
     let (cancel, _crx) = tokio::sync::mpsc::unbounded_channel();
-    let status = Status {
-        provider: "openrouter".into(),
-        model: "nemotron".into(),
-        approval: "edição livre".into(),
-        folder: "loja".into(),
-        ..Status::default()
-    };
+    let status = Status { provider: "openrouter".into(), model: "nemotron".into(), approval: "edição livre".into(), folder: "loja".into(), ..Status::default() };
     let app = App::new(status, tx, cancel, Arc::new(AtomicBool::new(false)));
     let (out_tx, out_rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(1500));
-        let _ = out_tx.send(Out::Lines(vec![Line::from(vec![Span::raw(
-            "› teste o fluxo de compra da loja",
-        )])]));
+        let _ = out_tx.send(Out::Lines(vec![Line::from(vec![Span::raw("› teste o fluxo de compra da loja")])]));
         let _ = out_tx.send(Out::Busy(Some("browse".into())));
         for f in frames {
             let _ = out_tx.send(Out::Browser(f));

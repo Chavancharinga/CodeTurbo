@@ -6,14 +6,7 @@ use super::http;
 use std::net::IpAddr;
 
 /// Where each family keeps its DIAL apps.
-const BASES: &[(u16, &str)] = &[
-    (8008, "/apps/"),
-    (8080, "/ws/apps/"),
-    (36866, "/apps/"),
-    (8060, "/dial/"),
-    (60000, "/apps/"),
-    (56789, "/apps/"),
-];
+const BASES: &[(u16, &str)] = &[(8008, "/apps/"), (8080, "/ws/apps/"), (36866, "/apps/"), (8060, "/dial/"), (60000, "/apps/"), (56789, "/apps/")];
 
 /// DIAL app names for common apps.
 fn dial_name(app: &str) -> String {
@@ -42,9 +35,7 @@ async fn find(ip: IpAddr, app: &str) -> Option<String> {
 /// Opens `app` (with optional content, e.g. a YouTube video id or search).
 pub(crate) async fn launch(ip: IpAddr, app: &str, content: Option<&str>) -> Result<String, String> {
     let name = dial_name(app);
-    let base = find(ip, &name)
-        .await
-        .ok_or_else(|| format!("this TV does not offer {name} over DIAL"))?;
+    let base = find(ip, &name).await.ok_or_else(|| format!("this TV does not offer {name} over DIAL"))?;
     let body = match content {
         Some(c) if name == "YouTube" => {
             let id = c.rsplit(['=', '/']).next().unwrap_or(c);
@@ -53,13 +44,7 @@ pub(crate) async fn launch(ip: IpAddr, app: &str, content: Option<&str>) -> Resu
         Some(c) => c.to_string(),
         None => String::new(),
     };
-    let r = http()
-        .post(format!("{base}{name}"))
-        .header("Content-Type", "text/plain; charset=utf-8")
-        .body(body)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
+    let r = http().post(format!("{base}{name}")).header("Content-Type", "text/plain; charset=utf-8").body(body).send().await.map_err(|e| e.to_string())?;
     if r.status().is_success() {
         Ok(format!("{name} opened"))
     } else {

@@ -89,15 +89,8 @@ impl Config {
         let mut out = BTreeMap::new();
         for (name, s) in &self.mcp.servers {
             let server = match (&s.url, &s.command) {
-                (Some(url), _) => coturbo_mcp::Server::Http {
-                    url: url.clone(),
-                    headers: s.headers.clone(),
-                },
-                (None, Some(command)) => coturbo_mcp::Server::Stdio {
-                    command: command.clone(),
-                    args: s.args.clone(),
-                    env: s.env.clone(),
-                },
+                (Some(url), _) => coturbo_mcp::Server::Http { url: url.clone(), headers: s.headers.clone() },
+                (None, Some(command)) => coturbo_mcp::Server::Stdio { command: command.clone(), args: s.args.clone(), env: s.env.clone() },
                 (None, None) => continue,
             };
             out.insert(name.clone(), server);
@@ -135,21 +128,14 @@ pub struct ProjectConfig {
 
 impl ProjectConfig {
     pub fn commands(&self) -> Vec<String> {
-        self.verify
-            .iter()
-            .flatten()
-            .chain(self.run.iter())
-            .cloned()
-            .collect()
+        self.verify.iter().flatten().chain(self.run.iter()).cloned().collect()
     }
 }
 
 pub fn load_project(root: &Path) -> Result<Option<ProjectConfig>, String> {
     let p = root.join(".codeturbo.toml");
     match std::fs::read_to_string(&p) {
-        Ok(s) => toml::from_str(&s)
-            .map(Some)
-            .map_err(|e| format!("{}: {e}", p.display())),
+        Ok(s) => toml::from_str(&s).map(Some).map_err(|e| format!("{}: {e}", p.display())),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(format!("{}: {e}", p.display())),
     }
@@ -201,9 +187,7 @@ pub fn config_dir() -> Option<PathBuf> {
 /// Missing files are fine; malformed ones are errors.
 pub fn load(dir: Option<&Path>) -> Result<(Config, PriceTable), String> {
     let mut prices = PriceTable::builtin();
-    let Some(dir) = dir else {
-        return Ok((Config::default(), prices));
-    };
+    let Some(dir) = dir else { return Ok((Config::default(), prices)) };
     let read = |name: &str| -> Result<Option<String>, String> {
         let p = dir.join(name);
         match std::fs::read_to_string(&p) {
@@ -224,11 +208,7 @@ pub fn load(dir: Option<&Path>) -> Result<(Config, PriceTable), String> {
 
 impl Config {
     pub fn gate_config(&self) -> Option<GateConfig> {
-        self.final_gate.then(|| GateConfig {
-            verify: self.verify.clone(),
-            run: self.run.clone(),
-            ..GateConfig::default()
-        })
+        self.final_gate.then(|| GateConfig { verify: self.verify.clone(), run: self.run.clone(), ..GateConfig::default() })
     }
 
     /// Language servers: built-ins overridden or extended by `[lsp.servers.*]`.
@@ -237,10 +217,7 @@ impl Config {
         if !self.diagnostics_on_write && !self.format_on_write {
             return None;
         }
-        let mut cfg = LspConfig {
-            format_on_write: self.format_on_write,
-            ..LspConfig::default()
-        };
+        let mut cfg = LspConfig { format_on_write: self.format_on_write, ..LspConfig::default() };
         for (name, s) in &self.lsp.servers {
             let server = ServerConfig {
                 name: name.clone(),
@@ -270,9 +247,7 @@ pub fn parse_mode(s: &str) -> Result<Mode, String> {
     match s {
         "naive" => Ok(Mode::Naive),
         "ast" => Ok(Mode::Ast),
-        _ => Err(format!(
-            "conjunto de ferramentas desconhecido: `{s}` (use naive ou ast)"
-        )),
+        _ => Err(format!("conjunto de ferramentas desconhecido: `{s}` (use naive ou ast)")),
     }
 }
 
@@ -287,33 +262,21 @@ pub fn mode_name(m: Mode) -> &'static str {
 /// [`crate::settings::api_key`]).
 pub fn make_provider(cfg: &Config, key: Option<String>) -> Result<Box<dyn Provider>, String> {
     let need = |var: &str| {
-        key.clone().ok_or_else(|| {
-            format!("the API key is missing: use /key in the interface or set {var}")
-        })
+        key.clone().ok_or_else(|| format!("the API key is missing: use /key in the interface or set {var}"))
     };
     Ok(match cfg.provider.as_str() {
         "anthropic" => {
-            let base = cfg
-                .base_url
-                .clone()
-                .or_else(|| std::env::var("ANTHROPIC_BASE_URL").ok());
+            let base = cfg.base_url.clone().or_else(|| std::env::var("ANTHROPIC_BASE_URL").ok());
             Box::new(Anthropic::new(need("ANTHROPIC_API_KEY")?, base))
         }
         "openai" => match &cfg.base_url {
             // A compatible server may not need a key.
             Some(url) => Box::new(OpenAiCompat::new(url.clone(), key.clone())),
-            None => Box::new(OpenAiCompat::new(
-                "https://api.openai.com/v1",
-                Some(need("OPENAI_API_KEY")?),
-            )),
+            None => Box::new(OpenAiCompat::new("https://api.openai.com/v1", Some(need("OPENAI_API_KEY")?))),
         },
         id if crate::settings::provider(id).is_some_and(|i| i.base_url.is_some()) => {
             let info = crate::settings::provider(id).expect("checked above");
-            let url = cfg
-                .base_url
-                .clone()
-                .or_else(|| info.base_url.map(str::to_string))
-                .expect("has a default endpoint");
+            let url = cfg.base_url.clone().or_else(|| info.base_url.map(str::to_string)).expect("has a default endpoint");
             let key = match info.key_var {
                 Some(var) => Some(need(var)?),
                 None => None,
@@ -339,11 +302,7 @@ pub fn make_provider(cfg: &Config, key: Option<String>) -> Result<Box<dyn Provid
             }
             Box::new(CliProvider::new(tool))
         }
-        p => {
-            return Err(format!(
-                "unknown provider: `{p}` (anthropic, openai, gemini, openrouter, groq, deepseek, mistral, xai, together, lmstudio, ollama, claude-code, codex)"
-            ));
-        }
+        p => return Err(format!("unknown provider: `{p}` (anthropic, openai, gemini, openrouter, groq, deepseek, mistral, xai, together, lmstudio, ollama, claude-code, codex)")),
     })
 }
 
@@ -351,8 +310,7 @@ pub fn make_provider(cfg: &Config, key: Option<String>) -> Result<Box<dyn Provid
 /// Whether `browse` opens a real window for the user to watch. It does on a
 /// desktop; `CODETURBO_BROWSER=headless` keeps it windowless, `window` forces it.
 /// Set by the screen once it knows the terminal draws real pictures.
-pub static NATIVE_GRAPHICS: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+pub static NATIVE_GRAPHICS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 pub fn browser_window_enabled() -> bool {
     match std::env::var("CODETURBO_BROWSER").ok().as_deref() {
@@ -360,12 +318,7 @@ pub fn browser_window_enabled() -> bool {
         Some("window" | "1") => true,
         // A terminal that draws pictures shows the page itself.
         _ if NATIVE_GRAPHICS.load(std::sync::atomic::Ordering::Relaxed) => false,
-        _ => {
-            cfg!(windows)
-                || cfg!(target_os = "macos")
-                || std::env::var_os("DISPLAY").is_some()
-                || std::env::var_os("WAYLAND_DISPLAY").is_some()
-        }
+        _ => cfg!(windows) || cfg!(target_os = "macos") || std::env::var_os("DISPLAY").is_some() || std::env::var_os("WAYLAND_DISPLAY").is_some(),
     }
 }
 
@@ -374,9 +327,7 @@ pub fn make_tools(root: &Path, mode: Mode, cfg: &Config) -> Tools {
     match cfg.lsp_config() {
         Some(lsp) => {
             let root = tools.root().to_path_buf();
-            tools.with_lsp(std::sync::Arc::new(coturbo_verify::lsp::LspManager::new(
-                &root, lsp,
-            )))
+            tools.with_lsp(std::sync::Arc::new(coturbo_verify::lsp::LspManager::new(&root, lsp)))
         }
         None => tools,
     }
@@ -393,18 +344,8 @@ pub fn agent_config(c: &Config) -> Result<AgentConfig, String> {
         context_window: c.context_window,
         gate: c.gate_config(),
         max_fix_rounds: c.max_fix_rounds,
-        vision: c
-            .vision
-            .unwrap_or_else(|| sees_images(&c.provider, &c.model)),
-        hooks: c
-            .hooks
-            .iter()
-            .map(|h| coturbo_agent::hooks::Hook {
-                event: h.event.clone(),
-                matcher: h.matcher.clone(),
-                command: h.command.clone(),
-            })
-            .collect(),
+        vision: c.vision.unwrap_or_else(|| sees_images(&c.provider, &c.model)),
+        hooks: c.hooks.iter().map(|h| coturbo_agent::hooks::Hook { event: h.event.clone(), matcher: h.matcher.clone(), command: h.command.clone() }).collect(),
     })
 }
 
@@ -420,24 +361,8 @@ pub fn sees_images(provider: &str, model: &str) -> bool {
         "anthropic" => true,
         "openai" => any(&["gpt-4o", "gpt-4.1", "gpt-5", "o3", "o4"]),
         _ => any(&[
-            "claude",
-            "gpt-4o",
-            "gpt-4.1",
-            "gpt-5",
-            "gemini",
-            "gemma3",
-            "gemma4",
-            "gemma-3",
-            "llava",
-            "vision",
-            "-vl",
-            "vl:",
-            "minicpm-v",
-            "moondream",
-            "llama4",
-            "llama-4",
-            "pixtral",
-            "mistral-small3",
+            "claude", "gpt-4o", "gpt-4.1", "gpt-5", "gemini", "gemma3", "gemma4", "gemma-3", "llava", "vision", "-vl", "vl:",
+            "minicpm-v", "moondream", "llama4", "llama-4", "pixtral", "mistral-small3",
         ]),
     }
 }
@@ -452,10 +377,8 @@ pub struct Pricer {
 
 impl Pricer {
     pub fn cost(&self, u: &Usage) -> Option<f64> {
-        self.table.cost(&self.model, u).or_else(|| {
-            (self.provider == "ollama")
-                .then(|| self.table.cost("ollama", u))
-                .flatten()
-        })
+        self.table
+            .cost(&self.model, u)
+            .or_else(|| (self.provider == "ollama").then(|| self.table.cost("ollama", u)).flatten())
     }
 }

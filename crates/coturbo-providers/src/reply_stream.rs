@@ -17,11 +17,7 @@ const REPORT_EVERY: usize = 120;
 /// A string value after `key` (`"name": "write_file"`), once its closing
 /// quote has arrived.
 fn quoted_after(text: &str, key: &str) -> Option<String> {
-    let rest = text[text.find(key)? + key.len()..]
-        .trim_start()
-        .strip_prefix(':')?
-        .trim_start()
-        .strip_prefix('"')?;
+    let rest = text[text.find(key)? + key.len()..].trim_start().strip_prefix(':')?.trim_start().strip_prefix('"')?;
     let mut out = String::new();
     let mut chars = rest.chars();
     while let Some(c) = chars.next() {
@@ -45,8 +41,7 @@ fn invoke_name(call: &str) -> Option<String> {
 fn invoke_path(call: &str) -> Option<String> {
     let tag = "<parameter name=\"path\">";
     let rest = &call[call.find(tag)? + tag.len()..];
-    rest.find("</parameter>")
-        .map(|i| rest[..i].trim().to_string())
+    rest.find("</parameter>").map(|i| rest[..i].trim().to_string())
 }
 
 #[derive(Debug, Default)]
@@ -89,12 +84,7 @@ impl ReplyStream {
                 let longest = MARKERS.iter().map(|m| m.len()).max().unwrap_or(1) - 1;
                 let hold = (1..=rest.len().min(longest))
                     .rev()
-                    .find(|&k| {
-                        rest.is_char_boundary(rest.len() - k)
-                            && MARKERS
-                                .iter()
-                                .any(|m| m.starts_with(&rest[rest.len() - k..]))
-                    })
+                    .find(|&k| rest.is_char_boundary(rest.len() - k) && MARKERS.iter().any(|m| m.starts_with(&rest[rest.len() - k..])))
                     .unwrap_or(0);
                 let end = rest.len() - hold;
                 if end > 0 {
@@ -122,12 +112,7 @@ impl ReplyStream {
                     self.reported = chars.max(1);
                     self.path_reported |= path.is_some();
                     let code = crate::partial_code(seen);
-                    out.push(Delta::Composing {
-                        tool,
-                        path,
-                        chars,
-                        code,
-                    });
+                    out.push(Delta::Composing { tool, path, chars, code });
                 }
             }
             if let Some(len) = closed {
@@ -163,9 +148,7 @@ mod tests {
             for d in ds {
                 match d {
                     Delta::Text(t) => prose.push_str(&t),
-                    Delta::Composing {
-                        tool, path, chars, ..
-                    } => calls.push((tool, path, chars)),
+                    Delta::Composing { tool, path, chars, .. } => calls.push((tool, path, chars)),
                     _ => {}
                 }
             }
@@ -190,10 +173,7 @@ mod tests {
         assert!(!prose.contains("tool_call") && !prose.contains('{'));
         assert_eq!(calls.first().map(|c| c.0.as_str()), Some("write_file"));
         let last = calls.last().unwrap();
-        assert_eq!(
-            (last.0.as_str(), last.1.as_deref()),
-            ("write_file", Some("src/a.rs"))
-        );
+        assert_eq!((last.0.as_str(), last.1.as_deref()), ("write_file", Some("src/a.rs")));
         assert!(last.2 > 20);
     }
 
@@ -204,11 +184,7 @@ mod tests {
         assert!(calls.is_empty());
         // A held-back "<" at the very end still comes out.
         assert_eq!(run(&["x <"]).0, "x <");
-        assert_eq!(
-            run(&["x <tool"]).0,
-            "x <tool",
-            "an unfinished marker at the end is just text"
-        );
+        assert_eq!(run(&["x <tool"]).0, "x <tool", "an unfinished marker at the end is just text");
     }
 
     #[test]
@@ -219,10 +195,7 @@ mod tests {
         ]);
         assert_eq!(prose, "Certo.\n");
         let last = calls.last().unwrap();
-        assert_eq!(
-            (last.0.as_str(), last.1.as_deref()),
-            ("edit_file", Some("src/b.rs"))
-        );
+        assert_eq!((last.0.as_str(), last.1.as_deref()), ("edit_file", Some("src/b.rs")));
     }
 
     #[test]
@@ -233,10 +206,7 @@ mod tests {
         ]);
         assert_eq!(prose, "Primeiro.\n\nDepois.\n");
         let tools: Vec<&str> = calls.iter().map(|c| c.0.as_str()).collect();
-        assert!(
-            tools.contains(&"read_file") && tools.contains(&"grep"),
-            "{tools:?}"
-        );
+        assert!(tools.contains(&"read_file") && tools.contains(&"grep"), "{tools:?}");
     }
 
     #[test]
@@ -248,10 +218,7 @@ mod tests {
         for chunk in big.as_bytes().chunks(10) {
             reports += s.push(std::str::from_utf8(chunk).unwrap()).len();
         }
-        assert!(
-            (10..=24).contains(&reports),
-            "{reports} reports for 2000 characters"
-        );
+        assert!((10..=24).contains(&reports), "{reports} reports for 2000 characters");
     }
 
     #[test]
@@ -265,10 +232,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(
-            prose.split_whitespace().collect::<Vec<_>>(),
-            parsed.split_whitespace().collect::<Vec<_>>()
-        );
+        assert_eq!(prose.split_whitespace().collect::<Vec<_>>(), parsed.split_whitespace().collect::<Vec<_>>());
     }
 }
 
@@ -303,16 +267,8 @@ mod split_tests {
         for reply in replies {
             for at in (0..=reply.len()).filter(|&i| reply.is_char_boundary(i)) {
                 let prose = shown(reply, at);
-                assert!(
-                    !prose.contains("tool_call")
-                        && !prose.contains("invoke")
-                        && !prose.contains('{'),
-                    "cut at {at}: {prose:?}"
-                );
-                assert!(
-                    prose.starts_with(reply.split('<').next().unwrap().trim_end()),
-                    "cut at {at}: {prose:?}"
-                );
+                assert!(!prose.contains("tool_call") && !prose.contains("invoke") && !prose.contains('{'), "cut at {at}: {prose:?}");
+                assert!(prose.starts_with(reply.split('<').next().unwrap().trim_end()), "cut at {at}: {prose:?}");
             }
         }
     }

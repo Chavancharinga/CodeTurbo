@@ -23,20 +23,13 @@ fn format_css(code: &str) -> Option<String> {
 
 /// The page formatted, or `None` if it does not parse.
 pub fn format(text: &str) -> Option<String> {
-    markup_fmt::format_text(
-        text,
-        Language::Html,
-        &FormatOptions::default(),
-        |code, hints| {
-            let out = match hints.ext {
-                "css" => format_css(code)
-                    .map(Cow::Owned)
-                    .unwrap_or(Cow::Borrowed(code)),
-                _ => Cow::Borrowed(code),
-            };
-            Ok(out)
-        },
-    )
+    markup_fmt::format_text(text, Language::Html, &FormatOptions::default(), |code, hints| {
+        let out = match hints.ext {
+            "css" => format_css(code).map(Cow::Owned).unwrap_or(Cow::Borrowed(code)),
+            _ => Cow::Borrowed(code),
+        };
+        Ok(out)
+    })
     .ok()
 }
 
@@ -70,17 +63,11 @@ fn embedded(text: &str) -> Vec<(&'static str, usize, &str)> {
         let (open, close) = (format!("<{tag}"), format!("</{tag}"));
         let mut from = 0;
         while let Some(i) = lower[from..].find(&open).map(|i| from + i) {
-            let Some(gt) = lower[i..].find('>').map(|g| i + g) else {
-                break;
-            };
+            let Some(gt) = lower[i..].find('>').map(|g| i + g) else { break };
             let attrs = &lower[i + open.len()..gt];
-            let Some(end) = lower[gt..].find(&close).map(|e| gt + e) else {
-                break;
-            };
+            let Some(end) = lower[gt..].find(&close).map(|e| gt + e) else { break };
             let js_type = !attrs.contains("type=")
-                || ["module", "javascript", "text/babel"]
-                    .iter()
-                    .any(|t| attrs.contains(t));
+                || ["module", "javascript", "text/babel"].iter().any(|t| attrs.contains(t));
             if ext == "css" || (!attrs.contains("src=") && js_type) {
                 out.push((ext, gt + 1, &text[gt + 1..end]));
             }
@@ -93,12 +80,9 @@ fn embedded(text: &str) -> Vec<(&'static str, usize, &str)> {
 /// Errors and warnings for an HTML page.
 pub fn check(rel: &str, text: &str) -> Vec<Diag> {
     let mut out = Vec::new();
-    let parsed = markup_fmt::format_text(
-        text,
-        Language::Html,
-        &FormatOptions::default(),
-        |code, _| Ok(Cow::Borrowed(code)),
-    );
+    let parsed = markup_fmt::format_text(text, Language::Html, &FormatOptions::default(), |code, _| {
+        Ok(Cow::Borrowed(code))
+    });
     if let Err(FormatError::Syntax(e)) = parsed {
         out.push(Diag {
             level: Level::Error,
@@ -107,10 +91,7 @@ pub fn check(rel: &str, text: &str) -> Vec<Diag> {
             col: e.column as u32,
             message: e.kind.to_string(),
             code: None,
-            source: text
-                .lines()
-                .nth(e.line.saturating_sub(1))
-                .map(str::to_string),
+            source: text.lines().nth(e.line.saturating_sub(1)).map(str::to_string),
         });
     }
     for (ext, start, body) in embedded(text) {
@@ -131,20 +112,10 @@ pub fn check(rel: &str, text: &str) -> Vec<Diag> {
         out.push(warn(rel, text, 0, "missing <!doctype html>"));
     }
     if !lower.contains("<meta charset") {
-        out.push(warn(
-            rel,
-            text,
-            lower.find("<head").unwrap_or(0),
-            "missing <meta charset=\"utf-8\">",
-        ));
+        out.push(warn(rel, text, lower.find("<head").unwrap_or(0), "missing <meta charset=\"utf-8\">"));
     }
     if !lower.contains("name=\"viewport\"") && !lower.contains("name=viewport") {
-        out.push(warn(
-            rel,
-            text,
-            lower.find("<head").unwrap_or(0),
-            "missing <meta name=\"viewport\">: the page won't scale on phones",
-        ));
+        out.push(warn(rel, text, lower.find("<head").unwrap_or(0), "missing <meta name=\"viewport\">: the page won't scale on phones"));
     }
     if let Some(i) = lower.find("<html")
         && !lower[i..].split('>').next().unwrap_or("").contains("lang=")

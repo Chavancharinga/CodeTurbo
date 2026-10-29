@@ -9,8 +9,8 @@
 pub mod apk;
 pub mod binary;
 pub mod demangle;
-pub mod disasm;
 pub mod external;
+pub mod disasm;
 pub mod js;
 pub mod observe;
 pub mod replicate;
@@ -31,9 +31,8 @@ pub struct Report {
 /// Words of the question worth searching for (3+ letters, lower case).
 pub fn terms(question: &str) -> Vec<String> {
     const STOP: [&str; 24] = [
-        "the", "and", "how", "what", "does", "this", "that", "with", "como", "que", "para", "uma",
-        "dos", "das", "por", "funciona", "faz", "isso", "esse", "essa", "onde", "qual", "from",
-        "into",
+        "the", "and", "how", "what", "does", "this", "that", "with", "como", "que", "para", "uma", "dos", "das", "por",
+        "funciona", "faz", "isso", "esse", "essa", "onde", "qual", "from", "into",
     ];
     let mut out: Vec<String> = question
         .split(|c: char| !c.is_alphanumeric() && c != '_' && c != '-')
@@ -52,44 +51,21 @@ pub async fn investigate(root: &Path, target: &str, question: &str) -> Result<Re
     if t.starts_with("http://") || t.starts_with("https://") {
         let mut report = site::inspect(root, t, question).await?;
         report.text.push_str(&external::suggestions("site", t));
-        report
-            .text
-            .push_str(&replicate::guidance("site", &report.text));
+        report.text.push_str(&replicate::guidance("site", &report.text));
         return Ok(report);
     }
-    let path = if Path::new(t).is_absolute() {
-        PathBuf::from(t)
-    } else {
-        root.join(t)
-    };
+    let path = if Path::new(t).is_absolute() { PathBuf::from(t) } else { root.join(t) };
     if path.is_dir() {
-        let mut text = js::inspect_dir(&path, question)
-            + &external::suggestions("js", &path.to_string_lossy());
+        let mut text = js::inspect_dir(&path, question) + &external::suggestions("js", &path.to_string_lossy());
         text.push_str(&replicate::guidance("js", &text));
-        return Ok(Report {
-            text,
-            images: Vec::new(),
-        });
+        return Ok(Report { text, images: Vec::new() });
     }
     let data = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     let lower = path.to_string_lossy().to_lowercase();
     let (mut text, kind) = if lower.ends_with(".asar") {
         (js::inspect_asar(&data, question)?, "js")
-    } else if [".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx"]
-        .iter()
-        .any(|e| lower.ends_with(e))
-    {
-        (
-            js::inspect_files(
-                &[(
-                    path.to_string_lossy().into_owned(),
-                    String::from_utf8_lossy(&data).into_owned(),
-                )],
-                None,
-                question,
-            ),
-            "js",
-        )
+    } else if [".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx"].iter().any(|e| lower.ends_with(e)) {
+        (js::inspect_files(&[(path.to_string_lossy().into_owned(), String::from_utf8_lossy(&data).into_owned())], None, question), "js")
     } else if lower.ends_with(".apk") {
         (apk::inspect(&data, question)?, "other")
     } else if data.len() >= 16 && &data[..16] == b"SQLite format 3\0" {
@@ -111,8 +87,5 @@ pub async fn investigate(root: &Path, target: &str, question: &str) -> Result<Re
     };
     text.push_str(&external::suggestions(kind, &path.to_string_lossy()));
     text.push_str(&replicate::guidance(kind, &text));
-    Ok(Report {
-        text,
-        images: Vec::new(),
-    })
+    Ok(Report { text, images: Vec::new() })
 }

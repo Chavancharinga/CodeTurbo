@@ -40,32 +40,20 @@ return JSON.stringify({url:location.href,title:document.title,items,scrollY:Math
 
 /// The snapshot as the lines the agent reads (`@e7 button "Add to cart"`).
 pub fn describe_snapshot(v: &Value) -> String {
-    let mut out = format!(
-        "page {} — \"{}\"",
-        v["url"].as_str().unwrap_or(""),
-        v["title"].as_str().unwrap_or("")
-    );
+    let mut out = format!("page {} — \"{}\"", v["url"].as_str().unwrap_or(""), v["title"].as_str().unwrap_or(""));
     let items = v["items"].as_array().cloned().unwrap_or_default();
     if items.is_empty() {
         out.push_str("\n(nothing clickable on this screen)");
     }
     for it in &items {
-        let kind = match (
-            it["tag"].as_str().unwrap_or(""),
-            it["type"].as_str().unwrap_or(""),
-            it["role"].as_str().unwrap_or(""),
-        ) {
+        let kind = match (it["tag"].as_str().unwrap_or(""), it["type"].as_str().unwrap_or(""), it["role"].as_str().unwrap_or("")) {
             ("a", _, _) => "link".to_string(),
             ("input", t, _) if !t.is_empty() && t != "text" => format!("input[{t}]"),
             ("input", _, _) => "input".to_string(),
             (t, _, r) if !r.is_empty() && t != "button" => r.to_string(),
             (t, _, _) => t.to_string(),
         };
-        let mut line = format!(
-            "\n@{} {kind} \"{}\"",
-            it["ref"].as_str().unwrap_or("?"),
-            it["name"].as_str().unwrap_or("")
-        );
+        let mut line = format!("\n@{} {kind} \"{}\"", it["ref"].as_str().unwrap_or("?"), it["name"].as_str().unwrap_or(""));
         if let Some(h) = it["href"].as_str().filter(|h| !h.is_empty()) {
             line.push_str(&format!(" → {h}"));
         }
@@ -77,16 +65,9 @@ pub fn describe_snapshot(v: &Value) -> String {
         }
         out.push_str(&line);
     }
-    let (y, h, vh) = (
-        v["scrollY"].as_u64().unwrap_or(0),
-        v["height"].as_u64().unwrap_or(0),
-        v["vh"].as_u64().unwrap_or(0),
-    );
+    let (y, h, vh) = (v["scrollY"].as_u64().unwrap_or(0), v["height"].as_u64().unwrap_or(0), v["vh"].as_u64().unwrap_or(0));
     if h > vh + 8 {
-        out.push_str(&format!(
-            "\n(the page is {h}px tall; this screen shows {y}px to {}px)",
-            y + vh
-        ));
+        out.push_str(&format!("\n(the page is {h}px tall; this screen shows {y}px to {}px)", y + vh));
     }
     out
 }
@@ -106,17 +87,11 @@ return JSON.stringify({{x,y,name:name(e)||desc(e),tag:desc(e),disabled:!!e.disab
 }
 
 pub fn select_all(target: &Value) -> String {
-    format!(
-        "const e=find({});if(e&&e.select)try{{e.select();}}catch(_){{}}return 'ok';",
-        js(target)
-    )
+    format!("const e=find({});if(e&&e.select)try{{e.select();}}catch(_){{}}return 'ok';", js(target))
 }
 
 pub fn value_of(target: &Value) -> String {
-    format!(
-        "const e=find({});return e?(e.value!==undefined?e.value:e.innerText):'';",
-        js(target)
-    )
+    format!("const e=find({});return e?(e.value!==undefined?e.value:e.innerText):'';", js(target))
 }
 
 /// The text of the page, or of one element.
@@ -125,9 +100,7 @@ pub fn read_text(target: Option<Value>) -> String {
         Some(t) => format!("find({})||document.body", js(&t)),
         None => "document.body".to_string(),
     };
-    format!(
-        "const e={pick};return (e.innerText||'').replace(/\\n{{3,}}/g,'\\n\\n').trim().slice(0,2500);"
-    )
+    format!("const e={pick};return (e.innerText||'').replace(/\\n{{3,}}/g,'\\n\\n').trim().slice(0,2500);")
 }
 
 /// The visible texts of the page with where they are, so a small picture of

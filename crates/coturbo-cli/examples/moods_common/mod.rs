@@ -9,16 +9,7 @@ pub type Grid = Vec<Vec<Option<Rgb>>>;
 /// The moods in the order they play: white (before anything is asked), blue
 /// (a task starts), alert (yellow) and denied (red), then running, running
 /// hard and turbo, and green last: it only comes when everything is done.
-pub const MOODS: [Mood; 8] = [
-    Mood::Calm,
-    Mood::Start,
-    Mood::Alert,
-    Mood::Denied,
-    Mood::Run,
-    Mood::Hard,
-    Mood::Turbo,
-    Mood::Done,
-];
+pub const MOODS: [Mood; 8] = [Mood::Calm, Mood::Start, Mood::Alert, Mood::Denied, Mood::Run, Mood::Hard, Mood::Turbo, Mood::Done];
 
 /// Frame after which the name is fully typed in.
 fn typed() -> usize {

@@ -52,12 +52,7 @@ pub struct StageUpdate {
 
 impl StageUpdate {
     pub fn new(name: &str, state: StageState, note: impl Into<String>) -> Self {
-        Self {
-            name: name.to_string(),
-            state,
-            note: note.into(),
-            expected: None,
-        }
+        Self { name: name.to_string(), state, note: note.into(), expected: None }
     }
 }
 
@@ -99,44 +94,22 @@ pub struct Choice {
 
 impl Choice {
     pub fn new(value: impl Into<String>, label: impl Into<String>) -> Self {
-        Self {
-            value: value.into(),
-            label: label.into(),
-        }
+        Self { value: value.into(), label: label.into() }
     }
 }
 
 /// A question the screen asks; the answer goes back on `reply`.
 pub enum Question {
     /// A tool call waiting for permission.
-    Approve {
-        title: String,
-        reply: oneshot::Sender<Decision>,
-    },
+    Approve { title: String, reply: oneshot::Sender<Decision> },
     /// A plan proposed in plan mode; `path` is the plan file, for editing.
-    Plan {
-        title: String,
-        path: PathBuf,
-        keep_allowed: bool,
-        reply: oneshot::Sender<PlanChoice>,
-    },
-    Confirm {
-        title: String,
-        reply: oneshot::Sender<bool>,
-    },
+    Plan { title: String, path: PathBuf, keep_allowed: bool, reply: oneshot::Sender<PlanChoice> },
+    Confirm { title: String, reply: oneshot::Sender<bool> },
     /// Pick one entry; typing filters the list. With `custom`, text that
     /// matches nothing is taken as typed.
-    Select {
-        title: String,
-        options: Vec<Choice>,
-        custom: bool,
-        reply: oneshot::Sender<Option<String>>,
-    },
+    Select { title: String, options: Vec<Choice>, custom: bool, reply: oneshot::Sender<Option<String>> },
     /// Hidden text entry (API keys).
-    Secret {
-        title: String,
-        reply: oneshot::Sender<Option<String>>,
-    },
+    Secret { title: String, reply: oneshot::Sender<Option<String>> },
 }
 
 /// Rows drawn for a given width, so a block always fits the room it is in.
@@ -153,10 +126,7 @@ impl std::fmt::Debug for Dynamic {
 pub enum Out {
     Lines(Vec<Line<'static>>),
     /// Code shown as `preview` until the user expands it (Ctrl+B).
-    Fold {
-        preview: Vec<Line<'static>>,
-        full: Vec<Line<'static>>,
-    },
+    Fold { preview: Vec<Line<'static>>, full: Vec<Line<'static>> },
     Stream(StreamKind, String),
     /// What the agent is doing; `None` when it is idle.
     Busy(Option<String>),

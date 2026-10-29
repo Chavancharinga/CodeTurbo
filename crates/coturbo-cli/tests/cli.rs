@@ -4,8 +4,7 @@ use coturbo_cli::bench::{self, BenchRun, Task};
 use coturbo_cli::config::{self, Config, Pricer, parse_mode};
 use coturbo_cli::status::{color_diff, human, parse_answer, status_line, tool_line};
 use coturbo_providers::{
-    BoxFuture, ContentBlock, PriceTable, Provider, ProviderError, Request, Response, TextSink,
-    Usage,
+    BoxFuture, ContentBlock, PriceTable, Provider, ProviderError, Request, Response, TextSink, Usage,
 };
 use coturbo_tools::{Mode, ToolOutput};
 use serde_json::json;
@@ -31,28 +30,11 @@ impl Provider for Mock {
 }
 
 fn usage(input: u64, output: u64) -> Usage {
-    Usage {
-        input,
-        cache_write: 0,
-        cache_read: 0,
-        output,
-    }
+    Usage { input, cache_write: 0, cache_read: 0, output }
 }
 
 fn agent_cfg() -> AgentConfig {
-    AgentConfig {
-        model: "m".into(),
-        max_turns: 5,
-        max_tokens: 1000,
-        effort: None,
-        approval: ApprovalConfig::yolo(),
-        plan_model: None,
-        context_window: 1000,
-        gate: None,
-        max_fix_rounds: 3,
-        vision: false,
-        hooks: Vec::new(),
-    }
+    AgentConfig { model: "m".into(), max_turns: 5, max_tokens: 1000, effort: None, approval: ApprovalConfig::yolo(), plan_model: None, context_window: 1000, gate: None, max_fix_rounds: 3, vision: false, hooks: Vec::new() }
 }
 
 #[test]
@@ -66,21 +48,14 @@ fn config_defaults_when_dir_is_empty() {
 #[test]
 fn config_file_overrides_and_pricing_merges() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("config.toml"),
-        "provider = \"ollama\"\nmodel = \"qwen\"\ntools = \"naive\"\n",
-    )
-    .unwrap();
+    std::fs::write(dir.path().join("config.toml"), "provider = \"ollama\"\nmodel = \"qwen\"\ntools = \"naive\"\n").unwrap();
     std::fs::write(
         dir.path().join("pricing.toml"),
         "[models.qwen]\ninput = 1.0\ncache_write = 1.0\ncache_read = 1.0\noutput = 2.0\n",
     )
     .unwrap();
     let (c, prices) = config::load(Some(dir.path())).unwrap();
-    assert_eq!(
-        (c.provider.as_str(), c.model.as_str(), c.tools.as_str()),
-        ("ollama", "qwen", "naive")
-    );
+    assert_eq!((c.provider.as_str(), c.model.as_str(), c.tools.as_str()), ("ollama", "qwen", "naive"));
     assert_eq!(c.max_turns, Config::default().max_turns);
     assert_eq!(prices.cost("qwen", &usage(1_000_000, 1_000_000)), Some(3.0));
 }
@@ -98,51 +73,20 @@ fn modes_and_providers_are_validated() {
     assert_eq!(parse_mode("ast"), Ok(Mode::Ast));
     assert_eq!(parse_mode("naive"), Ok(Mode::Naive));
     assert!(parse_mode("fast").is_err());
-    let c = Config {
-        provider: "nope".into(),
-        ..Config::default()
-    };
-    assert!(
-        config::make_provider(&c, None)
-            .err()
-            .unwrap()
-            .contains("unknown provider")
-    );
-    let c = Config {
-        provider: "ollama".into(),
-        ..Config::default()
-    };
-    assert!(
-        config::make_provider(&c, None).is_ok(),
-        "Ollama needs no key"
-    );
-    let c = Config {
-        provider: "anthropic".into(),
-        ..Config::default()
-    };
-    assert!(
-        config::make_provider(&c, None)
-            .err()
-            .unwrap()
-            .contains("/key"),
-        "says how to give the key"
-    );
+    let c = Config { provider: "nope".into(), ..Config::default() };
+    assert!(config::make_provider(&c, None).err().unwrap().contains("unknown provider"));
+    let c = Config { provider: "ollama".into(), ..Config::default() };
+    assert!(config::make_provider(&c, None).is_ok(), "Ollama needs no key");
+    let c = Config { provider: "anthropic".into(), ..Config::default() };
+    assert!(config::make_provider(&c, None).err().unwrap().contains("/key"), "says how to give the key");
     assert!(config::make_provider(&c, Some("sk-test".into())).is_ok());
 }
 
 #[test]
 fn ollama_models_fall_back_to_free_price() {
-    let p = Pricer {
-        table: PriceTable::builtin(),
-        model: "qwen3".into(),
-        provider: "ollama".into(),
-    };
+    let p = Pricer { table: PriceTable::builtin(), model: "qwen3".into(), provider: "ollama".into() };
     assert_eq!(p.cost(&usage(10, 10)), Some(0.0));
-    let p = Pricer {
-        table: PriceTable::builtin(),
-        model: "qwen3".into(),
-        provider: "openai".into(),
-    };
+    let p = Pricer { table: PriceTable::builtin(), model: "qwen3".into(), provider: "openai".into() };
     assert_eq!(p.cost(&usage(10, 10)), None);
 }
 
@@ -151,54 +95,27 @@ fn status_line_formats() {
     assert_eq!(human(950), "950");
     assert_eq!(human(12_345), "12.3k");
     assert_eq!(human(1_200_000), "1.20M");
-    let u = Usage {
-        input: 1_000,
-        cache_write: 500,
-        cache_read: 20_000,
-        output: 300,
-    };
-    assert_eq!(
-        status_line(&u, Some(0.01234)),
-        "tokens ↑1.5k ⟳20.0k ↓300 · $0.0123"
-    );
+    let u = Usage { input: 1_000, cache_write: 500, cache_read: 20_000, output: 300 };
+    assert_eq!(status_line(&u, Some(0.01234)), "tokens ↑1.5k ⟳20.0k ↓300 · $0.0123");
     assert_eq!(status_line(&u, None), "tokens ↑1.5k ⟳20.0k ↓300");
 }
 
 #[test]
 fn tool_line_shows_errors_only_when_failed() {
-    let ok = tool_line(
-        "read_file",
-        &json!({"path": "src/lib.rs"}),
-        &ToolOutput::ok("fn a()\n"),
-    );
+    let ok = tool_line("read_file", &json!({"path": "src/lib.rs"}), &ToolOutput::ok("fn a()\n"));
     assert_eq!(ok, "  ✓ read_file src/lib.rs");
-    let bad = tool_line(
-        "bash",
-        &json!({"command": "cargo x"}),
-        &ToolOutput::err("exit 101\nmore"),
-    );
+    let bad = tool_line("bash", &json!({"command": "cargo x"}), &ToolOutput::err("exit 101\nmore"));
     assert_eq!(bad, "  ✗ bash cargo x — exit 101");
 }
 
 #[test]
 fn tasks_load_sorted_and_strict() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("b.toml"),
-        "id = \"b\"\nprompt = \"p\"\nverify = \"v\"\n",
-    )
-    .unwrap();
-    std::fs::write(
-        dir.path().join("a.toml"),
-        "id = \"a\"\nprompt = \"p\"\nverify = \"v\"\n",
-    )
-    .unwrap();
+    std::fs::write(dir.path().join("b.toml"), "id = \"b\"\nprompt = \"p\"\nverify = \"v\"\n").unwrap();
+    std::fs::write(dir.path().join("a.toml"), "id = \"a\"\nprompt = \"p\"\nverify = \"v\"\n").unwrap();
     std::fs::write(dir.path().join("notes.md"), "ignored").unwrap();
     let tasks = bench::load_tasks(dir.path()).unwrap();
-    assert_eq!(
-        tasks.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(),
-        ["a", "b"]
-    );
+    assert_eq!(tasks.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), ["a", "b"]);
     std::fs::write(dir.path().join("c.toml"), "id = \"c\"\nprompt = \"p\"\n").unwrap();
     assert!(bench::load_tasks(dir.path()).is_err());
 }
@@ -219,11 +136,7 @@ fn copy_tree_skips_target_and_git() {
 }
 
 fn task(verify: &str) -> Task {
-    Task {
-        id: "t1".into(),
-        prompt: "create done.txt".into(),
-        verify: verify.into(),
-    }
+    Task { id: "t1".into(), prompt: "create done.txt".into(), verify: verify.into() }
 }
 
 /// A check that passes when `done.txt` exists, with a command every system
@@ -232,11 +145,7 @@ fn task(verify: &str) -> Task {
 /// the shell may be cmd or Git Bash: `type` only reads files in cmd, while
 /// `dir` lists a file in both and fails when it is missing.
 fn check_done_file() -> &'static str {
-    if cfg!(windows) {
-        "dir done.txt"
-    } else {
-        "cat done.txt"
-    }
+    if cfg!(windows) { "dir done.txt" } else { "cat done.txt" }
 }
 
 #[tokio::test]
@@ -253,51 +162,23 @@ async fn bench_run_edits_a_fixture_copy_and_verifies() {
             stop_reason: "tool_use".into(),
             usage: usage(100, 10),
         },
-        Response {
-            content: vec![ContentBlock::Text {
-                text: "done".into(),
-            }],
-            stop_reason: "end_turn".into(),
-            usage: usage(120, 5),
-        },
+        Response { content: vec![ContentBlock::Text { text: "done".into() }], stop_reason: "end_turn".into(), usage: usage(120, 5) },
     ]);
-    let r = bench::run_one(
-        &mock,
-        &task(check_done_file()),
-        fixture.path(),
-        Mode::Naive,
-        &agent_cfg(),
-    )
-    .await;
+    let r = bench::run_one(&mock, &task(check_done_file()), fixture.path(), Mode::Naive, &agent_cfg()).await;
     assert!(r.passed, "{:?}", r.error);
-    assert_eq!(
-        (r.stop, r.turns, r.usage),
-        (Some(Stop::Done), 2, usage(220, 15))
-    );
-    assert!(
-        !fixture.path().join("done.txt").exists(),
-        "fixture must stay pristine"
-    );
+    assert_eq!((r.stop, r.turns, r.usage), (Some(Stop::Done), 2, usage(220, 15)));
+    assert!(!fixture.path().join("done.txt").exists(), "fixture must stay pristine");
 }
 
 #[tokio::test]
 async fn bench_run_fails_when_verify_fails() {
     let fixture = tempfile::tempdir().unwrap();
     let mock = Mock::new(vec![Response {
-        content: vec![ContentBlock::Text {
-            text: "nothing to do".into(),
-        }],
+        content: vec![ContentBlock::Text { text: "nothing to do".into() }],
         stop_reason: "end_turn".into(),
         usage: usage(50, 5),
     }]);
-    let r = bench::run_one(
-        &mock,
-        &task(check_done_file()),
-        fixture.path(),
-        Mode::Ast,
-        &agent_cfg(),
-    )
-    .await;
+    let r = bench::run_one(&mock, &task(check_done_file()), fixture.path(), Mode::Ast, &agent_cfg()).await;
     assert!(!r.passed);
     assert!(r.error.is_some());
 }
@@ -326,15 +207,9 @@ fn markdown_reports_savings() {
         run("t2", Mode::Ast, 400, Some(0.05), false),
     ];
     let md = bench::markdown("m", &runs);
-    assert!(
-        md.contains("| naive | 2/2 | 2.0 | 2000 | $0.2000 |"),
-        "{md}"
-    );
+    assert!(md.contains("| naive | 2/2 | 2.0 | 2000 | $0.2000 |"), "{md}");
     assert!(md.contains("| ast | 1/2 | 2.0 | 1000 | $0.1000 |"), "{md}");
-    assert!(
-        md.contains("ast vs naive: +50.0% tokens saved, +50.0% cost saved"),
-        "{md}"
-    );
+    assert!(md.contains("ast vs naive: +50.0% tokens saved, +50.0% cost saved"), "{md}");
     let j = bench::to_json("m", &runs);
     assert_eq!(j["runs"][3]["passed"], json!(false));
     assert_eq!(j["runs"][1]["mode"], json!("ast"));
@@ -342,10 +217,7 @@ fn markdown_reports_savings() {
 
 #[test]
 fn unpriced_runs_have_no_total_cost() {
-    let runs = vec![
-        run("t1", Mode::Ast, 10, Some(0.1), true),
-        run("t2", Mode::Ast, 10, None, true),
-    ];
+    let runs = vec![run("t1", Mode::Ast, 10, Some(0.1), true), run("t2", Mode::Ast, 10, None, true)];
     assert_eq!(bench::totals(&runs, Mode::Ast).cost, None);
 }
 
@@ -355,10 +227,7 @@ fn approval_answers_parse() {
     assert_eq!(parse_answer(""), Some(Decision::Once));
     assert_eq!(parse_answer("S\n"), Some(Decision::Session));
     assert_eq!(parse_answer("d"), Some(Decision::Deny(None)));
-    assert_eq!(
-        parse_answer("d  use cargo nextest  "),
-        Some(Decision::Deny(Some("use cargo nextest".into())))
-    );
+    assert_eq!(parse_answer("d  use cargo nextest  "), Some(Decision::Deny(Some("use cargo nextest".into()))));
     assert_eq!(parse_answer("maybe"), None);
 }
 
@@ -380,10 +249,7 @@ fn approval_config_comes_from_config_toml() {
     let (c, _) = config::load(Some(dir.path())).unwrap();
     let a = c.approval_config().unwrap();
     assert_eq!(a.mode, coturbo_agent::approval::ApprovalMode::AlwaysAsk);
-    let bad = Config {
-        approval_mode: "sometimes".into(),
-        ..Config::default()
-    };
+    let bad = Config { approval_mode: "sometimes".into(), ..Config::default() };
     assert!(bad.approval_config().is_err());
 }
 
@@ -410,12 +276,7 @@ fn splash_frames_keep_their_shape_and_reveal_the_name() {
     assert!(w <= width && w >= splash::logo_width(), "{w}");
     for i in 0..splash::frames() {
         let f = splash::frame(i, width);
-        assert!(
-            f[..splash::ROWS]
-                .iter()
-                .all(|l| strip(l).chars().count() == w),
-            "frame {i} misaligned"
-        );
+        assert!(f[..splash::ROWS].iter().all(|l| strip(l).chars().count() == w), "frame {i} misaligned");
     }
     // Narrow terminal: the trail shrinks away, the logo stays intact.
     let narrow = splash::frame(0, splash::logo_width() + 2);
@@ -431,24 +292,12 @@ fn splash_frames_keep_their_shape_and_reveal_the_name() {
 fn plan_menu_parses_and_respects_full_context() {
     use coturbo_agent::plan::PlanChoice;
     use coturbo_cli::status::{PlanMenu, parse_plan_choice};
-    assert_eq!(
-        parse_plan_choice("1", true),
-        Some(PlanMenu::Choice(PlanChoice::Execute))
-    );
-    assert_eq!(
-        parse_plan_choice("2\n", true),
-        Some(PlanMenu::Choice(PlanChoice::Compact))
-    );
-    assert_eq!(
-        parse_plan_choice("3", true),
-        Some(PlanMenu::Choice(PlanChoice::KeepContext))
-    );
+    assert_eq!(parse_plan_choice("1", true), Some(PlanMenu::Choice(PlanChoice::Execute)));
+    assert_eq!(parse_plan_choice("2\n", true), Some(PlanMenu::Choice(PlanChoice::Compact)));
+    assert_eq!(parse_plan_choice("3", true), Some(PlanMenu::Choice(PlanChoice::KeepContext)));
     assert_eq!(parse_plan_choice("3", false), None);
     assert_eq!(parse_plan_choice("4", true), Some(PlanMenu::Refine));
-    assert_eq!(
-        parse_plan_choice("5", true),
-        Some(PlanMenu::Choice(PlanChoice::SaveQuit))
-    );
+    assert_eq!(parse_plan_choice("5", true), Some(PlanMenu::Choice(PlanChoice::SaveQuit)));
     assert_eq!(parse_plan_choice("e", true), Some(PlanMenu::Edit));
     assert_eq!(parse_plan_choice("9", true), None);
 }
@@ -464,40 +313,18 @@ fn lsp_servers_are_configurable() {
     .unwrap();
     let (c, _) = config::load(Some(dir.path())).unwrap();
     let lsp = c.lsp_config().unwrap();
-    let names: Vec<(&str, &str)> = lsp
-        .servers
-        .iter()
-        .map(|s| (s.name.as_str(), s.command.as_str()))
-        .collect();
+    let names: Vec<(&str, &str)> = lsp.servers.iter().map(|s| (s.name.as_str(), s.command.as_str())).collect();
     assert_eq!(
         names,
-        [
-            ("rust-analyzer", "/opt/ra"),
-            ("typescript-language-server", "typescript-language-server"),
-            ("pyright", "pyright-langserver")
-        ]
+        [("rust-analyzer", "/opt/ra"), ("typescript-language-server", "typescript-language-server"), ("pyright", "pyright-langserver")]
     );
-    let off = Config {
-        diagnostics_on_write: false,
-        ..Config::default()
-    };
+    let off = Config { diagnostics_on_write: false, ..Config::default() };
     let cfg = off.lsp_config().unwrap();
     assert!(cfg.servers.is_empty() && cfg.format_on_write, "format-only");
-    let none = Config {
-        diagnostics_on_write: false,
-        format_on_write: false,
-        ..Config::default()
-    };
+    let none = Config { diagnostics_on_write: false, format_on_write: false, ..Config::default() };
     assert!(none.lsp_config().is_none());
     assert!(Config::default().gate_config().is_some());
-    assert!(
-        Config {
-            final_gate: false,
-            ..Config::default()
-        }
-        .gate_config()
-        .is_none()
-    );
+    assert!(Config { final_gate: false, ..Config::default() }.gate_config().is_none());
 }
 
 #[test]
@@ -520,14 +347,8 @@ fn diffs_show_line_numbers_signs_and_colors() {
     );
     assert_eq!(diff_stat(diff), (2, 1));
     let color = render_diff(diff, 60, true);
-    assert!(
-        color[1].starts_with("\x1b[48;2;70;18;24m"),
-        "removed line has a red background"
-    );
-    assert!(
-        color[2].starts_with("\x1b[48;2;16;58;32m"),
-        "added line has a green background"
-    );
+    assert!(color[1].starts_with("\x1b[48;2;70;18;24m"), "removed line has a red background");
+    assert!(color[2].starts_with("\x1b[48;2;16;58;32m"), "added line has a green background");
     assert!(color[0].starts_with("\x1b[2m"), "context is dimmed");
 
     let long: String = (0..100).map(|i| format!("+line {i}\n")).collect();
@@ -540,50 +361,24 @@ fn diffs_show_line_numbers_signs_and_colors() {
 fn turn_line_shows_speed_context_cost_and_limits() {
     use coturbo_cli::view::{limits_summary, turn_line};
     let headers = vec![
-        (
-            "anthropic-ratelimit-requests-limit".to_string(),
-            "50".to_string(),
-        ),
-        (
-            "anthropic-ratelimit-requests-remaining".to_string(),
-            "49".to_string(),
-        ),
-        (
-            "anthropic-ratelimit-tokens-limit".to_string(),
-            "80000".to_string(),
-        ),
-        (
-            "anthropic-ratelimit-tokens-remaining".to_string(),
-            "78000".to_string(),
-        ),
-        (
-            "anthropic-ratelimit-tokens-reset".to_string(),
-            "2026-10-14T12:00:00Z".to_string(),
-        ),
+        ("anthropic-ratelimit-requests-limit".to_string(), "50".to_string()),
+        ("anthropic-ratelimit-requests-remaining".to_string(), "49".to_string()),
+        ("anthropic-ratelimit-tokens-limit".to_string(), "80000".to_string()),
+        ("anthropic-ratelimit-tokens-remaining".to_string(), "78000".to_string()),
+        ("anthropic-ratelimit-tokens-reset".to_string(), "2026-10-14T12:00:00Z".to_string()),
     ];
     let limits = limits_summary(&headers).unwrap();
     assert_eq!(limits, "tokens 78.0k/80.0k · requests 49/50");
     let openai = vec![
         ("x-ratelimit-limit-tokens".to_string(), "30000".to_string()),
-        (
-            "x-ratelimit-remaining-tokens".to_string(),
-            "29000".to_string(),
-        ),
+        ("x-ratelimit-remaining-tokens".to_string(), "29000".to_string()),
     ];
     assert_eq!(limits_summary(&openai).unwrap(), "tokens 29.0k/30.0k");
     assert!(limits_summary(&[]).is_none());
 
-    let u = Usage {
-        input: 1_000,
-        cache_write: 0,
-        cache_read: 9_000,
-        output: 400,
-    };
+    let u = Usage { input: 1_000, cache_write: 0, cache_read: 9_000, output: 400 };
     let line = turn_line(&u, 10.0, 200_000, Some(0.0123), Some(&limits));
-    assert_eq!(
-        line,
-        "↑1.0k ⟳9.0k ↓400 · 40 tok/s · context 5% of 200.0k · $0.0123 · limits tokens 78.0k/80.0k · requests 49/50"
-    );
+    assert_eq!(line, "↑1.0k ⟳9.0k ↓400 · 40 tok/s · context 5% of 200.0k · $0.0123 · limits tokens 78.0k/80.0k · requests 49/50");
 }
 
 /// The track (trail, dust and snail) of frames 40..48, one full loop after
@@ -606,19 +401,13 @@ fn approved_large_snail_animation_is_pinned() {
     // The approved full-size animation, saved before the small design. If
     // this fails, the large snail changed: restore it, don't re-pin it.
     let pinned = include_str!("fixtures/snail_large_frames.txt").replace("\r\n", "\n");
-    assert!(
-        loop_frames(&coturbo_cli::splash::SNAIL_LARGE) == pinned,
-        "the approved large snail animation changed"
-    );
+    assert!(loop_frames(&coturbo_cli::splash::SNAIL_LARGE) == pinned, "the approved large snail animation changed");
 }
 
 #[test]
 fn small_snail_animation_is_pinned() {
     let pinned = include_str!("fixtures/snail_small_frames.txt").replace("\r\n", "\n");
-    assert!(
-        loop_frames(&coturbo_cli::splash::SNAIL_SMALL) == pinned,
-        "the small snail animation changed"
-    );
+    assert!(loop_frames(&coturbo_cli::splash::SNAIL_SMALL) == pinned, "the small snail animation changed");
 }
 
 #[test]
@@ -663,46 +452,19 @@ fn versions_compare_numerically() {
 #[test]
 fn every_supported_platform_has_a_release_asset() {
     use coturbo_cli::update::asset_name_for;
-    assert_eq!(
-        asset_name_for("windows", "x86_64").as_deref(),
-        Some("codeturbo-x86_64-pc-windows-msvc.tar.gz")
-    );
-    assert_eq!(
-        asset_name_for("windows", "aarch64").as_deref(),
-        Some("codeturbo-x86_64-pc-windows-msvc.tar.gz")
-    );
-    assert_eq!(
-        asset_name_for("linux", "x86_64").as_deref(),
-        Some("codeturbo-x86_64-unknown-linux-musl.tar.gz")
-    );
-    assert_eq!(
-        asset_name_for("linux", "aarch64").as_deref(),
-        Some("codeturbo-aarch64-unknown-linux-musl.tar.gz")
-    );
-    assert_eq!(
-        asset_name_for("android", "aarch64").as_deref(),
-        Some("codeturbo-aarch64-linux-android.tar.gz")
-    );
-    assert_eq!(
-        asset_name_for("macos", "aarch64").as_deref(),
-        Some("codeturbo-aarch64-apple-darwin.tar.gz")
-    );
-    assert_eq!(
-        asset_name_for("macos", "x86_64").as_deref(),
-        Some("codeturbo-x86_64-apple-darwin.tar.gz")
-    );
+    assert_eq!(asset_name_for("windows", "x86_64").as_deref(), Some("codeturbo-x86_64-pc-windows-msvc.tar.gz"));
+    assert_eq!(asset_name_for("windows", "aarch64").as_deref(), Some("codeturbo-x86_64-pc-windows-msvc.tar.gz"));
+    assert_eq!(asset_name_for("linux", "x86_64").as_deref(), Some("codeturbo-x86_64-unknown-linux-musl.tar.gz"));
+    assert_eq!(asset_name_for("linux", "aarch64").as_deref(), Some("codeturbo-aarch64-unknown-linux-musl.tar.gz"));
+    assert_eq!(asset_name_for("android", "aarch64").as_deref(), Some("codeturbo-aarch64-linux-android.tar.gz"));
+    assert_eq!(asset_name_for("macos", "aarch64").as_deref(), Some("codeturbo-aarch64-apple-darwin.tar.gz"));
+    assert_eq!(asset_name_for("macos", "x86_64").as_deref(), Some("codeturbo-x86_64-apple-darwin.tar.gz"));
     assert_eq!(asset_name_for("freebsd", "x86_64"), None);
-    assert!(
-        coturbo_cli::update::asset_name().is_some(),
-        "this machine is a supported platform"
-    );
+    assert!(coturbo_cli::update::asset_name().is_some(), "this machine is a supported platform");
 }
 
 fn release_archive(name: &str, bytes: &[u8]) -> Vec<u8> {
-    let mut tar = tar::Builder::new(flate2::write::GzEncoder::new(
-        Vec::new(),
-        flate2::Compression::default(),
-    ));
+    let mut tar = tar::Builder::new(flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default()));
     let mut header = tar::Header::new_gnu();
     header.set_size(bytes.len() as u64);
     header.set_mode(0o755);
@@ -714,11 +476,7 @@ fn release_archive(name: &str, bytes: &[u8]) -> Vec<u8> {
 #[test]
 fn the_binary_is_extracted_and_swapped_in() {
     use coturbo_cli::update::{extract_binary, replace_binary};
-    let exe_name = if cfg!(windows) {
-        "codeturbo.exe"
-    } else {
-        "codeturbo"
-    };
+    let exe_name = if cfg!(windows) { "codeturbo.exe" } else { "codeturbo" };
     let archive = release_archive(exe_name, b"new build");
     assert_eq!(extract_binary(&archive).unwrap(), b"new build");
     assert!(extract_binary(&release_archive("README.md", b"x")).is_err());
@@ -729,11 +487,7 @@ fn the_binary_is_extracted_and_swapped_in() {
     replace_binary(&exe, b"new build").unwrap();
     assert_eq!(std::fs::read(&exe).unwrap(), b"new build");
     let parked = dir.path().join(format!("{exe_name}.old"));
-    assert_eq!(
-        std::fs::read(parked).unwrap(),
-        b"old build",
-        "old binary parked for cleanup"
-    );
+    assert_eq!(std::fs::read(parked).unwrap(), b"old build", "old binary parked for cleanup");
 }
 
 /// A second update while a program from the first one is still open: its
@@ -747,16 +501,9 @@ fn updating_twice_with_an_old_session_still_open() {
     let parked = dir.path().join("codeturbo.exe.old");
     // A real program running from the parked file, like the old session.
     std::fs::copy(r"C:\Windows\System32\ping.exe", &parked).unwrap();
-    let mut running = std::process::Command::new(&parked)
-        .args(["-n", "30", "127.0.0.1"])
-        .stdout(std::process::Stdio::null())
-        .spawn()
-        .unwrap();
+    let mut running = std::process::Command::new(&parked).args(["-n", "30", "127.0.0.1"]).stdout(std::process::Stdio::null()).spawn().unwrap();
     std::thread::sleep(std::time::Duration::from_millis(300));
-    assert!(
-        std::fs::remove_file(&parked).is_err(),
-        "the running file is locked"
-    );
+    assert!(std::fs::remove_file(&parked).is_err(), "the running file is locked");
     std::fs::write(&exe, b"0.28.0").unwrap();
     let result = replace_binary(&exe, b"0.28.4");
     let _ = running.kill();
@@ -770,30 +517,12 @@ async fn a_fresh_cache_answers_without_asking_github() {
     use coturbo_cli::update::{VERSION, check, notice};
     let dir = tempfile::tempdir().unwrap();
     let now = 1_000_000;
-    std::fs::write(
-        dir.path().join("update-check.txt"),
-        format!("{} v999.0.0\n", now - 60),
-    )
-    .unwrap();
-    assert_eq!(
-        check(Some(dir.path().to_path_buf()), now).await.as_deref(),
-        Some("v999.0.0")
-    );
-    std::fs::write(
-        dir.path().join("update-check.txt"),
-        format!("{} v{VERSION}\n", now - 60),
-    )
-    .unwrap();
-    assert_eq!(
-        check(Some(dir.path().to_path_buf()), now).await,
-        None,
-        "same version: no notice"
-    );
+    std::fs::write(dir.path().join("update-check.txt"), format!("{} v999.0.0\n", now - 60)).unwrap();
+    assert_eq!(check(Some(dir.path().to_path_buf()), now).await.as_deref(), Some("v999.0.0"));
+    std::fs::write(dir.path().join("update-check.txt"), format!("{} v{VERSION}\n", now - 60)).unwrap();
+    assert_eq!(check(Some(dir.path().to_path_buf()), now).await, None, "same version: no notice");
     let msg = notice("v999.0.0");
-    assert!(
-        msg.contains("v999.0.0") && msg.contains("codeturbo update"),
-        "{msg}"
-    );
+    assert!(msg.contains("v999.0.0") && msg.contains("codeturbo update"), "{msg}");
 }
 
 #[test]
@@ -805,14 +534,6 @@ fn image_capable_models_are_recognized() {
     assert!(sees_images("ollama", "gemma4:31b-cloud"));
     assert!(sees_images("ollama", "qwen2.5vl:7b"));
     assert!(!sees_images("ollama", "qwen3:4b"));
-    let cfg = Config {
-        provider: "ollama".into(),
-        model: "qwen3:4b".into(),
-        vision: Some(true),
-        ..Config::default()
-    };
-    assert!(
-        config::agent_config(&cfg).unwrap().vision,
-        "the config can force it"
-    );
+    let cfg = Config { provider: "ollama".into(), model: "qwen3:4b".into(), vision: Some(true), ..Config::default() };
+    assert!(config::agent_config(&cfg).unwrap().vision, "the config can force it");
 }

@@ -7,10 +7,7 @@ use std::io::Read;
 
 /// Printable strings of at least `min` bytes from a binary blob.
 fn strings(data: &[u8], min: usize) -> Vec<String> {
-    crate::binary::strings(data, min)
-        .into_iter()
-        .map(|(_, s)| s)
-        .collect()
+    crate::binary::strings(data, min).into_iter().map(|(_, s)| s).collect()
 }
 
 /// The readable strings in the binary `AndroidManifest.xml`: Android encodes
@@ -42,8 +39,7 @@ fn manifest_strings(data: &[u8]) -> Vec<String> {
 /// Report on an APK.
 pub fn inspect(data: &[u8], question: &str) -> Result<String, String> {
     let cursor = std::io::Cursor::new(data);
-    let mut zip =
-        zip::ZipArchive::new(cursor).map_err(|e| format!("não é um APK/ZIP válido: {e}"))?;
+    let mut zip = zip::ZipArchive::new(cursor).map_err(|e| format!("não é um APK/ZIP válido: {e}"))?;
     let mut names = Vec::new();
     let mut dex = 0;
     let mut manifest = Vec::new();
@@ -70,54 +66,21 @@ pub fn inspect(data: &[u8], question: &str) -> Result<String, String> {
     }
     let mut r = format!("Android APK: {} entries, {dex} DEX file(s)\n", names.len());
     if !libs.is_empty() {
-        r.push_str(&format!(
-            "Native ABIs: {}\n",
-            libs.into_iter().collect::<Vec<_>>().join(", ")
-        ));
+        r.push_str(&format!("Native ABIs: {}\n", libs.into_iter().collect::<Vec<_>>().join(", ")));
     }
     if !manifest.is_empty() {
         let m = manifest_strings(&manifest);
-        let pick = |pred: &dyn Fn(&&String) -> bool| {
-            m.iter().filter(|s| pred(s)).cloned().collect::<Vec<_>>()
-        };
+        let pick = |pred: &dyn Fn(&&String) -> bool| m.iter().filter(|s| pred(s)).cloned().collect::<Vec<_>>();
         let perms = pick(&|s| s.starts_with("android.permission.") || s.contains(".permission."));
-        if let Some(pkg) = m.iter().find(|s| {
-            s.contains('.')
-                && !s.contains('/')
-                && !s.contains(' ')
-                && s.chars().next().is_some_and(char::is_alphabetic)
-                && !s.starts_with("android")
-        }) {
+        if let Some(pkg) = m.iter().find(|s| s.contains('.') && !s.contains('/') && !s.contains(' ') && s.chars().next().is_some_and(char::is_alphabetic) && !s.starts_with("android")) {
             r.push_str(&format!("Likely package: {pkg}\n"));
         }
         if !perms.is_empty() {
-            r.push_str(&format!(
-                "Permissions ({}): {}\n",
-                perms.len(),
-                perms
-                    .iter()
-                    .take(30)
-                    .cloned()
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ));
+            r.push_str(&format!("Permissions ({}): {}\n", perms.len(), perms.iter().take(30).cloned().collect::<Vec<_>>().join(", ")));
         }
-        let comps = pick(&|s| {
-            s.ends_with("Activity")
-                || s.ends_with("Service")
-                || s.ends_with("Receiver")
-                || s.ends_with("Provider")
-        });
+        let comps = pick(&|s| s.ends_with("Activity") || s.ends_with("Service") || s.ends_with("Receiver") || s.ends_with("Provider"));
         if !comps.is_empty() {
-            r.push_str(&format!(
-                "Components: {}\n",
-                comps
-                    .iter()
-                    .take(25)
-                    .cloned()
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ));
+            r.push_str(&format!("Components: {}\n", comps.iter().take(25).cloned().collect::<Vec<_>>().join(", ")));
         }
     }
     let terms = crate::terms(question);
@@ -147,15 +110,7 @@ pub fn inspect(data: &[u8], question: &str) -> Result<String, String> {
             }
         }
         if !hits.is_empty() {
-            r.push_str(&format!(
-                "Classes/methods matching {:?}:\n{}\n",
-                terms,
-                hits.iter()
-                    .take(40)
-                    .map(|s| format!("  {s}"))
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            ));
+            r.push_str(&format!("Classes/methods matching {:?}:\n{}\n", terms, hits.iter().take(40).map(|s| format!("  {s}")).collect::<Vec<_>>().join("\n")));
         }
     }
     r.push_str("Unknowns: decompiled Java/Kotlin needs JADX (external REA); this lists structure and names only.");

@@ -24,22 +24,12 @@ fn a_native_binary_is_described() {
 fn javascript_apps_show_ipc_routes_endpoints_and_matches() {
     let main = "const { ipcMain } = require('electron');\nconst express = require('express');\nipcMain.handle('notes:search', async (e, q) => db.search(q));\napp.get('/api/notes', handler);\nfetch('https://api.example.com/v1/sync');\n";
     let renderer = "import { debounce } from 'lodash';\nimport React from 'react';\nexport function search(q) { return ipcRenderer.invoke('notes:search', q) }\n";
-    let files = vec![
-        ("main.js".to_string(), main.to_string()),
-        ("src/app.jsx".to_string(), renderer.to_string()),
-    ];
-    let pkg =
-        r#"{"name": "notas", "main": "main.js", "dependencies": {"electron": "1", "lodash": "4"}}"#;
+    let files = vec![("main.js".to_string(), main.to_string()), ("src/app.jsx".to_string(), renderer.to_string())];
+    let pkg = r#"{"name": "notas", "main": "main.js", "dependencies": {"electron": "1", "lodash": "4"}}"#;
     let r = js::inspect_files(&files, Some(pkg), "como funciona a search");
     assert!(r.contains("Package: notas (main: main.js)"), "{r}");
-    assert!(
-        r.contains("electron") && r.contains("lodash×1") && r.contains("react×1"),
-        "{r}"
-    );
-    assert!(
-        r.contains("notes:search (handle)  [main.js:3]") && r.contains("notes:search (invoke)"),
-        "{r}"
-    );
+    assert!(r.contains("electron") && r.contains("lodash×1") && r.contains("react×1"), "{r}");
+    assert!(r.contains("notes:search (handle)  [main.js:3]") && r.contains("notes:search (invoke)"), "{r}");
     assert!(r.contains("/api/notes  [main.js:4]"), "{r}");
     assert!(r.contains("https://api.example.com/v1/sync"), "{r}");
     assert!(r.contains("src/app.jsx:3:"), "matches carry file:line: {r}");
@@ -50,10 +40,7 @@ fn asar(files: &[(&str, &str)]) -> Vec<u8> {
     let mut entries = serde_json::Map::new();
     let mut body = Vec::new();
     for (name, text) in files {
-        entries.insert(
-            name.to_string(),
-            serde_json::json!({"size": text.len(), "offset": body.len().to_string()}),
-        );
+        entries.insert(name.to_string(), serde_json::json!({"size": text.len(), "offset": body.len().to_string()}));
         body.extend_from_slice(text.as_bytes());
     }
     let json = serde_json::json!({"files": entries}).to_string();
@@ -73,19 +60,11 @@ fn asar(files: &[(&str, &str)]) -> Vec<u8> {
 
 #[test]
 fn electron_archives_are_opened() {
-    let data = asar(&[
-        ("package.json", r#"{"name":"app","main":"index.js"}"#),
-        ("index.js", "ipcMain.on('save-file', f)\n"),
-    ]);
+    let data = asar(&[("package.json", r#"{"name":"app","main":"index.js"}"#), ("index.js", "ipcMain.on('save-file', f)\n")]);
     let files = js::asar_files(&data).unwrap();
     assert_eq!(files.len(), 2);
     let r = js::inspect_asar(&data, "save").unwrap();
-    assert!(
-        r.contains("Electron archive")
-            && r.contains("save-file (on)")
-            && r.contains("Package: app"),
-        "{r}"
-    );
+    assert!(r.contains("Electron archive") && r.contains("save-file (on)") && r.contains("Package: app"), "{r}");
     assert!(js::asar_files(b"xx").is_err());
 }
 
@@ -95,14 +74,8 @@ fn rendered_pages_are_described() {
 <body><header><nav></nav></header><main><section id="busca"><h1>Busca <b>instantânea</b></h1><h2>Filtros</h2></section></main><footer></footer><form></form></body></html>"#;
     let r = site::describe(dom);
     assert!(r.contains("Title: Notas Rápidas"), "{r}");
-    assert!(
-        r.contains("h1 Busca instantânea") && r.contains("  h2 Filtros"),
-        "{r}"
-    );
-    assert!(
-        r.contains("header → nav → main → section#busca → footer"),
-        "{r}"
-    );
+    assert!(r.contains("h1 Busca instantânea") && r.contains("  h2 Filtros"), "{r}");
+    assert!(r.contains("header → nav → main → section#busca → footer"), "{r}");
     assert!(r.contains("Next.js"), "{r}");
     assert!(r.contains("Scripts loaded: 1; forms: 1"), "{r}");
 }
@@ -115,11 +88,7 @@ fn x86_code_is_disassembled() {
     let lines = disassemble(&code, 0x1000, 64, 20);
     assert_eq!(lines.len(), 3, "stops at ret");
     assert_eq!(lines[0].ip, 0x1000);
-    assert!(
-        lines[0].text.contains("mov") && lines[0].text.contains("eax"),
-        "{}",
-        lines[0].text
-    );
+    assert!(lines[0].text.contains("mov") && lines[0].text.contains("eax"), "{}", lines[0].text);
     assert!(lines[1].text.starts_with("add"), "{}", lines[1].text);
     assert!(lines[2].text.starts_with("ret"), "{}", lines[2].text);
 }
@@ -133,10 +102,7 @@ fn sqlite_schema_is_read() {
     let mut fake = vec![0u8; 512];
     fake[..16].copy_from_slice(b"SQLite format 3\0");
     fake[16] = 0x02; // page size 512
-    fake[28] = 0;
-    fake[29] = 0;
-    fake[30] = 0;
-    fake[31] = 1; // 1 page
+    fake[28] = 0; fake[29] = 0; fake[30] = 0; fake[31] = 1; // 1 page
     let r = sqlite::inspect(&fake).unwrap();
     assert!(r.contains("SQLite database: page size 512"), "{r}");
 }
@@ -152,11 +118,7 @@ fn zip_stored(files: &[(&str, &[u8])]) -> Vec<u8> {
             for &b in *data {
                 c ^= b as u32;
                 for _ in 0..8 {
-                    c = if c & 1 == 1 {
-                        (c >> 1) ^ 0xedb8_8320
-                    } else {
-                        c >> 1
-                    };
+                    c = if c & 1 == 1 { (c >> 1) ^ 0xedb8_8320 } else { c >> 1 };
                 }
             }
             !c
@@ -178,16 +140,7 @@ fn zip_stored(files: &[(&str, &[u8])]) -> Vec<u8> {
         central.extend_from_slice(&[20, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
         let crc = {
             let mut c: u32 = 0xffff_ffff;
-            for &b in *data {
-                c ^= b as u32;
-                for _ in 0..8 {
-                    c = if c & 1 == 1 {
-                        (c >> 1) ^ 0xedb8_8320
-                    } else {
-                        c >> 1
-                    };
-                }
-            }
+            for &b in *data { c ^= b as u32; for _ in 0..8 { c = if c & 1 == 1 { (c >> 1) ^ 0xedb8_8320 } else { c >> 1 }; } }
             !c
         };
         central.extend_from_slice(&crc.to_le_bytes());
@@ -228,18 +181,9 @@ fn apk_structure_and_permissions() {
     let r = apk::inspect(&apk, "search").unwrap();
     assert!(r.contains("Android APK") && r.contains("1 DEX"), "{r}");
     assert!(r.contains("arm64-v8a"), "{r}");
-    assert!(
-        r.contains("android.permission.INTERNET") && r.contains("CAMERA"),
-        "{r}"
-    );
-    assert!(
-        r.contains("MainActivity") && r.contains("SyncService"),
-        "{r}"
-    );
-    assert!(
-        r.contains("SearchIndex"),
-        "dex names matching the question: {r}"
-    );
+    assert!(r.contains("android.permission.INTERNET") && r.contains("CAMERA"), "{r}");
+    assert!(r.contains("MainActivity") && r.contains("SyncService"), "{r}");
+    assert!(r.contains("SearchIndex"), "dex names matching the question: {r}");
     assert!(apk::inspect(b"not a zip", "").is_err());
 }
 
@@ -248,17 +192,9 @@ fn external_rea_suggestions_depend_on_install() {
     use coturbo_rea::external;
     let s = external::suggestions("site", "https://exemplo.com");
     if external::installed() {
-        assert!(
-            s.contains("rea analyze-web-bundle https://exemplo.com"),
-            "{s}"
-        );
-        assert!(
-            external::suggestions("binary", "a.exe").contains("rea function a.exe"),
-            "binary cmds"
-        );
-        assert!(
-            external::suggestions("js", "/app").contains("rea analyze-javascript-application /app")
-        );
+        assert!(s.contains("rea analyze-web-bundle https://exemplo.com"), "{s}");
+        assert!(external::suggestions("binary", "a.exe").contains("rea function a.exe"), "binary cmds");
+        assert!(external::suggestions("js", "/app").contains("rea analyze-javascript-application /app"));
     } else {
         assert!(s.is_empty(), "sem rea instalado, nada é sugerido");
     }

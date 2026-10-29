@@ -24,10 +24,7 @@ pub fn no_browser_help() -> &'static str {
 
 /// The browser used for rendering: `CODETURBO_BROWSER`, then Edge, then Chrome.
 pub fn find_browser() -> Option<PathBuf> {
-    if let Some(p) = std::env::var_os("CODETURBO_BROWSER")
-        .map(PathBuf::from)
-        .filter(|p| p.exists())
-    {
+    if let Some(p) = std::env::var_os("CODETURBO_BROWSER").map(PathBuf::from).filter(|p| p.exists()) {
         return Some(p);
     }
     let mut candidates: Vec<PathBuf> = Vec::new();
@@ -43,13 +40,7 @@ pub fn find_browser() -> Option<PathBuf> {
         candidates.push("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome".into());
     } else {
         let path = std::env::var_os("PATH").unwrap_or_default();
-        for name in [
-            "microsoft-edge",
-            "microsoft-edge-stable",
-            "google-chrome",
-            "chromium",
-            "chromium-browser",
-        ] {
+        for name in ["microsoft-edge", "microsoft-edge-stable", "google-chrome", "chromium", "chromium-browser"] {
             candidates.extend(std::env::split_paths(&path).map(|d| d.join(name)));
         }
     }
@@ -171,11 +162,7 @@ pub fn dom_from_log(log: &str) -> Option<String> {
     let from = line.find("CT_PROBE:")? + "CT_PROBE:".len();
     let end = line.rfind("\", source:").unwrap_or(line.len());
     let json = line[from..end].trim().trim_end_matches('"');
-    let esc = json
-        .replace('&', "&amp;")
-        .replace('"', "&quot;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;");
+    let esc = json.replace('&', "&amp;").replace('"', "&quot;").replace('<', "&lt;").replace('>', "&gt;");
     Some(format!("<html data-codeturbo=\"{esc}\"></html>"))
 }
 
@@ -197,16 +184,7 @@ async fn wait_for(file: &Path, secs: u64) -> bool {
 async fn shoot(browser: &Path, size: (u32, u32), budget: &str, url: &str, shot: &Path) -> bool {
     for wait in [10, 20, 30] {
         let _ = std::fs::remove_file(shot);
-        let _ = run(
-            browser,
-            size,
-            &[
-                format!("--virtual-time-budget={budget}"),
-                format!("--screenshot={}", shot.display()),
-                url.to_string(),
-            ],
-        )
-        .await;
+        let _ = run(browser, size, &[format!("--virtual-time-budget={budget}"), format!("--screenshot={}", shot.display()), url.to_string()]).await;
         if wait_for(shot, wait).await {
             return true;
         }
@@ -217,20 +195,10 @@ async fn shoot(browser: &Path, size: (u32, u32), budget: &str, url: &str, shot: 
 pub fn parse_metrics(dom: &str) -> Option<Metrics> {
     let start = dom.find("data-codeturbo=\"")? + "data-codeturbo=\"".len();
     let raw = &dom[start..start + dom[start..].find('"')?];
-    let json = raw
-        .replace("&quot;", "\"")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&amp;", "&");
+    let json = raw.replace("&quot;", "\"").replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&");
     let v: serde_json::Value = serde_json::from_str(&json).ok()?;
     let n = |k: &str| v[k].as_u64().unwrap_or(0) as usize;
-    let list = |k: &str| {
-        v[k].as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|x| x.as_str().map(str::to_string))
-            .collect()
-    };
+    let list = |k: &str| v[k].as_array().into_iter().flatten().filter_map(|x| x.as_str().map(str::to_string)).collect();
     Some(Metrics {
         rounded: n("rounded"),
         radii: n("radii"),
@@ -265,173 +233,82 @@ pub fn parse_metrics(dom: &str) -> Option<Metrics> {
 }
 
 fn sample(v: &[String]) -> String {
-    v.iter()
-        .take(3)
-        .map(|s| format!("[{s}]"))
-        .collect::<Vec<_>>()
-        .join(", ")
+    v.iter().take(3).map(|s| format!("[{s}]")).collect::<Vec<_>>().join(", ")
 }
 
 /// What the measurements say about the page.
 pub fn judge(p: &Page) -> Vec<Finding> {
     let mut out = Vec::new();
-    let mut add = |severity, rule, message: String| {
-        out.push(Finding {
-            severity,
-            rule,
-            line: 1,
-            message,
-        })
-    };
-    for (m, at) in [
-        (&p.desktop, "on desktop"),
-        (&p.laptop, "on a laptop"),
-        (&p.tablet, "on a tablet"),
-        (&p.mobile, "on the phone"),
-    ] {
+    let mut add = |severity, rule, message: String| out.push(Finding { severity, rule, line: 1, message });
+    for (m, at) in [(&p.desktop, "on desktop"), (&p.laptop, "on a laptop"), (&p.tablet, "on a tablet"), (&p.mobile, "on the phone")] {
         if !m.overlaps.is_empty() {
-            add(
-                Severity::P0,
-                "render-overlap",
-                format!(
-                    "elements drawn on top of each other {at}: {}; give them their own space in the layout (grid/flex gap) instead of absolute positions",
-                    sample(&m.overlaps)
-                ),
-            );
+            add(Severity::P0, "render-overlap", format!("elements drawn on top of each other {at}: {}; give them their own space in the layout (grid/flex gap) instead of absolute positions", sample(&m.overlaps)));
         }
         if !m.under.is_empty() {
-            add(
-                Severity::P2,
-                "render-ornament-over-text",
-                format!(
-                    "decorative ornament over the content {at}: {}; move it away from the text or lower its opacity",
-                    sample(&m.under)
-                ),
-            );
+            add(Severity::P2, "render-ornament-over-text", format!(
+                "decorative ornament over the content {at}: {}; move it away from the text or lower its opacity",
+                sample(&m.under)
+            ));
         }
         if !m.tight.is_empty() {
-            add(
-                Severity::P1,
-                "render-cramped",
-                format!(
-                    "elements touching, with no space between them, {at}: {}; add a gap from the spacing scale",
-                    sample(&m.tight)
-                ),
-            );
+            add(Severity::P1, "render-cramped", format!("elements touching, with no space between them, {at}: {}; add a gap from the spacing scale", sample(&m.tight)));
         }
         if !m.cut.is_empty() {
-            add(
-                Severity::P0,
-                "render-cut-off",
-                format!(
-                    "text cut off by the screen edge {at}: {}; use fluid widths (max-width: 100%, clamp() for font sizes) instead of hiding the overflow",
-                    sample(&m.cut)
-                ),
-            );
+            add(Severity::P0, "render-cut-off", format!(
+                "text cut off by the screen edge {at}: {}; use fluid widths (max-width: 100%, clamp() for font sizes) instead of hiding the overflow",
+                sample(&m.cut)
+            ));
         }
         if !m.scrollers.is_empty() {
-            add(
-                Severity::P1,
-                "render-scrollbar",
-                format!(
-                    "visible scrollbar {at}: {}; let the content grow or wrap instead of scrolling inside a box",
-                    sample(&m.scrollers)
-                ),
-            );
+            add(Severity::P1, "render-scrollbar", format!("visible scrollbar {at}: {}; let the content grow or wrap instead of scrolling inside a box", sample(&m.scrollers)));
         }
     }
-    let broken = if p.desktop.broken.is_empty() {
-        &p.mobile.broken
-    } else {
-        &p.desktop.broken
-    };
+    let broken = if p.desktop.broken.is_empty() { &p.mobile.broken } else { &p.desktop.broken };
     if !broken.is_empty() {
-        add(
-            Severity::P0,
-            "render-broken-image",
-            format!(
-                "image that does not load: {}; without a real file, get a photo with find_images, or remove it",
-                sample(broken)
-            ),
-        );
+        add(Severity::P0, "render-broken-image", format!(
+            "image that does not load: {}; without a real file, get a photo with find_images, or remove it",
+            sample(broken)
+        ));
     }
     if !p.mobile.edge.is_empty() {
-        add(
-            Severity::P1,
-            "render-no-side-margin",
-            format!(
-                "text touching the screen edge on the phone: {}; give the containers side padding (padding-inline)",
-                sample(&p.mobile.edge)
-            ),
-        );
+        add(Severity::P1, "render-no-side-margin", format!(
+            "text touching the screen edge on the phone: {}; give the containers side padding (padding-inline)",
+            sample(&p.mobile.edge)
+        ));
     }
     if p.mobile.hscroll {
         add(Severity::P1, "render-not-responsive", "the page scrolls sideways on the phone (390px): it is not responsive; find the fixed width (min-width, wide images, long words) and make it fluid".into());
     }
-    for (m, at) in [
-        (&p.desktop, "on desktop"),
-        (&p.laptop, "on a laptop (1280px)"),
-        (&p.tablet, "on a tablet (768px)"),
-    ] {
+    for (m, at) in [(&p.desktop, "on desktop"), (&p.laptop, "on a laptop (1280px)"), (&p.tablet, "on a tablet (768px)")] {
         if m.hscroll {
-            add(
-                Severity::P1,
-                "render-sideways-scroll",
-                format!("the page scrolls sideways {at}"),
-            );
+            add(Severity::P1, "render-sideways-scroll", format!("the page scrolls sideways {at}"));
         }
     }
     if p.mobile.small >= 3 {
-        add(
-            Severity::P1,
-            "render-small-target",
-            format!(
-                "{} buttons or links smaller than 32px on the phone; touch targets need at least 44px (padding, min-height)",
-                p.mobile.small
-            ),
-        );
+        add(Severity::P1, "render-small-target", format!("{} buttons or links smaller than 32px on the phone; touch targets need at least 44px (padding, min-height)", p.mobile.small));
     }
     if p.mobile.tiny >= 3 {
-        add(
-            Severity::P2,
-            "render-small-text",
-            format!(
-                "{} text blocks under 14px on the phone; body text needs 16px",
-                p.mobile.tiny
-            ),
-        );
+        add(Severity::P2, "render-small-text", format!("{} text blocks under 14px on the phone; body text needs 16px", p.mobile.tiny));
     }
     // Accessibility, as the page is drawn.
     let d = &p.desktop;
     if !d.contrast.is_empty() {
-        add(
-            Severity::P0,
-            "render-low-contrast",
-            format!(
-                "text below the WCAG AA contrast (4.5:1, or 3:1 for large text): {}; darken the text or lighten what is behind it, using the contract colours",
-                sample(&d.contrast)
-            ),
-        );
+        add(Severity::P0, "render-low-contrast", format!(
+            "text below the WCAG AA contrast (4.5:1, or 3:1 for large text): {}; darken the text or lighten what is behind it, using the contract colours",
+            sample(&d.contrast)
+        ));
     }
     if d.noalt > 0 {
-        add(
-            Severity::P1,
-            "render-missing-alt",
-            format!(
-                "{} image(s) with no alt text; describe what the image shows, or alt=\"\" when it is only decoration",
-                d.noalt
-            ),
-        );
+        add(Severity::P1, "render-missing-alt", format!(
+            "{} image(s) with no alt text; describe what the image shows, or alt=\"\" when it is only decoration",
+            d.noalt
+        ));
     }
     if d.unlabeled > 0 {
-        add(
-            Severity::P1,
-            "render-unlabeled-field",
-            format!(
-                "{} form field(s) with no label (a placeholder is not a label); add <label for> or aria-label",
-                d.unlabeled
-            ),
-        );
+        add(Severity::P1, "render-unlabeled-field", format!(
+            "{} form field(s) with no label (a placeholder is not a label); add <label for> or aria-label",
+            d.unlabeled
+        ));
     }
     if d.noviewport {
         add(Severity::P1, "render-no-viewport", "no <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">: phones show a shrunken desktop page".into());
@@ -441,96 +318,48 @@ pub fn judge(p: &Page) -> Vec<Finding> {
     }
     // Rhythm and coherence.
     if !d.longlines.is_empty() {
-        add(
-            Severity::P2,
-            "render-long-lines",
-            format!(
-                "lines too long to read comfortably: {}; keep running text near 60-75 characters (max-width: 65ch)",
-                sample(&d.longlines)
-            ),
-        );
+        add(Severity::P2, "render-long-lines", format!(
+            "lines too long to read comfortably: {}; keep running text near 60-75 characters (max-width: 65ch)",
+            sample(&d.longlines)
+        ));
     }
     if d.sizes > 8 {
-        add(
-            Severity::P2,
-            "render-too-many-sizes",
-            format!(
-                "{} different font sizes on the page; use the contract's type scale (about 5-7 steps)",
-                d.sizes
-            ),
-        );
+        add(Severity::P2, "render-too-many-sizes", format!(
+            "{} different font sizes on the page; use the contract's type scale (about 5-7 steps)",
+            d.sizes
+        ));
     }
     if d.inks > 6 || d.fills > 8 {
-        add(
-            Severity::P2,
-            "render-too-many-colours",
-            format!(
-                "{} text colours and {} background colours drawn; keep to the contract roles (ink, muted, primary...) so the palette reads as one",
-                d.inks, d.fills
-            ),
-        );
+        add(Severity::P2, "render-too-many-colours", format!(
+            "{} text colours and {} background colours drawn; keep to the contract roles (ink, muted, primary...) so the palette reads as one",
+            d.inks, d.fills
+        ));
     }
     // A long page that is all plain background reads as a template.
     if d.screens >= 25 && d.colour < 15 {
-        add(
-            Severity::P1,
-            "render-no-identity",
-            format!(
-                "only {}% of the page carries colour, photos or illustrations: the brand lives on the buttons alone; put whole sections on --color-deep, --color-primary or --color-tint (DESIGN.md, colour plan) and show the subject in images or SVG",
-                d.colour
-            ),
-        );
+        add(Severity::P1, "render-no-identity", format!(
+            "only {}% of the page carries colour, photos or illustrations: the brand lives on the buttons alone; put whole sections on --color-deep, --color-primary or --color-tint (DESIGN.md, colour plan) and show the subject in images or SVG",
+            d.colour
+        ));
     }
     if d.screens >= 40 && d.photos < 3 {
-        add(
-            Severity::P1,
-            "render-no-photos",
-            format!(
-                "{} photograph(s) on a long page: it reads as a dated template; show the subject in at least three real photos (the user's, or find_images) in the opening, a gallery and the bento tiles (DESIGN.md, imagery and art direction)",
-                d.photos
-            ),
-        );
+        add(Severity::P1, "render-no-photos", format!(
+            "{} photograph(s) on a long page: it reads as a dated template; show the subject in at least three real photos (the user's, or find_images) in the opening, a gallery and the bento tiles (DESIGN.md, imagery and art direction)",
+            d.photos
+        ));
     }
     let m = &p.desktop;
     if m.rows >= 3 {
-        add(
-            Severity::P2,
-            "render-identical-grids",
-            format!(
-                "{} rows of identical blocks in the rendered page; vary size, emphasis or layout so the important one leads",
-                m.rows
-            ),
-        );
+        add(Severity::P2, "render-identical-grids", format!("{} rows of identical blocks in the rendered page; vary size, emphasis or layout so the important one leads", m.rows));
     }
     if m.rounded >= 6 && m.radii == 1 {
-        add(
-            Severity::P1,
-            "render-single-radius",
-            format!(
-                "{} elements rendered with a single radius; use the contract radii by role (small for inputs, larger for surfaces)",
-                m.rounded
-            ),
-        );
+        add(Severity::P1, "render-single-radius", format!("{} elements rendered with a single radius; use the contract radii by role (small for inputs, larger for surfaces)", m.rounded));
     }
     if m.text >= 8 && m.centered * 10 >= m.text * 7 {
-        add(
-            Severity::P1,
-            "render-all-centered",
-            format!(
-                "{} of {} text blocks centred; align running text to the left and keep centring for short headings",
-                m.centered, m.text
-            ),
-        );
+        add(Severity::P1, "render-all-centered", format!("{} of {} text blocks centred; align running text to the left and keep centring for short headings", m.centered, m.text));
     }
     if m.shadowed >= 4 && m.shadows == 1 {
-        add(
-            Severity::P2,
-            "render-single-shadow",
-            format!(
-                "{} elements with the same shadow; use elevation levels, or borders instead",
-                m.shadowed
-            ),
-        );
+        add(Severity::P2, "render-single-shadow", format!("{} elements with the same shadow; use elevation levels, or borders instead", m.shadowed));
     }
     out
 }
@@ -538,35 +367,21 @@ pub fn judge(p: &Page) -> Vec<Finding> {
 fn file_url(p: &Path) -> String {
     let s = p.to_string_lossy().replace('\\', "/");
     let s = s.trim_start_matches("//?/");
-    if s.starts_with('/') {
-        format!("file://{s}")
-    } else {
-        format!("file:///{s}")
-    }
+    if s.starts_with('/') { format!("file://{s}") } else { format!("file:///{s}") }
 }
 
 async fn run(browser: &Path, size: (u32, u32), args: &[String]) -> Result<String, String> {
     // A few browsers at a time: many starting together on one machine make
     // some of them hand back nothing (no screenshot, no measurements).
     static SLOTS: std::sync::OnceLock<tokio::sync::Semaphore> = std::sync::OnceLock::new();
-    let _slot = SLOTS
-        .get_or_init(|| tokio::sync::Semaphore::new(3))
-        .acquire()
-        .await
-        .map_err(|e| e.to_string())?;
+    let _slot = SLOTS.get_or_init(|| tokio::sync::Semaphore::new(3)).acquire().await.map_err(|e| e.to_string())?;
     // A fresh profile per run: Edge hands a second launch on a busy
     // profile to the running instance, which then ignores its flags.
     static RUNS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let n = RUNS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     let profile = std::env::temp_dir().join(format!("codeturbo-render-{}-{n}", std::process::id()));
     let mut cmd = tokio::process::Command::new(browser);
-    cmd.args([
-        "--headless=new",
-        "--disable-gpu",
-        "--no-first-run",
-        "--no-default-browser-check",
-        "--allow-file-access-from-files",
-    ]);
+    cmd.args(["--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--allow-file-access-from-files"]);
     // Hosted CI runners on Linux forbid the browser's own sandbox; on Android
     // (Termux) Chromium only starts without it.
     if (cfg!(target_os = "linux") && std::env::var_os("CI").is_some()) || on_android() {
@@ -593,19 +408,11 @@ async fn run(browser: &Path, size: (u32, u32), args: &[String]) -> Result<String
 /// never the one in use.
 fn sweep_profiles(current: &Path) {
     let Some(dir) = current.parent() else { return };
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
     for e in entries.flatten() {
         let name = e.file_name().to_string_lossy().into_owned();
-        let old = e
-            .metadata()
-            .and_then(|m| m.modified())
-            .ok()
-            .and_then(|t| t.elapsed().ok())
-            .is_some_and(|age| age > Duration::from_secs(600));
-        if name.starts_with("codeturbo-render-") && e.path() != current && old && e.path().is_dir()
-        {
+        let old = e.metadata().and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|age| age > Duration::from_secs(600));
+        if name.starts_with("codeturbo-render-") && e.path() != current && old && e.path().is_dir() {
             let _ = std::fs::remove_dir_all(e.path());
         }
     }
@@ -617,21 +424,14 @@ pub const TABLET: (u32, u32) = (768, 1024);
 pub const LAPTOP: (u32, u32) = (1280, 800);
 
 /// Measures `html` at one size and saves a screenshot to `shot`.
-async fn measure_at(
-    browser: &Path,
-    html: &Path,
-    shot: &Path,
-    size: (u32, u32),
-) -> Result<Metrics, String> {
+async fn measure_at(browser: &Path, html: &Path, shot: &Path, size: (u32, u32)) -> Result<Metrics, String> {
     let text = std::fs::read_to_string(html).map_err(|e| format!("{}: {e}", html.display()))?;
     let probed = match text.rfind("</body>") {
         Some(i) => format!("{}{PROBE}{}", &text[..i], &text[i..]),
         None => format!("{text}{PROBE}"),
     };
     // Next to the original so relative assets still load.
-    let stem = html
-        .file_stem()
-        .map_or("page".into(), |s| s.to_string_lossy().into_owned());
+    let stem = html.file_stem().map_or("page".into(), |s| s.to_string_lossy().into_owned());
     let tmp = html.with_file_name(format!(".codeturbo-render-{stem}-{}.html", size.0));
     std::fs::write(&tmp, probed).map_err(|e| e.to_string())?;
     let url = file_url(&tmp.canonicalize().unwrap_or(tmp.clone()));
@@ -648,11 +448,7 @@ async fn measure_at(
         std::fs::write(&f, doc).map_err(|e| e.to_string())?;
         Ok(file_url(&f.canonicalize().unwrap_or(f.clone())))
     };
-    let (measure_url, shot_url) = if framed {
-        (frame(&url, "measure")?, frame(&page, "view")?)
-    } else {
-        (url, page)
-    };
+    let (measure_url, shot_url) = if framed { (frame(&url, "measure")?, frame(&page, "view")?) } else { (url, page) };
     let window = if framed { (520, size.1) } else { size };
     // The result also goes to the browser's log, for shells where its
     // standard output is lost.
@@ -666,14 +462,7 @@ async fn measure_at(
         let out = run(
             browser,
             window,
-            &[
-                "--enable-logging".into(),
-                "--v=0".into(),
-                format!("--log-file={}", log.display()),
-                "--virtual-time-budget=5000".into(),
-                "--dump-dom".into(),
-                measure_url.clone(),
-            ],
+            &["--enable-logging".into(), "--v=0".into(), format!("--log-file={}", log.display()), "--virtual-time-budget=5000".into(), "--dump-dom".into(), measure_url.clone()],
         )
         .await;
         if out.as_deref().is_ok_and(|d| parse_metrics(d).is_some()) {
@@ -683,11 +472,7 @@ async fn measure_at(
         // The probe line may land a moment after the log file appears.
         let mut found = None;
         for _ in 0..wait * 10 {
-            if let Some(d) = std::fs::read_to_string(&log)
-                .ok()
-                .as_deref()
-                .and_then(dom_from_log)
-            {
+            if let Some(d) = std::fs::read_to_string(&log).ok().as_deref().and_then(dom_from_log) {
                 found = Some(d);
                 break;
             }
@@ -710,9 +495,7 @@ async fn measure_at(
     // finishing first must not delete the phone's frame before its screenshot.
     if framed {
         for name in ["measure", "view"] {
-            let _ = std::fs::remove_file(
-                html.with_file_name(format!(".codeturbo-render-{stem}-{}-{name}.html", size.0)),
-            );
+            let _ = std::fs::remove_file(html.with_file_name(format!(".codeturbo-render-{stem}-{}-{name}.html", size.0)));
         }
     }
     parse_metrics(&dom?).ok_or_else(|| "the page could not be measured".to_string())
@@ -720,17 +503,13 @@ async fn measure_at(
 
 /// Phone screenshot path for a desktop one: `index.png` → `index-phone.png`.
 pub fn mobile_shot(shot: &Path) -> PathBuf {
-    let stem = shot
-        .file_stem()
-        .map_or("page".into(), |s| s.to_string_lossy().into_owned());
+    let stem = shot.file_stem().map_or("page".into(), |s| s.to_string_lossy().into_owned());
     shot.with_file_name(format!("{stem}-phone.png"))
 }
 
 /// Screenshot path for another size: `index.png` → `index-tablet.png`.
 pub fn sized_shot(shot: &Path, name: &str) -> PathBuf {
-    let stem = shot
-        .file_stem()
-        .map_or("page".into(), |s| s.to_string_lossy().into_owned());
+    let stem = shot.file_stem().map_or("page".into(), |s| s.to_string_lossy().into_owned());
     shot.with_file_name(format!("{stem}-{name}.png"))
 }
 
@@ -738,53 +517,26 @@ pub fn sized_shot(shot: &Path, name: &str) -> PathBuf {
 /// Screenshots go to `shot` and its `-laptop`, `-tablet` and `-phone`
 /// siblings.
 pub async fn measure(browser: &Path, html: &Path, shot: &Path) -> Result<Page, String> {
-    let (laptop_shot, tablet_shot, phone_shot) = (
-        sized_shot(shot, "laptop"),
-        sized_shot(shot, "tablet"),
-        mobile_shot(shot),
-    );
+    let (laptop_shot, tablet_shot, phone_shot) = (sized_shot(shot, "laptop"), sized_shot(shot, "tablet"), mobile_shot(shot));
     let (desktop, laptop, tablet, mobile) = tokio::join!(
         measure_at(browser, html, shot, DESKTOP),
         measure_at(browser, html, &laptop_shot, LAPTOP),
         measure_at(browser, html, &tablet_shot, TABLET),
         measure_at(browser, html, &phone_shot, MOBILE),
     );
-    Ok(Page {
-        desktop: desktop?,
-        laptop: laptop?,
-        tablet: tablet?,
-        mobile: mobile?,
-    })
+    Ok(Page { desktop: desktop?, laptop: laptop?, tablet: tablet?, mobile: mobile? })
 }
 
 /// The page at `url` after its scripts ran, as HTML.
 pub async fn dump_dom(browser: &Path, url: &str) -> Result<String, String> {
-    run(
-        browser,
-        DESKTOP,
-        &[
-            "--virtual-time-budget=6000".into(),
-            "--dump-dom".into(),
-            url.to_string(),
-        ],
-    )
-    .await
+    run(browser, DESKTOP, &["--virtual-time-budget=6000".into(), "--dump-dom".into(), url.to_string()]).await
 }
 
 /// A screenshot of `url` at `size`, saved to `shot`.
-pub async fn screenshot(
-    browser: &Path,
-    url: &str,
-    shot: &Path,
-    size: (u32, u32),
-) -> Result<(), String> {
+pub async fn screenshot(browser: &Path, url: &str, shot: &Path, size: (u32, u32)) -> Result<(), String> {
     let shot = std::path::absolute(shot).unwrap_or(shot.to_path_buf());
     if let Some(dir) = shot.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    if shoot(browser, size, "6000", url, &shot).await {
-        Ok(())
-    } else {
-        Err("the browser did not save the screenshot".into())
-    }
+    if shoot(browser, size, "6000", url, &shot).await { Ok(()) } else { Err("the browser did not save the screenshot".into()) }
 }

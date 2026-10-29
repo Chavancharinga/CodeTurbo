@@ -1,9 +1,9 @@
 //! The screen: what it shows, how it draws, what the keys do. It runs on
 //! its own thread and redraws every animation frame.
 
-use super::browser::BrowserView;
 use super::commands::{self, Command, Parsed};
 use super::input::Input;
+use super::browser::BrowserView;
 use super::text;
 use super::work::Work;
 use super::{Choice, In, Out, Question, Status, StreamKind};
@@ -65,44 +65,21 @@ enum Entry {
     /// Rows drawn for the width they are shown at.
     Block(super::Dynamic),
     /// Code shown shortened until Ctrl+B.
-    Fold {
-        preview: Vec<Line<'static>>,
-        full: Vec<Line<'static>>,
-        open: bool,
-    },
+    Fold { preview: Vec<Line<'static>>, full: Vec<Line<'static>>, open: bool },
 }
 
 impl Entry {
     fn rows(&self) -> Vec<Line<'static>> {
         match self {
             Entry::Line(l) => vec![l.clone()],
-            Entry::Markdown {
-                text,
-                code,
-                prefix,
-                style,
-            } => {
+            Entry::Markdown { text, code, prefix, style } => {
                 let mut line = Line::default();
                 text::push(&mut line, prefix, *style);
-                let body = if text::is_fence(text) {
-                    Line::default()
-                } else {
-                    text::markdown_line(text, *code, *style)
-                };
+                let body = if text::is_fence(text) { Line::default() } else { text::markdown_line(text, *code, *style) };
                 line.spans.extend(body.spans);
                 vec![line]
             }
-            Entry::Fold {
-                preview,
-                full,
-                open,
-            } => {
-                if *open {
-                    full.clone()
-                } else {
-                    preview.clone()
-                }
-            }
+            Entry::Fold { preview, full, open } => if *open { full.clone() } else { preview.clone() },
             Entry::Clip(lines) => lines.clone(),
             Entry::Block(d) => (d.0)(80),
         }
@@ -134,28 +111,16 @@ impl Transcript {
 
     fn end_stream(&mut self) {
         let was = self.stream.take();
-        let Some(from) = self.thinking_from.take() else {
-            return;
-        };
-        if was != Some(StreamKind::Thinking) || !self.compact_thinking || from >= self.entries.len()
-        {
+        let Some(from) = self.thinking_from.take() else { return };
+        if was != Some(StreamKind::Thinking) || !self.compact_thinking || from >= self.entries.len() {
             return;
         }
         let full: Vec<Line<'static>> = self.entries[from..].iter().flat_map(Entry::rows).collect();
         let n = full.iter().filter(|l| text::width(l) > 0).count();
-        let style = Style::new()
-            .fg(Color::Rgb(140, 152, 175))
-            .add_modifier(Modifier::ITALIC);
-        let preview = vec![Line::styled(
-            format!("∴ thought for {n} line(s) · tap or Ctrl+B to open"),
-            style,
-        )];
+        let style = Style::new().fg(Color::Rgb(140, 152, 175)).add_modifier(Modifier::ITALIC);
+        let preview = vec![Line::styled(format!("∴ thought for {n} line(s) · tap or Ctrl+B to open"), style)];
         self.entries.truncate(from);
-        self.entries.push(Entry::Fold {
-            preview,
-            full,
-            open: false,
-        });
+        self.entries.push(Entry::Fold { preview, full, open: false });
     }
 
     pub fn push(&mut self, line: Line<'static>) {
@@ -181,19 +146,12 @@ impl Transcript {
 
     pub fn fold(&mut self, preview: Vec<Line<'static>>, full: Vec<Line<'static>>) {
         self.end_stream();
-        self.entries.push(Entry::Fold {
-            preview,
-            full,
-            open: false,
-        });
+        self.entries.push(Entry::Fold { preview, full, open: false });
     }
 
     /// Shows folded code in full, or folds it again. Returns the new state.
     pub fn toggle_folds(&mut self) -> bool {
-        let open = !self
-            .entries
-            .iter()
-            .any(|e| matches!(e, Entry::Fold { open: true, .. }));
+        let open = !self.entries.iter().any(|e| matches!(e, Entry::Fold { open: true, .. }));
         for e in &mut self.entries {
             if let Entry::Fold { open: o, .. } = e {
                 *o = open;
@@ -224,13 +182,7 @@ impl Transcript {
     /// `∴`, the answer as text; both rendered from markdown.
     pub fn stream(&mut self, kind: StreamKind, delta: &str) {
         let (style, first, indent) = match kind {
-            StreamKind::Thinking => (
-                Style::new()
-                    .fg(Color::Rgb(140, 152, 175))
-                    .add_modifier(Modifier::ITALIC),
-                "∴ ",
-                "  ",
-            ),
+            StreamKind::Thinking => (Style::new().fg(Color::Rgb(140, 152, 175)).add_modifier(Modifier::ITALIC), "∴ ", "  "),
             StreamKind::Text => (Style::new(), "", ""),
         };
         if self.stream != Some(kind) {
@@ -246,12 +198,7 @@ impl Transcript {
             if kind == StreamKind::Thinking {
                 self.thinking_from = Some(self.entries.len());
             }
-            self.entries.push(Entry::Markdown {
-                text: String::new(),
-                code: false,
-                prefix: first,
-                style,
-            });
+            self.entries.push(Entry::Markdown { text: String::new(), code: false, prefix: first, style });
             self.stream = Some(kind);
         }
         for (n, part) in delta.split('\n').enumerate() {
@@ -260,12 +207,7 @@ impl Transcript {
                     Some(Entry::Markdown { text, code, .. }) => *code != text::is_fence(text),
                     _ => false,
                 };
-                self.entries.push(Entry::Markdown {
-                    text: String::new(),
-                    code,
-                    prefix: indent,
-                    style,
-                });
+                self.entries.push(Entry::Markdown { text: String::new(), code, prefix: indent, style });
             }
             if let Some(Entry::Markdown { text, .. }) = self.entries.last_mut() {
                 text.push_str(part);
@@ -276,12 +218,7 @@ impl Transcript {
     /// At most `height` rows wrapped to `width`, ending `scroll` rows above
     /// the bottom; the scroll actually used (clamped at the top); and the
     /// entry each row belongs to, for clicks.
-    pub fn view(
-        &self,
-        width: usize,
-        height: usize,
-        scroll: usize,
-    ) -> (Vec<Line<'static>>, usize, Vec<usize>) {
+    pub fn view(&self, width: usize, height: usize, scroll: usize) -> (Vec<Line<'static>>, usize, Vec<usize>) {
         let need = height + scroll;
         let mut rows = Vec::new();
         'entries: for (i, entry) in self.entries.iter().enumerate().rev() {
@@ -295,12 +232,7 @@ impl Transcript {
                     break 'entries;
                 }
                 // Code and diffs are cut, not wrapped: one row each, however narrow the room.
-                let mut wrapped =
-                    if matches!(entry, Entry::Fold { .. } | Entry::Clip(_) | Entry::Block(_)) {
-                        vec![text::clip(line, width)]
-                    } else {
-                        text::wrap(line, width)
-                    };
+                let mut wrapped = if matches!(entry, Entry::Fold { .. } | Entry::Clip(_) | Entry::Block(_)) { vec![text::clip(line, width)] } else { text::wrap(line, width) };
                 wrapped.reverse();
                 rows.extend(wrapped.into_iter().map(|l| (l, i)));
             }
@@ -309,11 +241,7 @@ impl Transcript {
         let mut visible: Vec<_> = rows.into_iter().skip(scroll).take(height).collect();
         visible.reverse();
         let owners = visible.iter().map(|(_, i)| *i).collect();
-        (
-            visible.into_iter().map(|(l, _)| l).collect(),
-            scroll,
-            owners,
-        )
+        (visible.into_iter().map(|(l, _)| l).collect(), scroll, owners)
     }
 }
 
@@ -324,11 +252,7 @@ pub fn task_lines(task: &str) -> Vec<Line<'static>> {
     for (i, l) in task.lines().enumerate() {
         let mut line = Line::default();
         text::push(&mut line, if i == 0 { "› " } else { "  " }, prompt);
-        text::push(
-            &mut line,
-            l,
-            Style::new().fg(SOFT).add_modifier(Modifier::BOLD),
-        );
+        text::push(&mut line, l, Style::new().fg(SOFT).add_modifier(Modifier::BOLD));
         lines.push(line);
     }
     lines
@@ -363,11 +287,7 @@ pub fn filtered<'a>(options: &'a [Choice], filter: &str) -> Vec<&'a Choice> {
     let f = filter.trim().to_lowercase();
     options
         .iter()
-        .filter(|c| {
-            f.is_empty()
-                || c.value.to_lowercase().contains(&f)
-                || c.label.to_lowercase().contains(&f)
-        })
+        .filter(|c| f.is_empty() || c.value.to_lowercase().contains(&f) || c.label.to_lowercase().contains(&f))
         .collect()
 }
 
@@ -418,12 +338,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(
-        status: Status,
-        tx: UnboundedSender<In>,
-        cancel: UnboundedSender<()>,
-        closing: Arc<AtomicBool>,
-    ) -> Self {
+    pub fn new(status: Status, tx: UnboundedSender<In>, cancel: UnboundedSender<()>, closing: Arc<AtomicBool>) -> Self {
         Self {
             transcript: Transcript::default(),
             input: Input::default(),
@@ -490,13 +405,7 @@ impl App {
         }
         match self.flash {
             Some((m, at)) if now.saturating_duration_since(at) < FLASH => m,
-            _ if matches!(self.mood, Mood::Done | Mood::Alert | Mood::Denied)
-                && self
-                    .done_at
-                    .is_some_and(|t| now.saturating_duration_since(t) >= GREEN_FOR) =>
-            {
-                Mood::Calm
-            }
+            _ if matches!(self.mood, Mood::Done | Mood::Alert | Mood::Denied) && self.done_at.is_some_and(|t| now.saturating_duration_since(t) >= GREEN_FOR) => Mood::Calm,
             _ => self.mood,
         }
     }
@@ -526,9 +435,7 @@ impl App {
                         self.done_at = Some(Instant::now());
                     }
                     // A new task begins: blue, walking.
-                    (Some(_), Mood::Calm | Mood::Done | Mood::Alert | Mood::Denied) => {
-                        self.mood = Mood::Start
-                    }
+                    (Some(_), Mood::Calm | Mood::Done | Mood::Alert | Mood::Denied) => self.mood = Mood::Start,
                     _ => {}
                 }
                 self.busy = label.map(|l| (l, since));
@@ -571,11 +478,7 @@ impl App {
                 if self.asking.is_none() {
                     self.stash = Some(self.input.take());
                 }
-                self.asking = Some(Asking {
-                    q,
-                    sel: 0,
-                    stage: Stage::Choose,
-                });
+                self.asking = Some(Asking { q, sel: 0, stage: Stage::Choose });
             }
             Out::CloseQuestion => {
                 if self.asking.take().is_some() {
@@ -587,20 +490,9 @@ impl App {
                     .transcript
                     .lines()
                     .iter()
-                    .map(|l| {
-                        l.spans
-                            .iter()
-                            .map(|s| s.content.as_ref())
-                            .collect::<String>()
-                            + "\n"
-                    })
+                    .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>() + "\n")
                     .collect();
-                let note = match path
-                    .parent()
-                    .map(std::fs::create_dir_all)
-                    .transpose()
-                    .and_then(|_| std::fs::write(&path, text))
-                {
+                let note = match path.parent().map(std::fs::create_dir_all).transpose().and_then(|_| std::fs::write(&path, text)) {
                     Ok(()) => format!("  → conversa salva em {}", path.display()),
                     Err(e) => format!("  ! could not save: {e}"),
                 };
@@ -627,8 +519,7 @@ impl App {
     }
 
     fn note(&mut self, text: &str) {
-        self.transcript
-            .push(Line::styled(format!("  → {text}"), dim()));
+        self.transcript.push(Line::styled(format!("  → {text}"), dim()));
     }
 
     pub fn on_event(&mut self, ev: Event, paste_follows: bool) {
@@ -648,8 +539,7 @@ impl App {
             MouseEventKind::ScrollDown => self.scroll = self.scroll.saturating_sub(3),
             MouseEventKind::Down(MouseButton::Left) => {
                 let b = self.body;
-                if (b.x..b.x + b.width).contains(&m.column)
-                    && (b.y..b.y + b.height).contains(&m.row)
+                if (b.x..b.x + b.width).contains(&m.column) && (b.y..b.y + b.height).contains(&m.row)
                 {
                     // A click on the row of a block, or one row off it, opens or closes it.
                     let at = (m.row - b.y) as usize;
@@ -668,9 +558,7 @@ impl App {
     fn on_paste(&mut self, s: &str) {
         match self.asking.as_ref().map(|a| (&a.q, a.stage)) {
             None | Some((_, Stage::Write)) => self.input.insert_str(s),
-            Some((Question::Select { .. } | Question::Secret { .. }, _)) => {
-                self.input.insert_str(s.trim())
-            }
+            Some((Question::Select { .. } | Question::Secret { .. }, _)) => self.input.insert_str(s.trim()),
             Some(_) => {}
         }
     }
@@ -726,9 +614,7 @@ impl App {
                 }
                 return;
             }
-            KeyCode::Char('d')
-                if ctrl && !alt && self.input.is_empty() && self.asking.is_none() =>
-            {
+            KeyCode::Char('d') if ctrl && !alt && self.input.is_empty() && self.asking.is_none() => {
                 self.quit();
                 return;
             }
@@ -751,9 +637,7 @@ impl App {
             return;
         }
         let sugg = commands::suggestions(self.input.text());
-        let pick = sugg
-            .get(self.suggest.min(sugg.len().saturating_sub(1)))
-            .map(|c| c.name);
+        let pick = sugg.get(self.suggest.min(sugg.len().saturating_sub(1))).map(|c| c.name);
         match k.code {
             KeyCode::Enter if shift || alt || paste_follows => self.input.insert('\n'),
             KeyCode::Char('j') if ctrl && !alt => self.input.insert('\n'),
@@ -774,9 +658,7 @@ impl App {
             KeyCode::Up if ctrl => self.history_prev(),
             KeyCode::Down if ctrl => self.history_next(),
             KeyCode::Up if !sugg.is_empty() => self.suggest = self.suggest.saturating_sub(1),
-            KeyCode::Down if !sugg.is_empty() => {
-                self.suggest = (self.suggest + 1).min(sugg.len() - 1)
-            }
+            KeyCode::Down if !sugg.is_empty() => self.suggest = (self.suggest + 1).min(sugg.len() - 1),
             KeyCode::Up => {
                 if !self.input.up() {
                     self.scroll += 1;
@@ -859,13 +741,9 @@ impl App {
                 // A command does not wait behind a task that may be stuck: the
                 // task stops and the command runs now.
                 let _ = self.cancel.send(());
-                self.transcript
-                    .push(Line::styled("  task stopped to run the command", dim()));
+                self.transcript.push(Line::styled("  task stopped to run the command", dim()));
             } else {
-                self.transcript.push(Line::styled(
-                    "  queued: starts when the current task ends",
-                    dim(),
-                ));
+                self.transcript.push(Line::styled("  queued: starts when the current task ends", dim()));
             }
         }
         let _ = self.tx.send(In::Submit(task.to_string()));
@@ -876,16 +754,13 @@ impl App {
         let all = |items: &[&str]| items.iter().map(|s| (s.to_string(), true)).collect();
         match &a.q {
             Question::Approve { .. } => all(&APPROVE),
-            Question::Plan { keep_allowed, .. } => PLAN
-                .iter()
-                .enumerate()
-                .map(|(i, s)| (s.to_string(), i != 2 || *keep_allowed))
-                .collect(),
+            Question::Plan { keep_allowed, .. } => {
+                PLAN.iter().enumerate().map(|(i, s)| (s.to_string(), i != 2 || *keep_allowed)).collect()
+            }
             Question::Confirm { .. } => all(&CONFIRM),
-            Question::Select { options, .. } => filtered(options, self.input.text())
-                .into_iter()
-                .map(|c| (c.label.clone(), true))
-                .collect(),
+            Question::Select { options, .. } => {
+                filtered(options, self.input.text()).into_iter().map(|c| (c.label.clone(), true)).collect()
+            }
             Question::Secret { .. } => Vec::new(),
         }
     }
@@ -895,9 +770,7 @@ impl App {
     }
 
     fn move_sel(&mut self, down: bool) {
-        let Some(a) = self.asking.as_ref() else {
-            return;
-        };
+        let Some(a) = self.asking.as_ref() else { return };
         let entries = self.entries(a);
         let mut sel = a.sel.min(entries.len().saturating_sub(1));
         loop {
@@ -919,9 +792,7 @@ impl App {
     }
 
     fn on_question_key(&mut self, k: KeyEvent, paste_follows: bool) {
-        let Some(a) = self.asking.as_ref() else {
-            return;
-        };
+        let Some(a) = self.asking.as_ref() else { return };
         let typing = Self::typing(a);
         let count = self.entries(a).len();
         let is_plan = matches!(a.q, Question::Plan { .. });
@@ -946,11 +817,7 @@ impl App {
                 }
             }
             KeyCode::Char('e') if !typing && is_plan => {
-                if let Some(Asking {
-                    q: Question::Plan { path, .. },
-                    ..
-                }) = &self.asking
-                {
+                if let Some(Asking { q: Question::Plan { path, .. }, .. }) = &self.asking {
                     self.edit = Some(path.clone());
                 }
             }
@@ -1013,11 +880,7 @@ impl App {
         let sel = a.sel;
         match (a.q, a.stage) {
             (Question::Approve { reply, .. }, Stage::Write) => {
-                self.note(if typed.is_empty() {
-                    "denied"
-                } else {
-                    "denied, with the reason sent to the model"
-                });
+                self.note(if typed.is_empty() { "denied" } else { "denied, with the reason sent to the model" });
                 let _ = reply.send(Decision::Deny((!typed.is_empty()).then_some(typed)));
             }
             (Question::Plan { reply, .. }, Stage::Write) => {
@@ -1035,40 +898,19 @@ impl App {
                 }
                 _ => {
                     self.input.take();
-                    self.asking = Some(Asking {
-                        q: Question::Approve { title, reply },
-                        sel,
-                        stage: Stage::Write,
-                    });
+                    self.asking = Some(Asking { q: Question::Approve { title, reply }, sel, stage: Stage::Write });
                     return;
                 }
             },
-            (
-                Question::Plan {
-                    title,
-                    path,
-                    keep_allowed,
-                    reply,
-                },
-                Stage::Choose,
-            ) => {
+            (Question::Plan { title, path, keep_allowed, reply }, Stage::Choose) => {
                 let choice = match sel {
                     0 => PlanChoice::Execute,
                     1 => PlanChoice::Compact,
                     2 if keep_allowed => PlanChoice::KeepContext,
                     3 => {
                         self.input.take();
-                        let q = Question::Plan {
-                            title,
-                            path,
-                            keep_allowed,
-                            reply,
-                        };
-                        self.asking = Some(Asking {
-                            q,
-                            sel,
-                            stage: Stage::Write,
-                        });
+                        let q = Question::Plan { title, path, keep_allowed, reply };
+                        self.asking = Some(Asking { q, sel, stage: Stage::Write });
                         return;
                     }
                     _ => PlanChoice::SaveQuit,
@@ -1080,15 +922,7 @@ impl App {
                 self.note(CONFIRM[sel.min(1)]);
                 let _ = reply.send(sel == 0);
             }
-            (
-                Question::Select {
-                    title,
-                    options,
-                    custom,
-                    reply,
-                },
-                _,
-            ) => {
+            (Question::Select { title, options, custom, reply }, _) => {
                 let picked = filtered(&options, &typed).get(sel).map(|c| c.value.clone());
                 let value = picked.or_else(|| (custom && !typed.is_empty()).then_some(typed));
                 match value {
@@ -1097,27 +931,14 @@ impl App {
                     }
                     None => {
                         // Nothing to pick yet: keep the list open.
-                        self.asking = Some(Asking {
-                            q: Question::Select {
-                                title,
-                                options,
-                                custom,
-                                reply,
-                            },
-                            sel,
-                            stage: Stage::Choose,
-                        });
+                        self.asking = Some(Asking { q: Question::Select { title, options, custom, reply }, sel, stage: Stage::Choose });
                         return;
                     }
                 }
             }
             (Question::Secret { title, reply }, _) => {
                 if typed.is_empty() {
-                    self.asking = Some(Asking {
-                        q: Question::Secret { title, reply },
-                        sel,
-                        stage: Stage::Choose,
-                    });
+                    self.asking = Some(Asking { q: Question::Secret { title, reply }, sel, stage: Stage::Choose });
                     return;
                 }
                 let _ = reply.send(Some(typed));
@@ -1129,17 +950,11 @@ impl App {
     /// Shows the plan again after it was edited outside.
     pub fn after_edit(&mut self, path: &Path, error: Option<String>) {
         match error {
-            Some(e) => self.transcript.push(Line::styled(
-                format!("  ! could not open the editor: {e}"),
-                Style::new().fg(YELLOW),
-            )),
+            Some(e) => self.transcript.push(Line::styled(format!("  ! could not open the editor: {e}"), Style::new().fg(YELLOW))),
             None => {
                 let content = std::fs::read_to_string(path).unwrap_or_default();
                 self.transcript.push(Line::default());
-                self.transcript.push(Line::styled(
-                    "── plan edited ──",
-                    Style::new().fg(BLUE).add_modifier(Modifier::BOLD),
-                ));
+                self.transcript.push(Line::styled("── plan edited ──", Style::new().fg(BLUE).add_modifier(Modifier::BOLD)));
                 for l in content.lines() {
                     self.transcript.push(Line::raw(l.to_string()));
                 }
@@ -1171,56 +986,33 @@ impl App {
         }
         if let Question::Secret { .. } = a.q {
             rows.push(Line::raw("Paste the key below and press Enter."));
-            rows.push(Line::styled(
-                "It is stored only on this computer. Esc cancels.",
-                dim(),
-            ));
+            rows.push(Line::styled("It is stored only on this computer. Esc cancels.", dim()));
             return Some((title, rows));
         }
         let entries = self.entries(a);
         let sel = a.sel.min(entries.len().saturating_sub(1));
-        let first = sel
-            .saturating_sub(LIST_ROWS - 1)
-            .min(entries.len().saturating_sub(LIST_ROWS));
+        let first = sel.saturating_sub(LIST_ROWS - 1).min(entries.len().saturating_sub(LIST_ROWS));
         for (i, (label, ok)) in entries.iter().enumerate().skip(first).take(LIST_ROWS) {
             let numbered = !matches!(a.q, Question::Select { .. });
-            let n = if numbered {
-                format!("{}. ", i + 1)
-            } else {
-                String::new()
-            };
+            let n = if numbered { format!("{}. ", i + 1) } else { String::new() };
             let (mark, style) = match (i == sel, ok) {
                 (_, false) => ("  ", dim()),
                 (true, true) => ("› ", Style::new().fg(BLUE).add_modifier(Modifier::BOLD)),
                 (false, true) => ("  ", Style::new()),
             };
-            let tail = if *ok {
-                ""
-            } else {
-                " (unavailable: context above 95%)"
-            };
+            let tail = if *ok { "" } else { " (unavailable: context above 95%)" };
             rows.push(Line::styled(format!("{mark}{n}{label}{tail}"), style));
         }
         let mut help = String::from("↑↓ escolher · Enter confirmar · Esc cancelar");
         match &a.q {
-            Question::Select {
-                options, custom, ..
-            } => {
+            Question::Select { options, custom, .. } => {
                 if entries.is_empty() {
                     rows.push(Line::styled(
-                        if *custom {
-                            "No match; Enter uses the typed text."
-                        } else {
-                            "No match."
-                        },
+                        if *custom { "No match; Enter uses the typed text." } else { "No match." },
                         dim(),
                     ));
                 }
-                help = format!(
-                    "{} of {} · type to filter · {help}",
-                    entries.len(),
-                    options.len()
-                );
+                help = format!("{} of {} · type to filter · {help}", entries.len(), options.len());
             }
             Question::Plan { .. } => help.push_str(" · e edit the plan"),
             _ => {}
@@ -1242,9 +1034,7 @@ impl App {
 
     /// Skips the logo's slide-in: the picture is whole from the first draw.
     pub fn skip_intro(&mut self) {
-        self.started = Instant::now()
-            .checked_sub(Duration::from_millis(super::fx::INTRO_MS as u64 + 50))
-            .unwrap_or_else(Instant::now);
+        self.started = Instant::now().checked_sub(Duration::from_millis(super::fx::INTRO_MS as u64 + 50)).unwrap_or_else(Instant::now);
     }
 
     pub fn set_graphics(&mut self, picker: ratatui_image::picker::Picker) {
@@ -1267,8 +1057,7 @@ impl App {
         let frame = self.phase as usize;
         // Narrower than the whole logo (a phone), the snail still runs beside the name in text.
         let logo = area.width >= 34 && area.height as usize >= splash::ROWS + 12;
-        self.transcript
-            .set_compact_thinking(area.width < 70 || splash::on_termux());
+        self.transcript.set_compact_thinking(area.width < 70 || splash::on_termux());
         let header_h = if logo { splash::ROWS as u16 + 1 } else { 2 };
 
         let asking = self.asking.as_ref();
@@ -1279,27 +1068,17 @@ impl App {
         let shown = rows.len().min(MAX_INPUT_ROWS);
         let first = (crow + 1).saturating_sub(shown);
         let question = self.question_view();
-        let q_h = question
-            .as_ref()
-            .map_or(0, |(_, l)| (l.len() as u16 + 2).min(area.height / 2));
+        let q_h = question.as_ref().map_or(0, |(_, l)| (l.len() as u16 + 2).min(area.height / 2));
 
         let now = Instant::now();
         self.browser.set_idle(self.busy.is_none());
         let work_lines = if area.height >= 22 && self.work.visible(self.busy.is_some(), now) {
-            self.work.lines(
-                (area.width as usize).saturating_sub(6),
-                now,
-                tick.as_millis(),
-            )
+            self.work.lines((area.width as usize).saturating_sub(6), now, tick.as_millis())
         } else {
             Vec::new()
         };
         // In a box of its own, so it never runs into the line with the spinner.
-        let work_h = if work_lines.is_empty() {
-            0
-        } else {
-            (work_lines.len() as u16 + 2).min(area.height / 3)
-        };
+        let work_h = if work_lines.is_empty() { 0 } else { (work_lines.len() as u16 + 2).min(area.height / 3) };
         let air = u16::from(work_h > 0);
         let [header, body, _air, work, panel, hint, input, status] = Layout::vertical([
             Constraint::Length(header_h),
@@ -1314,55 +1093,25 @@ impl App {
         .areas(area);
 
         if logo {
-            draw_logo(
-                f.buffer_mut(),
-                header,
-                frame,
-                tick.as_millis(),
-                self.busy.is_some(),
-                mood,
-            );
+            draw_logo(f.buffer_mut(), header, frame, tick.as_millis(), self.busy.is_some(), mood);
         } else {
             let name = Line::from(vec![
                 Span::styled(" Code", Style::new().fg(SOFT).add_modifier(Modifier::BOLD)),
-                Span::styled(
-                    "Turbo",
-                    Style::new()
-                        .fg(rgb(mood.body()))
-                        .add_modifier(Modifier::BOLD),
-                ),
+                Span::styled("Turbo", Style::new().fg(rgb(mood.body())).add_modifier(Modifier::BOLD)),
             ]);
             f.render_widget(Paragraph::new(name), header);
         }
 
-        let mut body = Rect {
-            x: body.x + 1,
-            width: body.width.saturating_sub(2),
-            ..body
-        };
+        let mut body = Rect { x: body.x + 1, width: body.width.saturating_sub(2), ..body };
         // The mini browser takes the right of the screen while the agent uses a page.
         let mut browser_rect = None;
         if self.browser.visible(now) && area.width >= 80 && area.height >= 20 {
             // Several pages get more room, all at the right, the same size.
             let several = self.browser.windows() > 1;
-            let pw = if several {
-                (body.width * 13 / 20).clamp(40, 130)
-            } else {
-                (body.width / 2).clamp(40, 80)
-            };
+            let pw = if several { (body.width * 13 / 20).clamp(40, 130) } else { (body.width / 2).clamp(40, 80) };
             if body.width > pw + 30 {
-                let ph = if several {
-                    self.browser.rows_wide(pw, body.height)
-                } else {
-                    self.browser.rows_for(pw)
-                }
-                .min(body.height);
-                browser_rect = Some(Rect {
-                    x: body.right() - pw,
-                    y: body.y,
-                    width: pw,
-                    height: ph,
-                });
+                let ph = if several { self.browser.rows_wide(pw, body.height) } else { self.browser.rows_for(pw) }.min(body.height);
+                browser_rect = Some(Rect { x: body.right() - pw, y: body.y, width: pw, height: ph });
                 // The conversation gives way as the window opens, and takes the room back as it closes.
                 let given = (pw as f32 * self.browser.progress(now)).round() as u16;
                 if given > 0 {
@@ -1373,25 +1122,15 @@ impl App {
         // The code being written has a box at the bottom of the conversation, in line
         // with the pages at the right, which keep their whole height.
         let live_h = match &self.live {
-            Some((_, lines)) if area.height >= 24 && self.busy.is_some() => {
-                (lines.len() as u16 + 2).min(body.height * 2 / 3)
-            }
+            Some((_, lines)) if area.height >= 24 && self.busy.is_some() => (lines.len() as u16 + 2).min(body.height * 2 / 3),
             _ => 0,
         };
-        let live_rect = (live_h > 0).then(|| Rect {
-            y: body.bottom() - live_h,
-            height: live_h,
-            ..body
-        });
+        let live_rect = (live_h > 0).then(|| Rect { y: body.bottom() - live_h, height: live_h, ..body });
         if live_h > 0 {
             body.height = body.height.saturating_sub(live_h + 1);
         }
         self.page = (body.height as usize).saturating_sub(2).max(1);
-        let (lines, scroll, owners) = self.transcript.view(
-            body.width.max(1) as usize,
-            body.height as usize,
-            self.scroll,
-        );
+        let (lines, scroll, owners) = self.transcript.view(body.width.max(1) as usize, body.height as usize, self.scroll);
         self.scroll = scroll;
         self.body = body;
         self.owners = owners;
@@ -1406,12 +1145,7 @@ impl App {
             let block = Block::bordered()
                 .border_type(BorderType::LightQuadrupleDashed)
                 .border_style(Style::new().fg(GREEN_BORDER))
-                .title(Span::styled(
-                    format!(" {title} "),
-                    Style::new()
-                        .fg(Color::Rgb(86, 204, 128))
-                        .add_modifier(Modifier::BOLD),
-                ));
+                .title(Span::styled(format!(" {title} "), Style::new().fg(Color::Rgb(86, 204, 128)).add_modifier(Modifier::BOLD)));
             let inner = block.inner(rect);
             f.render_widget(block, rect);
             // The newest lines are the ones that matter: show the end.
@@ -1423,61 +1157,31 @@ impl App {
             let block = Block::bordered()
                 .border_type(BorderType::LightQuadrupleDashed)
                 .border_style(Style::new().fg(BORDER))
-                .title(Span::styled(
-                    " work ",
-                    Style::new().fg(BLUE).add_modifier(Modifier::BOLD),
-                ));
-            let rect = Rect {
-                x: work.x + 1,
-                width: work.width.saturating_sub(2),
-                ..work
-            };
+                .title(Span::styled(" work ", Style::new().fg(BLUE).add_modifier(Modifier::BOLD)));
+            let rect = Rect { x: work.x + 1, width: work.width.saturating_sub(2), ..work };
             let inner = block.inner(rect);
             f.render_widget(block, rect);
-            f.render_widget(
-                Paragraph::new(work_lines),
-                Rect {
-                    x: inner.x + 1,
-                    width: inner.width.saturating_sub(1),
-                    ..inner
-                },
-            );
+            f.render_widget(Paragraph::new(work_lines), Rect { x: inner.x + 1, width: inner.width.saturating_sub(1), ..inner });
         }
 
         if let Some((title, lines)) = question {
             let block = Block::bordered()
                 .border_type(BorderType::Rounded)
                 .border_style(Style::new().fg(YELLOW))
-                .title(Span::styled(
-                    format!(" {title} "),
-                    Style::new().fg(YELLOW).add_modifier(Modifier::BOLD),
-                ));
-            let rect = Rect {
-                x: panel.x + 1,
-                width: panel.width.saturating_sub(2),
-                ..panel
-            };
+                .title(Span::styled(format!(" {title} "), Style::new().fg(YELLOW).add_modifier(Modifier::BOLD)));
+            let rect = Rect { x: panel.x + 1, width: panel.width.saturating_sub(2), ..panel };
             f.render_widget(Clear, rect);
             f.render_widget(Paragraph::new(lines).block(block), rect);
         }
 
         let hint_line = match &self.busy {
             Some((label, since)) => {
-                let mut l = text::ansi_line(&splash::spinner_line(
-                    (tick.as_millis() / 80) as usize,
-                    label,
-                ));
-                text::push(
-                    &mut l,
-                    &format!(" · {}s · Esc interrupts", since.elapsed().as_secs()),
-                    dim(),
-                );
+                let mut l = text::ansi_line(&splash::spinner_line((tick.as_millis() / 80) as usize, label));
+                text::push(&mut l, &format!(" · {}s · Esc interrupts", since.elapsed().as_secs()), dim());
                 l
             }
             None if self.asking.is_some() => Line::default(),
-            None if self.scroll > 0 => {
-                Line::styled("  more messages below · Esc jumps to the end", dim())
-            }
+            None if self.scroll > 0 => Line::styled("  more messages below · Esc jumps to the end", dim()),
             None => Line::styled(
                 "  Enter sends · Shift+Enter new line · click or Ctrl+B opens the code · Shift+drag selects · /help",
                 dim(),
@@ -1485,9 +1189,7 @@ impl App {
         };
         f.render_widget(Paragraph::new(hint_line), hint);
 
-        let mut block = Block::new()
-            .borders(Borders::TOP | Borders::BOTTOM)
-            .border_style(Style::new().fg(BORDER));
+        let mut block = Block::new().borders(Borders::TOP | Borders::BOTTOM).border_style(Style::new().fg(BORDER));
         if let Some(t) = self.input_title() {
             block = block.title(Span::styled(format!(" {t} "), Style::new().fg(BLUE)));
         }
@@ -1499,12 +1201,7 @@ impl App {
             .enumerate()
             .skip(first)
             .take(shown)
-            .map(|(i, r)| {
-                Line::from(vec![
-                    Span::styled(if i == 0 { "› " } else { "  " }, prompt),
-                    Span::raw(r.clone()),
-                ])
-            })
+            .map(|(i, r)| Line::from(vec![Span::styled(if i == 0 { "› " } else { "  " }, prompt), Span::raw(r.clone())]))
             .collect();
         if self.input.is_empty() && self.asking.is_none() {
             lines = vec![Line::from(vec![
@@ -1512,17 +1209,10 @@ impl App {
                 Span::styled("Describe the task or type / for the commands", dim()),
             ])];
         }
-        let text_area = Rect {
-            x: inner.x + 1,
-            width: inner.width.saturating_sub(1),
-            ..inner
-        };
+        let text_area = Rect { x: inner.x + 1, width: inner.width.saturating_sub(1), ..inner };
         f.render_widget(Paragraph::new(lines), text_area);
         if self.asking.is_none() || answering {
-            f.set_cursor_position((
-                text_area.x + 2 + ccol as u16,
-                text_area.y + (crow - first) as u16,
-            ));
+            f.set_cursor_position((text_area.x + 2 + ccol as u16, text_area.y + (crow - first) as u16));
         }
 
         let s = &self.status;
@@ -1544,10 +1234,7 @@ impl App {
             left = format!(" {} · {}", s.provider, s.model);
         }
         if !fits(&left, &right) {
-            right = s
-                .context
-                .map(|c| format!("context {c}% "))
-                .unwrap_or_default();
+            right = s.context.map(|c| format!("context {c}% ")).unwrap_or_default();
         }
         if !fits(&left, &right) {
             let keep = width.saturating_sub(right.chars().count() + 3);
@@ -1562,10 +1249,7 @@ impl App {
             left.push_str(&super::path::short_path(&s.folder, room));
         }
         f.render_widget(Paragraph::new(Line::styled(left, dim())), status);
-        f.render_widget(
-            Paragraph::new(Line::styled(right, dim())).alignment(Alignment::Right),
-            status,
-        );
+        f.render_widget(Paragraph::new(Line::styled(right, dim())).alignment(Alignment::Right), status);
 
         if self.asking.is_none() {
             let sugg = commands::suggestions(self.input.text());
@@ -1582,11 +1266,8 @@ impl App {
                     .iter()
                     .enumerate()
                     .map(|(i, c)| {
-                        let style = if i == sel {
-                            Style::new().fg(BLUE).add_modifier(Modifier::BOLD)
-                        } else {
-                            Style::new().fg(SOFT)
-                        };
+                        let style =
+                            if i == sel { Style::new().fg(BLUE).add_modifier(Modifier::BOLD) } else { Style::new().fg(SOFT) };
                         Line::from(vec![
                             Span::styled(format!(" {:<12}", c.name), style),
                             Span::styled(c.about, dim()),
@@ -1616,58 +1297,26 @@ fn draw_logo(buf: &mut Buffer, area: Rect, snail: usize, ms: u128, working: bool
 
 /// The narrow logo: `codeturbo` as text on the snail's foot line, then the
 /// running snail with as much trail as fits.
-fn draw_logo_compact(
-    buf: &mut Buffer,
-    area: Rect,
-    snail: usize,
-    ms: u128,
-    working: bool,
-    mood: Mood,
-) {
+fn draw_logo_compact(buf: &mut Buffer, area: Rect, snail: usize, ms: u128, working: bool, mood: Mood) {
     // The name in small pixels, as tall as the snail's body, when it fits.
     if let Some(px) = splash::compact_pixels(snail, area.width as usize, mood) {
         return paint_pixels(buf, area, 1, px, ms, working);
     }
     const NAME_COLS: u16 = 10;
-    let px = splash::snail_only(
-        snail,
-        area.width.saturating_sub(NAME_COLS + 2) as usize,
-        mood,
-    );
+    let px = splash::snail_only(snail, area.width.saturating_sub(NAME_COLS + 2) as usize, mood);
     let rows = px.len().div_ceil(2) as u16;
     let foot = area.y + rows.min(area.height).saturating_sub(1);
     if foot < area.bottom() {
         let (r, g, b) = mood.body();
-        buf.set_string(
-            area.x + 1,
-            foot,
-            "code",
-            Style::new()
-                .fg(Color::Rgb(220, 224, 232))
-                .add_modifier(Modifier::BOLD),
-        );
-        buf.set_string(
-            area.x + 5,
-            foot,
-            "turbo",
-            Style::new()
-                .fg(Color::Rgb(r, g, b))
-                .add_modifier(Modifier::BOLD),
-        );
+        buf.set_string(area.x + 1, foot, "code", Style::new().fg(Color::Rgb(220, 224, 232)).add_modifier(Modifier::BOLD));
+        buf.set_string(area.x + 5, foot, "turbo", Style::new().fg(Color::Rgb(r, g, b)).add_modifier(Modifier::BOLD));
     }
     paint_pixels(buf, area, NAME_COLS + 1, px, ms, working);
 }
 
 /// Draws pixels with half blocks from column `left` of `area`, sliding in at
 /// the start and glinting while the agent works.
-fn paint_pixels(
-    buf: &mut Buffer,
-    area: Rect,
-    left: u16,
-    whole: super::fx::Grid,
-    ms: u128,
-    working: bool,
-) {
+fn paint_pixels(buf: &mut Buffer, area: Rect, left: u16, whole: super::fx::Grid, ms: u128, working: bool) {
     let mut px = super::fx::slide_in(&whole, ms);
     if working && ms >= super::fx::INTRO_MS {
         super::fx::highlight(&mut px, ms);
@@ -1701,10 +1350,7 @@ fn paint_pixels(
 /// `CODETURBO_GRAPHICS=off` keeps the page in blocks.
 fn graphics() -> Option<ratatui_image::picker::Picker> {
     use ratatui_image::picker::ProtocolType;
-    if matches!(
-        std::env::var("CODETURBO_GRAPHICS").as_deref(),
-        Ok("off" | "0" | "blocks")
-    ) {
+    if matches!(std::env::var("CODETURBO_GRAPHICS").as_deref(), Ok("off" | "0" | "blocks")) {
         return None;
     }
     let found = ratatui_image::picker::Picker::from_query_stdio();
@@ -1715,16 +1361,12 @@ fn graphics() -> Option<ratatui_image::picker::Picker> {
         };
         let _ = std::fs::write(file, what);
     }
-    found
-        .ok()
-        .filter(|p| p.protocol_type() != ProtocolType::Halfblocks)
+    found.ok().filter(|p| p.protocol_type() != ProtocolType::Halfblocks)
 }
 
 /// Runs the screen until the user quits or the agent side hangs up.
 pub fn run(mut app: App, out: Receiver<Out>) -> std::io::Result<()> {
-    use ratatui::crossterm::event::{
-        DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
-    };
+    use ratatui::crossterm::event::{DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture};
     use ratatui::crossterm::execute;
     let mut terminal = ratatui::try_init()?;
     let _ = execute!(std::io::stdout(), EnableBracketedPaste, EnableMouseCapture);
@@ -1749,13 +1391,7 @@ pub fn run(mut app: App, out: Receiver<Out>) -> std::io::Result<()> {
                 ratatui::restore();
                 let editor = std::env::var("VISUAL")
                     .or_else(|_| std::env::var("EDITOR"))
-                    .unwrap_or_else(|_| {
-                        if cfg!(windows) {
-                            "notepad".into()
-                        } else {
-                            "vi".into()
-                        }
-                    });
+                    .unwrap_or_else(|_| if cfg!(windows) { "notepad".into() } else { "vi".into() });
                 let status = std::process::Command::new(&editor).arg(&path).status();
                 terminal = ratatui::try_init()?;
                 let _ = execute!(std::io::stdout(), EnableBracketedPaste, EnableMouseCapture);
@@ -1785,11 +1421,7 @@ pub fn run(mut app: App, out: Receiver<Out>) -> std::io::Result<()> {
             }
         }
     })();
-    let _ = execute!(
-        std::io::stdout(),
-        DisableBracketedPaste,
-        DisableMouseCapture
-    );
+    let _ = execute!(std::io::stdout(), DisableBracketedPaste, DisableMouseCapture);
     ratatui::restore();
     result
 }
@@ -1805,11 +1437,7 @@ impl Screen {
     pub fn spawn(
         status: Status,
         closing: Arc<AtomicBool>,
-    ) -> (
-        Self,
-        tokio::sync::mpsc::UnboundedReceiver<In>,
-        tokio::sync::mpsc::UnboundedReceiver<()>,
-    ) {
+    ) -> (Self, tokio::sync::mpsc::UnboundedReceiver<In>, tokio::sync::mpsc::UnboundedReceiver<()>) {
         let (out, out_rx) = std::sync::mpsc::channel();
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let (cancel, cancel_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -1822,8 +1450,6 @@ impl Screen {
     pub fn join(self) -> std::io::Result<()> {
         let Self { out, thread } = self;
         drop(out);
-        thread
-            .join()
-            .unwrap_or_else(|_| Err(std::io::Error::other("the screen stopped with an error")))
+        thread.join().unwrap_or_else(|_| Err(std::io::Error::other("the screen stopped with an error")))
     }
 }

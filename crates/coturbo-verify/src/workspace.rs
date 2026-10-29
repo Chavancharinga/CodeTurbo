@@ -63,37 +63,20 @@ pub fn detect(root: &Path) -> Vec<Checker> {
     let has = |f: &str| root.join(f).exists();
     let mut out = Vec::new();
     if has("Cargo.toml") {
-        out.push(checker(
-            "rust",
-            "Rust (cargo check)",
-            "cargo",
-            &["check", "--all-targets", "--message-format=json"],
-        ));
+        out.push(checker("rust", "Rust (cargo check)", "cargo", &["check", "--all-targets", "--message-format=json"]));
     }
     if has("tsconfig.json") {
-        out.push(checker(
-            "typescript",
-            "TypeScript (tsc)",
-            "npx",
-            &["tsc", "--noEmit", "--pretty", "false"],
-        ));
+        out.push(checker("typescript", "TypeScript (tsc)", "npx", &["tsc", "--noEmit", "--pretty", "false"]));
     }
     if has("go.work") {
-        let patterns = std::fs::read_to_string(root.join("go.work"))
-            .map(|s| go_work_patterns(&s))
-            .unwrap_or_default();
+        let patterns = std::fs::read_to_string(root.join("go.work")).map(|s| go_work_patterns(&s)).unwrap_or_default();
         let mut args = vec!["build".to_string()];
         if patterns.is_empty() {
             args.push("./...".into());
         } else {
             args.extend(patterns);
         }
-        out.push(Checker {
-            lang: "go",
-            description: "Go (go build)".into(),
-            program: "go".into(),
-            args,
-        });
+        out.push(Checker { lang: "go", description: "Go (go build)".into(), program: "go".into(), args });
     } else if has("go.mod") {
         out.push(checker("go", "Go (go build)", "go", &["build", "./..."]));
     }
@@ -145,13 +128,7 @@ fn problem_lines(output: &str) -> (Vec<String>, usize, usize) {
 }
 
 fn interpret(c: &Checker, out: Result<CmdOutput, String>) -> CheckResult {
-    let mut r = CheckResult {
-        description: c.description.clone(),
-        errors: 0,
-        warnings: 0,
-        body: String::new(),
-        failed: false,
-    };
+    let mut r = CheckResult { description: c.description.clone(), errors: 0, warnings: 0, body: String::new(), failed: false };
     let out = match out {
         Ok(o) => o,
         Err(e) => {
@@ -170,11 +147,7 @@ fn interpret(c: &Checker, out: Result<CmdOutput, String>) -> CheckResult {
         r.errors = errors;
         r.warnings = warnings;
         let total = lines.len();
-        r.body = lines
-            .into_iter()
-            .take(MAX_LINES)
-            .collect::<Vec<_>>()
-            .join("\n");
+        r.body = lines.into_iter().take(MAX_LINES).collect::<Vec<_>>().join("\n");
         if total > MAX_LINES {
             r.body.push_str(&format!("\n[{} more]", total - MAX_LINES));
         }
@@ -184,10 +157,7 @@ fn interpret(c: &Checker, out: Result<CmdOutput, String>) -> CheckResult {
         r.failed = true;
         let tail = cmd::tail_lines(&out.combined(), 15);
         r.body = if tail.is_empty() {
-            format!(
-                "checker exited with {} and printed nothing",
-                out.code.map_or("a signal".into(), |c| c.to_string())
-            )
+            format!("checker exited with {} and printed nothing", out.code.map_or("a signal".into(), |c| c.to_string()))
         } else {
             tail
         };
@@ -211,10 +181,7 @@ pub async fn check(root: &Path) -> Vec<CheckResult> {
 /// than one get a header each.
 pub fn render(results: &[CheckResult]) -> (String, bool) {
     if results.is_empty() {
-        return (
-            "no supported project found (Cargo.toml, tsconfig.json, go.mod, pyproject.toml)".into(),
-            true,
-        );
+        return ("no supported project found (Cargo.toml, tsconfig.json, go.mod, pyproject.toml)".into(), true);
     }
     let clean = results.iter().all(CheckResult::clean);
     let section = |r: &CheckResult| {
@@ -223,20 +190,13 @@ pub fn render(results: &[CheckResult]) -> (String, bool) {
         } else if r.failed {
             r.body.clone()
         } else {
-            format!(
-                "{} error(s), {} warning(s)\n{}",
-                r.errors, r.warnings, r.body
-            )
+            format!("{} error(s), {} warning(s)\n{}", r.errors, r.warnings, r.body)
         }
     };
     let text = if results.len() == 1 {
         section(&results[0])
     } else {
-        results
-            .iter()
-            .map(|r| format!("## {}\n{}", r.description, section(r)))
-            .collect::<Vec<_>>()
-            .join("\n\n")
+        results.iter().map(|r| format!("## {}\n{}", r.description, section(r))).collect::<Vec<_>>().join("\n\n")
     };
     (text, clean)
 }

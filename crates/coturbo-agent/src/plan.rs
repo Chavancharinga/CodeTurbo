@@ -73,7 +73,5 @@ pub(crate) fn refine_message(feedback: &str) -> String {
 }
 
 pub(crate) fn saved_message(path: &str) -> String {
-    format!(
-        "Plan saved at {path}. The user will implement it later: stop here and do not make changes."
-    )
+    format!("Plan saved at {path}. The user will implement it later: stop here and do not make changes.")
 }

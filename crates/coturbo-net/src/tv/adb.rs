@@ -25,14 +25,7 @@ const MAX_DATA: u32 = 256 * 1024;
 pub fn message(command: u32, arg0: u32, arg1: u32, data: &[u8]) -> Vec<u8> {
     let sum = data.iter().map(|&b| b as u32).fold(0u32, u32::wrapping_add);
     let mut m = Vec::with_capacity(24 + data.len());
-    for word in [
-        command,
-        arg0,
-        arg1,
-        data.len() as u32,
-        sum,
-        command ^ 0xffff_ffff,
-    ] {
+    for word in [command, arg0, arg1, data.len() as u32, sum, command ^ 0xffff_ffff] {
         m.extend_from_slice(&word.to_le_bytes());
     }
     m.extend_from_slice(data);
@@ -47,21 +40,11 @@ struct Packet {
 
 async fn read(stream: &mut TcpStream, wait: Duration) -> Result<Packet, String> {
     let mut head = [0u8; 24];
-    tokio::time::timeout(wait, stream.read_exact(&mut head))
-        .await
-        .map_err(|_| "the TV stopped answering".to_string())?
-        .map_err(|e| e.to_string())?;
+    tokio::time::timeout(wait, stream.read_exact(&mut head)).await.map_err(|_| "the TV stopped answering".to_string())?.map_err(|e| e.to_string())?;
     let word = |i: usize| u32::from_le_bytes([head[i], head[i + 1], head[i + 2], head[i + 3]]);
     let mut data = vec![0u8; word(12) as usize];
-    stream
-        .read_exact(&mut data)
-        .await
-        .map_err(|e| e.to_string())?;
-    Ok(Packet {
-        command: word(0),
-        arg0: word(4),
-        data,
-    })
+    stream.read_exact(&mut data).await.map_err(|e| e.to_string())?;
+    Ok(Packet { command: word(0), arg0: word(4), data })
 }
 
 /// This computer's ADB key, made once.
@@ -115,57 +98,29 @@ async fn connect(ip: IpAddr) -> Result<TcpStream, String> {
     let mut s = tokio::time::timeout(Duration::from_secs(4), TcpStream::connect((ip, 5555)))
         .await
         .map_err(|_| "the TV did not answer on port 5555".to_string())?
-        .map_err(|e| {
-            format!("ADB is off on the TV ({e}): turn on Developer options > network debugging")
-        })?;
-    s.write_all(&message(CNXN, VERSION, MAX_DATA, b"host::\0"))
-        .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("ADB is off on the TV ({e}): turn on Developer options > network debugging"))?;
+    s.write_all(&message(CNXN, VERSION, MAX_DATA, b"host::\0")).await.map_err(|e| e.to_string())?;
     let key = key()?;
     let mut sent_key = false;
     loop {
-        let wait = if sent_key {
-            Duration::from_secs(60)
-        } else {
-            Duration::from_secs(5)
-        };
-        let p = read(&mut s, wait).await.map_err(|e| {
-            if sent_key {
-                "nobody allowed this computer on the TV in time; try again and choose Allow"
-                    .to_string()
-            } else {
-                e
-            }
-        })?;
+        let wait = if sent_key { Duration::from_secs(60) } else { Duration::from_secs(5) };
+        let p = read(&mut s, wait).await.map_err(|e| if sent_key { "nobody allowed this computer on the TV in time; try again and choose Allow".to_string() } else { e })?;
         match p.command {
             CNXN => return Ok(s),
             AUTH if p.arg0 == 1 && !sent_key => {
                 // Sign the token; if the TV does not know the key yet, offer it.
-                let signature = key
-                    .sign(Pkcs1v15Sign::new::<sha1::Sha1>(), &p.data)
-                    .map_err(|e| e.to_string())?;
-                s.write_all(&message(AUTH, 2, 0, &signature))
-                    .await
-                    .map_err(|e| e.to_string())?;
+                let signature = key.sign(Pkcs1v15Sign::new::<sha1::Sha1>(), &p.data).map_err(|e| e.to_string())?;
+                s.write_all(&message(AUTH, 2, 0, &signature)).await.map_err(|e| e.to_string())?;
                 let next = read(&mut s, Duration::from_secs(5)).await?;
                 if next.command == CNXN {
                     return Ok(s);
                 }
                 use base64::Engine;
                 let public = key.to_public_key();
-                let e = public
-                    .e()
-                    .to_bytes_le()
-                    .iter()
-                    .rev()
-                    .fold(0u32, |acc, &b| (acc << 8) | b as u32);
-                let mut blob = base64::engine::general_purpose::STANDARD
-                    .encode(android_public_key(public.n(), e))
-                    .into_bytes();
+                let e = public.e().to_bytes_le().iter().rev().fold(0u32, |acc, &b| (acc << 8) | b as u32);
+                let mut blob = base64::engine::general_purpose::STANDARD.encode(android_public_key(public.n(), e)).into_bytes();
                 blob.extend_from_slice(b" codeturbo@codeturbo\0");
-                s.write_all(&message(AUTH, 3, 0, &blob))
-                    .await
-                    .map_err(|e| e.to_string())?;
+                s.write_all(&message(AUTH, 3, 0, &blob)).await.map_err(|e| e.to_string())?;
                 sent_key = true;
             }
             _ => {}
@@ -179,18 +134,14 @@ pub(crate) async fn shell(ip: IpAddr, command: &str) -> Result<String, String> {
     let local = 1u32;
     let mut service = format!("shell:{command}").into_bytes();
     service.push(0);
-    s.write_all(&message(OPEN, local, 0, &service))
-        .await
-        .map_err(|e| e.to_string())?;
+    s.write_all(&message(OPEN, local, 0, &service)).await.map_err(|e| e.to_string())?;
     let mut out = Vec::new();
     loop {
         let p = read(&mut s, Duration::from_secs(15)).await?;
         match p.command {
             WRTE => {
                 out.extend_from_slice(&p.data);
-                s.write_all(&message(OKAY, local, p.arg0, &[]))
-                    .await
-                    .map_err(|e| e.to_string())?;
+                s.write_all(&message(OKAY, local, p.arg0, &[])).await.map_err(|e| e.to_string())?;
             }
             CLSE => break,
             _ => {}
@@ -265,25 +216,14 @@ pub(crate) async fn control(ip: IpAddr, action: &Action) -> Result<String, Strin
             let at = |i: usize| f.get(i).copied().unwrap_or("?");
             Ok(format!(
                 "{} {} · Android {} · security patch {} · build {}. A patch date many months old means a system update is likely pending (Settings > System > About > System update).",
-                at(0),
-                at(1),
-                at(2),
-                at(3),
-                at(4)
+                at(0), at(1), at(2), at(3), at(4)
             ))
         }
         Action::Apps => {
             let out = shell(ip, "pm list packages -3").await?;
-            let mut apps: Vec<&str> = out
-                .lines()
-                .filter_map(|l| l.trim().strip_prefix("package:"))
-                .collect();
+            let mut apps: Vec<&str> = out.lines().filter_map(|l| l.trim().strip_prefix("package:")).collect();
             apps.sort();
-            Ok(format!(
-                "{} installed apps: {}",
-                apps.len(),
-                apps.join(", ")
-            ))
+            Ok(format!("{} installed apps: {}", apps.len(), apps.join(", ")))
         }
         Action::Launch { app, content } => {
             let pkg = match package(app) {
@@ -301,14 +241,7 @@ pub(crate) async fn control(ip: IpAddr, action: &Action) -> Result<String, Strin
             };
             let cmd = match content {
                 Some(c) if pkg.contains("youtube") => {
-                    let url = if c.starts_with("http") {
-                        c.clone()
-                    } else {
-                        format!(
-                            "https://www.youtube.com/results?search_query={}",
-                            c.replace(' ', "+")
-                        )
-                    };
+                    let url = if c.starts_with("http") { c.clone() } else { format!("https://www.youtube.com/results?search_query={}", c.replace(' ', "+")) };
                     format!("am start -a android.intent.action.VIEW -d '{url}' {pkg}")
                 }
                 _ => format!("monkey -p {pkg} -c android.intent.category.LEANBACK_LAUNCHER 1"),
@@ -318,26 +251,13 @@ pub(crate) async fn control(ip: IpAddr, action: &Action) -> Result<String, Strin
         }
         Action::Key(k) => {
             let code = key_code(k).ok_or_else(|| format!("unknown key {k}"))?;
-            shell(ip, &key(code, 1))
-                .await
-                .map(|_| format!("{k} pressed"))
+            shell(ip, &key(code, 1)).await.map(|_| format!("{k} pressed"))
         }
-        Action::PowerOff => shell(ip, &key(223, 1))
-            .await
-            .map(|_| "turned off (sleep)".into()),
-        Action::VolumeUp(n) => shell(ip, &key(24, *n))
-            .await
-            .map(|_| format!("volume up {n}")),
-        Action::VolumeDown(n) => shell(ip, &key(25, *n))
-            .await
-            .map(|_| format!("volume down {n}")),
+        Action::PowerOff => shell(ip, &key(223, 1)).await.map(|_| "turned off (sleep)".into()),
+        Action::VolumeUp(n) => shell(ip, &key(24, *n)).await.map(|_| format!("volume up {n}")),
+        Action::VolumeDown(n) => shell(ip, &key(25, *n)).await.map(|_| format!("volume down {n}")),
         Action::Mute => shell(ip, &key(164, 1)).await.map(|_| "mute toggled".into()),
-        Action::SetVolume(v) => shell(
-            ip,
-            &format!("cmd media_session volume --stream 3 --set {v}"),
-        )
-        .await
-        .map(|_| format!("volume set to {v}")),
+        Action::SetVolume(v) => shell(ip, &format!("cmd media_session volume --stream 3 --set {v}")).await.map(|_| format!("volume set to {v}")),
         Action::PowerOn { .. } => unreachable!("handled before"),
     }
 }
@@ -359,11 +279,7 @@ mod tests {
     #[test]
     fn the_public_key_has_androids_layout() {
         // A small odd modulus is enough to check the arithmetic.
-        let n = BigUint::parse_bytes(
-            b"c7f1b3a5e9d2f4c6a8b0d2e4f6a8c0e2f4a6b8c0d2e4f6a8b0c2d4e6f8a0b2c5",
-            16,
-        )
-        .unwrap();
+        let n = BigUint::parse_bytes(b"c7f1b3a5e9d2f4c6a8b0d2e4f6a8c0e2f4a6b8c0d2e4f6a8b0c2d4e6f8a0b2c5", 16).unwrap();
         let blob = android_public_key(&n, 65537);
         assert_eq!(blob.len(), 4 * (3 + 128));
         let word = |i: usize| u32::from_le_bytes(blob[i * 4..i * 4 + 4].try_into().unwrap());

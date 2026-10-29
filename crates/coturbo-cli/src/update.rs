@@ -15,14 +15,7 @@ const CACHE_FILE: &str = "update-check.txt";
 /// `v1.2.3` or `1.2.3` as `(1, 2, 3)`.
 pub fn parse_version(s: &str) -> Option<(u64, u64, u64)> {
     let mut parts = s.trim().trim_start_matches('v').split('.');
-    let mut next = || {
-        parts
-            .next()?
-            .split(|c: char| !c.is_ascii_digit())
-            .next()?
-            .parse()
-            .ok()
-    };
+    let mut next = || parts.next()?.split(|c: char| !c.is_ascii_digit()).next()?.parse().ok();
     Some((next()?, next()?, next()?))
 }
 
@@ -70,16 +63,11 @@ pub async fn latest_tag() -> Result<String, String> {
         return Err(format!("o GitHub respondeu {}", resp.status()));
     }
     let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-    v["tag_name"]
-        .as_str()
-        .map(str::to_string)
-        .ok_or_else(|| "the published release has no tag".into())
+    v["tag_name"].as_str().map(str::to_string).ok_or_else(|| "the published release has no tag".into())
 }
 
 fn now_secs() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs())
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
 /// Cached `(checked_at, latest_tag)`.
@@ -101,10 +89,7 @@ pub async fn check(cache_dir: Option<PathBuf>, now: u64) -> Option<String> {
     let tag = match cached {
         Some((at, tag)) if now.saturating_sub(at) < CHECK_EVERY_SECS => tag,
         _ => {
-            let tag = tokio::time::timeout(Duration::from_secs(3), latest_tag())
-                .await
-                .ok()?
-                .ok()?;
+            let tag = tokio::time::timeout(Duration::from_secs(3), latest_tag()).await.ok()?.ok()?;
             if let Some(dir) = &cache_dir {
                 write_cache(dir, now, &tag);
             }
@@ -120,18 +105,12 @@ pub async fn check_now(cache_dir: Option<PathBuf>) -> Option<String> {
 }
 
 pub fn notice(tag: &str) -> String {
-    format!(
-        "A new CodeTurbo version is available: {tag} (installed: v{VERSION}). To update, run `codeturbo update`."
-    )
+    format!("A new CodeTurbo version is available: {tag} (installed: v{VERSION}). To update, run `codeturbo update`.")
 }
 
 /// The `codeturbo` executable inside a release `.tar.gz`.
 pub fn extract_binary(archive: &[u8]) -> Result<Vec<u8>, String> {
-    let exe = if cfg!(windows) {
-        "codeturbo.exe"
-    } else {
-        "codeturbo"
-    };
+    let exe = if cfg!(windows) { "codeturbo.exe" } else { "codeturbo" };
     let mut tar = tar::Archive::new(flate2::read::GzDecoder::new(archive));
     for entry in tar.entries().map_err(|e| e.to_string())? {
         let mut entry = entry.map_err(|e| e.to_string())?;
@@ -182,23 +161,13 @@ pub fn replace_binary(exe: &Path, bytes: &[u8]) -> Result<(), String> {
 /// Removes the binaries left over by previous updates (those still running
 /// stay until a later start).
 pub fn cleanup_old_binary() {
-    let Ok(exe) = std::env::current_exe() else {
-        return;
-    };
+    let Ok(exe) = std::env::current_exe() else { return };
     let Some(dir) = exe.parent() else { return };
-    let parked_name = parked(&exe)
-        .file_name()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .into_owned();
+    let parked_name = parked(&exe).file_name().unwrap_or_default().to_string_lossy().into_owned();
     let fresh = exe.with_extension("new");
     let _ = std::fs::remove_file(fresh);
     for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
-        if entry
-            .file_name()
-            .to_string_lossy()
-            .starts_with(&parked_name)
-        {
+        if entry.file_name().to_string_lossy().starts_with(&parked_name) {
             let _ = std::fs::remove_file(entry.path());
         }
     }
@@ -211,14 +180,9 @@ pub async fn self_update() -> Result<String, String> {
     if !is_newer(&tag, VERSION) {
         return Ok(format!("CodeTurbo is already up to date (v{VERSION})."));
     }
-    let asset = asset_name()
-        .ok_or("there is no ready executable for this platform; update with cargo install")?;
+    let asset = asset_name().ok_or("there is no ready executable for this platform; update with cargo install")?;
     let url = format!("https://github.com/{REPO}/releases/download/{tag}/{asset}");
-    let resp = client()?
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
+    let resp = client()?.get(&url).send().await.map_err(|e| e.to_string())?;
     if !resp.status().is_success() {
         return Err(format!("{url}: {}", resp.status()));
     }

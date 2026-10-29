@@ -22,19 +22,10 @@ pub struct Item {
     pub note: String,
 }
 
-pub const SOURCES: [&str; 6] = [
-    "hackernews",
-    "reddit",
-    "github",
-    "polymarket",
-    "devto",
-    "arxiv",
-];
+pub const SOURCES: [&str; 6] = ["hackernews", "reddit", "github", "polymarket", "devto", "arxiv"];
 
 fn now() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs())
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
 fn ln(n: f64) -> f64 {
@@ -42,9 +33,7 @@ fn ln(n: f64) -> f64 {
 }
 
 fn num(v: &Value) -> f64 {
-    v.as_f64()
-        .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
-        .unwrap_or(0.0)
+    v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok())).unwrap_or(0.0)
 }
 
 fn text(v: &Value) -> String {
@@ -76,14 +65,8 @@ pub fn ymd(secs: u64) -> String {
 /// Unix time of an ISO 8601 stamp (`2026-10-01T05:07:00Z`, offsets ignored).
 pub fn iso_secs(s: &str) -> u64 {
     let n = |r: std::ops::Range<usize>| s.get(r).and_then(|x| x.parse::<i64>().ok());
-    let (Some(y), Some(mo), Some(d)) = (n(0..4), n(5..7), n(8..10)) else {
-        return 0;
-    };
-    let (h, mi, se) = (
-        n(11..13).unwrap_or(0),
-        n(14..16).unwrap_or(0),
-        n(17..19).unwrap_or(0),
-    );
+    let (Some(y), Some(mo), Some(d)) = (n(0..4), n(5..7), n(8..10)) else { return 0 };
+    let (h, mi, se) = (n(11..13).unwrap_or(0), n(14..16).unwrap_or(0), n(17..19).unwrap_or(0));
     (days_from_civil(y, mo, d) * 86_400 + h * 3600 + mi * 60 + se).max(0) as u64
 }
 
@@ -118,10 +101,7 @@ pub fn parse_hackernews(v: &Value) -> Vec<Item> {
 
 /// Reddit's official API (`oauth.reddit.com/search`) listing.
 pub fn parse_reddit(v: &Value) -> Vec<Item> {
-    let posts = v["data"]["children"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
+    let posts = v["data"]["children"].as_array().cloned().unwrap_or_default();
     posts
         .iter()
         .map(|c| &c["data"])
@@ -134,12 +114,7 @@ pub fn parse_reddit(v: &Value) -> Vec<Item> {
                 url: format!("https://www.reddit.com{}", text(&p["permalink"])),
                 date: num(&p["created_utc"]) as u64,
                 engagement: 0.55 * ln(score) + 0.35 * ln(comments) + 0.1 * ratio * 5.0,
-                stats: format!(
-                    "r/{}, {} upvotes, {} comments",
-                    text(&p["subreddit"]),
-                    short(score),
-                    short(comments)
-                ),
+                stats: format!("r/{}, {} upvotes, {} comments", text(&p["subreddit"]), short(score), short(comments)),
                 note: text(&p["selftext"]).chars().take(200).collect(),
             }
         })
@@ -152,25 +127,15 @@ pub fn parse_github_issues(v: &Value) -> Vec<Item> {
         .iter()
         .map(|i| {
             let (reactions, comments) = (num(&i["reactions"]["total_count"]), num(&i["comments"]));
-            let repo = text(&i["repository_url"])
-                .trim_start_matches("https://api.github.com/repos/")
-                .to_string();
-            let kind = if i["pull_request"].is_object() {
-                "PR"
-            } else {
-                "issue"
-            };
+            let repo = text(&i["repository_url"]).trim_start_matches("https://api.github.com/repos/").to_string();
+            let kind = if i["pull_request"].is_object() { "PR" } else { "issue" };
             Item {
                 source: "github",
                 title: text(&i["title"]),
                 url: text(&i["html_url"]),
                 date: iso_secs(&text(&i["created_at"])),
                 engagement: 0.6 * ln(reactions) + 0.4 * ln(comments),
-                stats: format!(
-                    "{kind} in {repo}, {} reactions, {} comments",
-                    short(reactions),
-                    short(comments)
-                ),
+                stats: format!("{kind} in {repo}, {} reactions, {} comments", short(reactions), short(comments)),
                 note: String::new(),
             }
         })
@@ -200,23 +165,8 @@ pub fn parse_github_repos(v: &Value) -> Vec<Item> {
 fn odds(market: &Value) -> String {
     let list = |k: &str| -> Vec<String> {
         match &market[k] {
-            Value::String(s) => serde_json::from_str::<Vec<Value>>(s)
-                .unwrap_or_default()
-                .iter()
-                .map(|x| {
-                    x.as_str()
-                        .map(str::to_string)
-                        .unwrap_or_else(|| x.to_string())
-                })
-                .collect(),
-            Value::Array(a) => a
-                .iter()
-                .map(|x| {
-                    x.as_str()
-                        .map(str::to_string)
-                        .unwrap_or_else(|| x.to_string())
-                })
-                .collect(),
+            Value::String(s) => serde_json::from_str::<Vec<Value>>(s).unwrap_or_default().iter().map(|x| x.as_str().map(str::to_string).unwrap_or_else(|| x.to_string())).collect(),
+            Value::Array(a) => a.iter().map(|x| x.as_str().map(str::to_string).unwrap_or_else(|| x.to_string())).collect(),
             _ => Vec::new(),
         }
     };
@@ -238,28 +188,15 @@ pub fn parse_polymarket(v: &Value) -> Vec<Item> {
         .map(|e| {
             let month = num(&e["volume1mo"]).max(num(&e["volume24hr"]));
             let markets = e["markets"].as_array().cloned().unwrap_or_default();
-            let top = markets
-                .iter()
-                .filter(|m| !m["closed"].as_bool().unwrap_or(false))
-                .max_by(|a, b| num(&a["volume"]).total_cmp(&num(&b["volume"])));
-            let (question, price) = top
-                .map(|m| (text(&m["question"]), odds(m)))
-                .unwrap_or_default();
+            let top = markets.iter().filter(|m| !m["closed"].as_bool().unwrap_or(false)).max_by(|a, b| num(&a["volume"]).total_cmp(&num(&b["volume"])));
+            let (question, price) = top.map(|m| (text(&m["question"]), odds(m))).unwrap_or_default();
             Item {
                 source: "polymarket",
                 title: text(&e["title"]),
                 url: format!("https://polymarket.com/event/{}", text(&e["slug"])),
                 date: iso_secs(&text(&e["updatedAt"])),
                 engagement: ln(month) / 2.0,
-                stats: format!(
-                    "${} traded this month{}",
-                    short(month),
-                    if price.is_empty() {
-                        String::new()
-                    } else {
-                        format!(", {question}: {price}")
-                    }
-                ),
+                stats: format!("${} traded this month{}", short(month), if price.is_empty() { String::new() } else { format!(", {question}: {price}") }),
                 note: String::new(),
             }
         })
@@ -270,19 +207,14 @@ pub fn parse_devto(v: &Value) -> Vec<Item> {
     let rows = v.as_array().cloned().unwrap_or_default();
     rows.iter()
         .map(|a| {
-            let (reactions, comments) =
-                (num(&a["public_reactions_count"]), num(&a["comments_count"]));
+            let (reactions, comments) = (num(&a["public_reactions_count"]), num(&a["comments_count"]));
             Item {
                 source: "devto",
                 title: text(&a["title"]),
                 url: text(&a["url"]),
                 date: iso_secs(&text(&a["published_at"])),
                 engagement: 0.7 * ln(reactions) + 0.3 * ln(comments),
-                stats: format!(
-                    "{} reactions, {} comments",
-                    short(reactions),
-                    short(comments)
-                ),
+                stats: format!("{} reactions, {} comments", short(reactions), short(comments)),
                 note: text(&a["description"]),
             }
         })
@@ -291,15 +223,8 @@ pub fn parse_devto(v: &Value) -> Vec<Item> {
 
 fn tag<'a>(block: &'a str, name: &str) -> &'a str {
     let open = format!("<{name}");
-    let Some(start) = block
-        .find(&open)
-        .and_then(|i| block[i..].find('>').map(|j| i + j + 1))
-    else {
-        return "";
-    };
-    let end = block[start..]
-        .find(&format!("</{name}>"))
-        .map_or(block.len(), |e| start + e);
+    let Some(start) = block.find(&open).and_then(|i| block[i..].find('>').map(|j| i + j + 1)) else { return "" };
+    let end = block[start..].find(&format!("</{name}>")).map_or(block.len(), |e| start + e);
     &block[start..end]
 }
 
@@ -310,32 +235,19 @@ pub fn parse_arxiv(xml: &str) -> Vec<Item> {
         .skip(1)
         .map(|e| Item {
             source: "arxiv",
-            title: entities(
-                &tag(e, "title")
-                    .split_whitespace()
-                    .collect::<Vec<_>>()
-                    .join(" "),
-            ),
+            title: entities(&tag(e, "title").split_whitespace().collect::<Vec<_>>().join(" ")),
             url: tag(e, "id").trim().to_string(),
             date: iso_secs(tag(e, "published").trim()),
             engagement: 0.0,
             stats: "new paper".into(),
-            note: entities(
-                &tag(e, "summary")
-                    .split_whitespace()
-                    .collect::<Vec<_>>()
-                    .join(" "),
-            )
-            .chars()
-            .take(220)
-            .collect(),
+            note: entities(&tag(e, "summary").split_whitespace().collect::<Vec<_>>().join(" ")).chars().take(220).collect(),
         })
         .collect()
 }
 
 const STOP: [&str; 24] = [
-    "the", "a", "an", "and", "or", "of", "for", "to", "in", "on", "with", "what", "how", "is",
-    "are", "about", "vs", "do", "does", "people", "say", "think", "new", "best",
+    "the", "a", "an", "and", "or", "of", "for", "to", "in", "on", "with", "what", "how", "is", "are", "about", "vs", "do", "does", "people",
+    "say", "think", "new", "best",
 ];
 
 fn terms(q: &str) -> Vec<String> {
@@ -359,29 +271,16 @@ pub fn relevance(topic: &str, item: &Item) -> f64 {
 /// Dependency bumps and other pull requests opened by bots: nobody said them.
 fn automated(title: &str) -> bool {
     let t = title.to_lowercase();
-    [
-        "update rust crate",
-        "update dependency",
-        "update module",
-        "chore(deps",
-        "build(deps",
-        "fix(deps",
-        "bump ",
-        "[snyk]",
-        "renovate",
-        "dependabot",
-    ]
-    .iter()
-    .any(|p| t.starts_with(p) || (p.len() > 6 && t.contains(p)))
+    ["update rust crate", "update dependency", "update module", "chore(deps", "build(deps", "fix(deps", "bump ", "[snyk]", "renovate", "dependabot"]
+        .iter()
+        .any(|p| t.starts_with(p) || (p.len() > 6 && t.contains(p)))
 }
 
 /// Off-topic and out-of-window items dropped, then ranked: engagement inside
 /// its own source (so a 40-point HN story and a $1M market compare), how
 /// much of the topic it is about, and how recent it is.
 pub fn rank(topic: &str, mut items: Vec<Item>, since: u64) -> Vec<(f64, Item)> {
-    items.retain(|i| {
-        !i.title.is_empty() && !automated(&i.title) && (i.date == 0 || i.date >= since)
-    });
+    items.retain(|i| !i.title.is_empty() && !automated(&i.title) && (i.date == 0 || i.date >= since));
     let mut seen = std::collections::HashSet::new();
     items.retain(|i| seen.insert(i.url.clone()) && seen.insert(i.title.to_lowercase()));
     let span = now().saturating_sub(since).max(1) as f64;
@@ -389,21 +288,13 @@ pub fn rank(topic: &str, mut items: Vec<Item>, since: u64) -> Vec<(f64, Item)> {
         .into_iter()
         .filter_map(|i| {
             let rel = relevance(topic, &i);
-            let fresh = if i.date == 0 {
-                0.5
-            } else {
-                1.0 - (now().saturating_sub(i.date) as f64 / span).min(1.0)
-            };
+            let fresh = if i.date == 0 { 0.5 } else { 1.0 - (now().saturating_sub(i.date) as f64 / span).min(1.0) };
             (rel >= 0.5).then_some((0.35 * rel + 0.15 * fresh, i))
         })
         .collect();
     // Engagement against the best of the same source.
     for src in SOURCES {
-        let best = out
-            .iter()
-            .filter(|(_, i)| i.source == src)
-            .map(|(_, i)| i.engagement)
-            .fold(0.0, f64::max);
+        let best = out.iter().filter(|(_, i)| i.source == src).map(|(_, i)| i.engagement).fold(0.0, f64::max);
         for (score, i) in out.iter_mut().filter(|(_, i)| i.source == src) {
             *score += 0.5 * if best > 0.0 { i.engagement / best } else { 0.3 };
         }
@@ -435,43 +326,24 @@ async fn get_json(req: reqwest::RequestBuilder) -> Result<Value, String> {
 }
 
 async fn hackernews(c: &reqwest::Client, q: &str, since: u64) -> Result<Vec<Item>, String> {
-    let url = format!(
-        "https://hn.algolia.com/api/v1/search?query={}&tags=story&numericFilters=created_at_i%3E{since}&hitsPerPage=30",
-        percent_encode(q)
-    );
+    let url = format!("https://hn.algolia.com/api/v1/search?query={}&tags=story&numericFilters=created_at_i%3E{since}&hitsPerPage=30", percent_encode(q));
     Ok(parse_hackernews(&get_json(c.get(url)).await?))
 }
 
 async fn reddit(c: &reqwest::Client, q: &str, days: u64) -> Result<Vec<Item>, String> {
-    let (Ok(id), Ok(secret)) = (
-        std::env::var("REDDIT_CLIENT_ID"),
-        std::env::var("REDDIT_CLIENT_SECRET"),
-    ) else {
+    let (Ok(id), Ok(secret)) = (std::env::var("REDDIT_CLIENT_ID"), std::env::var("REDDIT_CLIENT_SECRET")) else {
         return Err("skipped: create a Reddit API app (reddit.com/prefs/apps, type script) and set REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET".into());
     };
-    let token = get_json(
-        c.post("https://www.reddit.com/api/v1/access_token")
-            .basic_auth(id, Some(secret))
-            .form(&[("grant_type", "client_credentials")]),
-    )
-    .await?;
-    let token = token["access_token"]
-        .as_str()
-        .ok_or("Reddit refused the API app's credentials")?
-        .to_string();
+    let token = get_json(c.post("https://www.reddit.com/api/v1/access_token").basic_auth(id, Some(secret)).form(&[("grant_type", "client_credentials")])).await?;
+    let token = token["access_token"].as_str().ok_or("Reddit refused the API app's credentials")?.to_string();
     let t = match days {
         0..=1 => "day",
         2..=7 => "week",
         8..=31 => "month",
         _ => "year",
     };
-    let url = format!(
-        "https://oauth.reddit.com/search?q={}&sort=relevance&t={t}&limit=40&raw_json=1",
-        percent_encode(q)
-    );
-    Ok(parse_reddit(
-        &get_json(c.get(url).bearer_auth(token)).await?,
-    ))
+    let url = format!("https://oauth.reddit.com/search?q={}&sort=relevance&t={t}&limit=40&raw_json=1", percent_encode(q));
+    Ok(parse_reddit(&get_json(c.get(url).bearer_auth(token)).await?))
 }
 
 async fn github(c: &reqwest::Client, q: &str, since: u64) -> Result<Vec<Item>, String> {
@@ -483,14 +355,8 @@ async fn github(c: &reqwest::Client, q: &str, since: u64) -> Result<Vec<Item>, S
         }
     };
     let day = ymd(since);
-    let issues = format!(
-        "https://api.github.com/search/issues?q={}&sort=reactions&order=desc&per_page=20",
-        percent_encode(&format!("{q} in:title created:>{day}"))
-    );
-    let repos = format!(
-        "https://api.github.com/search/repositories?q={}&sort=stars&order=desc&per_page=10",
-        percent_encode(&format!("{q} created:>{day}"))
-    );
+    let issues = format!("https://api.github.com/search/issues?q={}&sort=reactions&order=desc&per_page=20", percent_encode(&format!("{q} in:title created:>{day}")));
+    let repos = format!("https://api.github.com/search/repositories?q={}&sort=stars&order=desc&per_page=10", percent_encode(&format!("{q} created:>{day}")));
     let (a, b) = futures_util::join!(get_json(gh(issues)), get_json(gh(repos)));
     let mut out = a.map(|v| parse_github_issues(&v)).unwrap_or_default();
     out.extend(b.map(|v| parse_github_repos(&v))?);
@@ -498,30 +364,18 @@ async fn github(c: &reqwest::Client, q: &str, since: u64) -> Result<Vec<Item>, S
 }
 
 async fn polymarket(c: &reqwest::Client, q: &str) -> Result<Vec<Item>, String> {
-    let url = format!(
-        "https://gamma-api.polymarket.com/public-search?q={}&events_status=active&keep_closed_markets=0",
-        percent_encode(q)
-    );
+    let url = format!("https://gamma-api.polymarket.com/public-search?q={}&events_status=active&keep_closed_markets=0", percent_encode(q));
     Ok(parse_polymarket(&get_json(c.get(url)).await?))
 }
 
 async fn devto(c: &reqwest::Client, q: &str, days: u64) -> Result<Vec<Item>, String> {
-    let url = format!(
-        "https://dev.to/api/articles/search?q={}&top={days}&per_page=30",
-        percent_encode(q)
-    );
+    let url = format!("https://dev.to/api/articles/search?q={}&top={days}&per_page=30", percent_encode(q));
     Ok(parse_devto(&get_json(c.get(url)).await?))
 }
 
 async fn arxiv(c: &reqwest::Client, q: &str) -> Result<Vec<Item>, String> {
-    let query = terms(q)
-        .iter()
-        .map(|t| format!("all:{t}"))
-        .collect::<Vec<_>>()
-        .join("+AND+");
-    let url = format!(
-        "https://export.arxiv.org/api/query?search_query={query}&sortBy=submittedDate&sortOrder=descending&max_results=15"
-    );
+    let query = terms(q).iter().map(|t| format!("all:{t}")).collect::<Vec<_>>().join("+AND+");
+    let url = format!("https://export.arxiv.org/api/query?search_query={query}&sortBy=submittedDate&sortOrder=descending&max_results=15");
     let resp = c.get(url).send().await.map_err(|e| e.to_string())?;
     Ok(parse_arxiv(&resp.text().await.map_err(|e| e.to_string())?))
 }
@@ -530,71 +384,21 @@ pub(crate) async fn tool(input: &Value) -> Res {
     let topic = arg(input, "topic")?.trim().to_string();
     let days = input["days"].as_u64().unwrap_or(30).clamp(1, 365);
     let since = now().saturating_sub(days * 86_400);
-    let wanted: Vec<String> = input["sources"]
-        .as_array()
-        .map(|a| {
-            a.iter()
-                .filter_map(|s| s.as_str().map(str::to_string))
-                .collect()
-        })
-        .unwrap_or_default();
+    let wanted: Vec<String> = input["sources"].as_array().map(|a| a.iter().filter_map(|s| s.as_str().map(str::to_string)).collect()).unwrap_or_default();
     let on = |s: &str| wanted.is_empty() || wanted.iter().any(|w| w == s);
     let c = client()?;
     let skip = || async { Err::<Vec<Item>, String>("not asked".into()) };
     let (hn, rd, gh, pm, dv, ax) = futures_util::join!(
-        async {
-            if on("hackernews") {
-                hackernews(&c, &topic, since).await
-            } else {
-                skip().await
-            }
-        },
-        async {
-            if on("reddit") {
-                reddit(&c, &topic, days).await
-            } else {
-                skip().await
-            }
-        },
-        async {
-            if on("github") {
-                github(&c, &topic, since).await
-            } else {
-                skip().await
-            }
-        },
-        async {
-            if on("polymarket") {
-                polymarket(&c, &topic).await
-            } else {
-                skip().await
-            }
-        },
-        async {
-            if on("devto") {
-                devto(&c, &topic, days).await
-            } else {
-                skip().await
-            }
-        },
-        async {
-            if on("arxiv") {
-                arxiv(&c, &topic).await
-            } else {
-                skip().await
-            }
-        },
+        async { if on("hackernews") { hackernews(&c, &topic, since).await } else { skip().await } },
+        async { if on("reddit") { reddit(&c, &topic, days).await } else { skip().await } },
+        async { if on("github") { github(&c, &topic, since).await } else { skip().await } },
+        async { if on("polymarket") { polymarket(&c, &topic).await } else { skip().await } },
+        async { if on("devto") { devto(&c, &topic, days).await } else { skip().await } },
+        async { if on("arxiv") { arxiv(&c, &topic).await } else { skip().await } },
     );
     let mut all = Vec::new();
     let mut status = Vec::new();
-    for (name, r) in [
-        ("hackernews", hn),
-        ("reddit", rd),
-        ("github", gh),
-        ("polymarket", pm),
-        ("devto", dv),
-        ("arxiv", ax),
-    ] {
+    for (name, r) in [("hackernews", hn), ("reddit", rd), ("github", gh), ("polymarket", pm), ("devto", dv), ("arxiv", ax)] {
         match r {
             Ok(v) => {
                 status.push(format!("{name}: {} found", v.len()));
@@ -605,45 +409,20 @@ pub(crate) async fn tool(input: &Value) -> Res {
         }
     }
     let ranked = rank(&topic, all, since);
-    let mut out = format!(
-        "What people said about \"{topic}\" since {} ({days} days).\nSources: {}.\n",
-        ymd(since),
-        status.join("; ")
-    );
+    let mut out = format!("What people said about \"{topic}\" since {} ({days} days).\nSources: {}.\n", ymd(since), status.join("; "));
     if ranked.is_empty() {
-        out.push_str(
-            "\nNothing on topic in this window. Try fewer or broader words, or more days.",
-        );
+        out.push_str("\nNothing on topic in this window. Try fewer or broader words, or more days.");
         return Ok(ToolOutput::ok(out));
     }
     let mut counts: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
     for (_, i) in &ranked {
         *counts.entry(i.source).or_default() += 1;
     }
-    out.push_str(&format!(
-        "On topic: {}.\n",
-        counts
-            .iter()
-            .map(|(k, v)| format!("{k} {v}"))
-            .collect::<Vec<_>>()
-            .join(", ")
-    ));
+    out.push_str(&format!("On topic: {}.\n", counts.iter().map(|(k, v)| format!("{k} {v}")).collect::<Vec<_>>().join(", ")));
     for (n, (score, i)) in ranked.iter().take(30).enumerate() {
-        out.push_str(&format!(
-            "\n{}. [{}] {} ({}; {}; score {:.2})\n   {}",
-            n + 1,
-            i.source,
-            i.title,
-            ymd(i.date),
-            i.stats,
-            score,
-            i.url
-        ));
+        out.push_str(&format!("\n{}. [{}] {} ({}; {}; score {:.2})\n   {}", n + 1, i.source, i.title, ymd(i.date), i.stats, score, i.url));
         if !i.note.is_empty() {
-            out.push_str(&format!(
-                "\n   {}",
-                i.note.chars().take(200).collect::<String>()
-            ));
+            out.push_str(&format!("\n   {}", i.note.chars().take(200).collect::<String>()));
         }
     }
     out.push_str(
@@ -676,23 +455,13 @@ mod tests {
             {"title": "Cooking pasta", "points": 5000, "num_comments": 10, "created_at_i": t, "objectID": "3"}
         ]}));
         assert_eq!(hn[0].url, "https://news.ycombinator.com/item?id=1");
-        let pm = parse_polymarket(
-            &json!({"events": [{"title": "Will Rust async ship in 2027?", "slug": "rust-async", "volume1mo": 2_500_000.0, "updatedAt": "2026-10-28T00:00:00Z",
-            "markets": [{"question": "Ships?", "volume": "10", "outcomes": "[\"Yes\",\"No\"]", "outcomePrices": "[\"0.12\",\"0.88\"]"}]}]}),
-        );
-        assert!(
-            pm[0].stats.contains("$2.5M") && pm[0].stats.contains("Yes 12% / No 88%"),
-            "{}",
-            pm[0].stats
-        );
-        let gh = parse_github_issues(
-            &json!({"items": [{"title": "Rust async traits stabilised", "html_url": "https://github.com/r/r/issues/1",
-            "repository_url": "https://api.github.com/repos/rust-lang/rust", "reactions": {"total_count": 400}, "comments": 80, "created_at": "2026-10-20T00:00:00Z"}]}),
-        );
+        let pm = parse_polymarket(&json!({"events": [{"title": "Will Rust async ship in 2027?", "slug": "rust-async", "volume1mo": 2_500_000.0, "updatedAt": "2026-10-28T00:00:00Z",
+            "markets": [{"question": "Ships?", "volume": "10", "outcomes": "[\"Yes\",\"No\"]", "outcomePrices": "[\"0.12\",\"0.88\"]"}]}]}));
+        assert!(pm[0].stats.contains("$2.5M") && pm[0].stats.contains("Yes 12% / No 88%"), "{}", pm[0].stats);
+        let gh = parse_github_issues(&json!({"items": [{"title": "Rust async traits stabilised", "html_url": "https://github.com/r/r/issues/1",
+            "repository_url": "https://api.github.com/repos/rust-lang/rust", "reactions": {"total_count": 400}, "comments": 80, "created_at": "2026-10-20T00:00:00Z"}]}));
         assert!(gh[0].stats.contains("rust-lang/rust"));
-        let ax = parse_arxiv(
-            "<feed><entry><id>http://arxiv.org/abs/1</id><published>2026-10-27T00:00:00Z</published><title>Rust async\n  runtimes</title><summary>We study.</summary></entry></feed>",
-        );
+        let ax = parse_arxiv("<feed><entry><id>http://arxiv.org/abs/1</id><published>2026-10-27T00:00:00Z</published><title>Rust async\n  runtimes</title><summary>We study.</summary></entry></feed>");
         assert_eq!(ax[0].title, "Rust async runtimes");
 
         let mut all = hn;
@@ -702,34 +471,17 @@ mod tests {
         let ranked = rank("rust async", all, now() - 30 * 86_400);
         let titles: Vec<&str> = ranked.iter().map(|(_, i)| i.title.as_str()).collect();
         assert!(!titles.contains(&"Cooking pasta"), "off topic is dropped");
-        assert!(
-            !titles.iter().any(|t| t.starts_with("Bump")),
-            "bot bumps are dropped"
-        );
-        assert_eq!(
-            ranked
-                .iter()
-                .find(|(_, i)| i.source == "hackernews")
-                .unwrap()
-                .1
-                .title,
-            "Rust async is finally good"
-        );
+        assert!(!titles.iter().any(|t| t.starts_with("Bump")), "bot bumps are dropped");
+        assert_eq!(ranked.iter().find(|(_, i)| i.source == "hackernews").unwrap().1.title, "Rust async is finally good");
         let pos = |t: &str| titles.iter().position(|x| *x == t).unwrap();
-        assert!(
-            pos("Rust async is finally good") < pos("Rust async notes"),
-            "{titles:?}"
-        );
+        assert!(pos("Rust async is finally good") < pos("Rust async notes"), "{titles:?}");
     }
 
     /// Hits the real APIs: `cargo test -p coturbo-tools live_research -- --ignored --nocapture`.
     #[tokio::test]
     #[ignore]
     async fn live_research() {
-        let out = tool(&json!({"topic": "rust async", "days": 30}))
-            .await
-            .unwrap()
-            .content;
+        let out = tool(&json!({"topic": "rust async", "days": 30})).await.unwrap().content;
         println!("{out}");
         assert!(out.contains("hackernews:"));
     }

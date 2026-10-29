@@ -4,35 +4,16 @@ use serde_json::Value;
 use std::time::Duration;
 
 /// Claude models shown when the list can't be fetched (no key yet, offline).
-pub const ANTHROPIC_FALLBACK: [&str; 4] = [
-    "claude-opus-5-5",
-    "claude-sonnet-5-5",
-    "claude-haiku-5-5",
-    "claude-fable-5-1",
-];
+pub const ANTHROPIC_FALLBACK: [&str; 4] = ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1"];
 
 /// OpenAI model ids that are not chat models.
-const NOT_CHAT: [&str; 10] = [
-    "embedding",
-    "tts",
-    "whisper",
-    "dall-e",
-    "audio",
-    "realtime",
-    "image",
-    "moderation",
-    "transcribe",
-    "search",
-];
+const NOT_CHAT: [&str; 10] =
+    ["embedding", "tts", "whisper", "dall-e", "audio", "realtime", "image", "moderation", "transcribe", "search"];
 
 /// Model ids in a provider's list response: `data[].id` (Anthropic, OpenAI,
 /// OpenRouter) or `models[].name` (Ollama).
 pub fn parse_ids(provider: &str, body: &Value) -> Vec<String> {
-    let (list, field) = if provider == "ollama" {
-        ("models", "name")
-    } else {
-        ("data", "id")
-    };
+    let (list, field) = if provider == "ollama" { ("models", "name") } else { ("data", "id") };
     let mut ids: Vec<String> = body[list]
         .as_array()
         .into_iter()
@@ -55,9 +36,7 @@ fn ollama_root(base_url: Option<&str>) -> String {
         Some(url) => url.to_string(),
         None => std::env::var("OLLAMA_HOST").unwrap_or_else(|_| "http://localhost:11434".into()),
     };
-    host.trim_end_matches('/')
-        .trim_end_matches("/v1")
-        .to_string()
+    host.trim_end_matches('/').trim_end_matches("/v1").to_string()
 }
 
 /// `(id, label)` of each model: OpenRouter's name and context size help to
@@ -67,41 +46,22 @@ pub fn parse_named(provider: &str, body: &Value) -> Vec<(String, String)> {
     if provider != "openrouter" {
         return ids.into_iter().map(|id| (id.clone(), id)).collect();
     }
-    let by_id: std::collections::HashMap<&str, &Value> = body["data"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|m| Some((m["id"].as_str()?, m)))
-        .collect();
+    let by_id: std::collections::HashMap<&str, &Value> =
+        body["data"].as_array().into_iter().flatten().filter_map(|m| Some((m["id"].as_str()?, m))).collect();
     ids.into_iter()
         .map(|id| {
             let m = by_id.get(id.as_str()).copied().unwrap_or(&Value::Null);
             let name = m["name"].as_str().unwrap_or("");
-            let ctx = m["context_length"]
-                .as_u64()
-                .map(|c| format!(" · {}k context", c / 1000))
-                .unwrap_or_default();
-            let free = if id.ends_with(":free") {
-                " · free"
-            } else {
-                ""
-            };
-            let label = if name.is_empty() {
-                format!("{id}{ctx}{free}")
-            } else {
-                format!("{id} · {name}{ctx}{free}")
-            };
+            let ctx = m["context_length"].as_u64().map(|c| format!(" · {}k context", c / 1000)).unwrap_or_default();
+            let free = if id.ends_with(":free") { " · free" } else { "" };
+            let label = if name.is_empty() { format!("{id}{ctx}{free}") } else { format!("{id} · {name}{ctx}{free}") };
             (id, label)
         })
         .collect()
 }
 
 /// Fetches the model list of `provider`: `(id, label)`.
-pub async fn list(
-    provider: &str,
-    key: Option<&str>,
-    base_url: Option<&str>,
-) -> Result<Vec<(String, String)>, String> {
+pub async fn list(provider: &str, key: Option<&str>, base_url: Option<&str>) -> Result<Vec<(String, String)>, String> {
     let client = coturbo_providers::dns::client_builder()
         .timeout(Duration::from_secs(10))
         .user_agent(concat!("codeturbo/", env!("CARGO_PKG_VERSION")))
@@ -134,24 +94,15 @@ pub async fn list(
         "ollama" => client.get(format!("{}/api/tags", ollama_root(base_url))),
         // The official tools take their own model names.
         "claude-code" => {
-            return Ok([
-                ("padrao", "your plan's default"),
-                ("opus", "opus"),
-                ("sonnet", "sonnet"),
-                ("haiku", "haiku"),
-            ]
-            .map(|(a, b)| (a.to_string(), b.to_string()))
-            .to_vec());
+            return Ok([("padrao", "your plan's default"), ("opus", "opus"), ("sonnet", "sonnet"), ("haiku", "haiku")]
+                .map(|(a, b)| (a.to_string(), b.to_string()))
+                .to_vec());
         }
         "antigravity" => return antigravity_models().await,
         "codex" => {
-            return Ok([
-                ("padrao", "your plan's default"),
-                ("gpt-5-codex", "gpt-5-codex"),
-                ("gpt-5", "gpt-5"),
-            ]
-            .map(|(a, b)| (a.to_string(), b.to_string()))
-            .to_vec());
+            return Ok([("padrao", "your plan's default"), ("gpt-5-codex", "gpt-5-codex"), ("gpt-5", "gpt-5")]
+                .map(|(a, b)| (a.to_string(), b.to_string()))
+                .to_vec());
         }
         p => return Err(format!("unknown provider: {p}")),
     };
@@ -174,13 +125,10 @@ pub async fn list(
 /// The models `agy models` lists for the signed-in account: `id<TAB>name` lines.
 async fn antigravity_models() -> Result<Vec<(String, String)>, String> {
     let program = coturbo_providers::cli::resolve(coturbo_providers::cli::Tool::Antigravity);
-    let out = tokio::time::timeout(
-        Duration::from_secs(40),
-        tokio::process::Command::new(program).arg("models").output(),
-    )
-    .await
-    .map_err(|_| "agy did not answer".to_string())?
-    .map_err(|e| format!("could not run agy: {e}"))?;
+    let out = tokio::time::timeout(Duration::from_secs(40), tokio::process::Command::new(program).arg("models").output())
+        .await
+        .map_err(|_| "agy did not answer".to_string())?
+        .map_err(|e| format!("could not run agy: {e}"))?;
     let text = String::from_utf8_lossy(&out.stdout);
     let list = parse_agy_models(&text);
     if list.is_empty() {
@@ -194,8 +142,7 @@ pub fn parse_agy_models(text: &str) -> Vec<(String, String)> {
     text.lines()
         .filter_map(|l| {
             let (id, name) = l.split_once(char::from(9))?;
-            (!id.trim().is_empty())
-                .then(|| (id.trim().to_string(), format!("{id} · {}", name.trim())))
+            (!id.trim().is_empty()).then(|| (id.trim().to_string(), format!("{id} · {}", name.trim())))
         })
         .collect()
 }

@@ -25,16 +25,11 @@ fn path() -> PathBuf {
 }
 
 fn now() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs())
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
 pub fn load() -> Vec<Known> {
-    let v: Value = std::fs::read_to_string(path())
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_else(|| json!({}));
+    let v: Value = std::fs::read_to_string(path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_else(|| json!({}));
     let mut out: Vec<Known> = v
         .as_object()
         .into_iter()
@@ -54,34 +49,21 @@ pub fn load() -> Vec<Known> {
 fn save(all: &[Known]) {
     let mut v = serde_json::Map::new();
     for k in all {
-        v.insert(
-            k.mac.clone(),
-            json!({"name": k.name, "ip": k.ip, "what": k.what, "seen": k.seen}),
-        );
+        v.insert(k.mac.clone(), json!({"name": k.name, "ip": k.ip, "what": k.what, "seen": k.seen}));
     }
-    let _ = std::fs::write(
-        path(),
-        serde_json::to_string_pretty(&Value::Object(v)).unwrap_or_default(),
-    );
+    let _ = std::fs::write(path(), serde_json::to_string_pretty(&Value::Object(v)).unwrap_or_default());
 }
 
 fn describe(d: &Device) -> String {
     let id = &d.identity;
-    [id.kind.as_str(), id.brand.as_str(), id.model.as_str()]
-        .iter()
-        .filter(|s| !s.is_empty())
-        .copied()
-        .collect::<Vec<_>>()
-        .join(" · ")
+    [id.kind.as_str(), id.brand.as_str(), id.model.as_str()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(" · ")
 }
 
 /// Records what a scan found; keeps the user's names.
 pub fn remember(inv: &Inventory) {
     let mut all = load();
     for d in &inv.devices {
-        let (Some(mac), Some(ip)) = (&d.mac, d.ip) else {
-            continue;
-        };
+        let (Some(mac), Some(ip)) = (&d.mac, d.ip) else { continue };
         let what = describe(d);
         match all.iter_mut().find(|k| &k.mac == mac) {
             Some(k) => {
@@ -91,13 +73,7 @@ pub fn remember(inv: &Inventory) {
                 }
                 k.seen = now();
             }
-            None => all.push(Known {
-                mac: mac.clone(),
-                name: String::new(),
-                ip: ip.to_string(),
-                what,
-                seen: now(),
-            }),
+            None => all.push(Known { mac: mac.clone(), name: String::new(), ip: ip.to_string(), what, seen: now() }),
         }
     }
     save(&all);
@@ -106,10 +82,7 @@ pub fn remember(inv: &Inventory) {
 /// Gives a device a name, found by its address, MAC or current name.
 pub fn name(target: &str, name: &str) -> Result<Known, String> {
     let mut all = load();
-    let k = all
-        .iter_mut()
-        .find(|k| matches(k, target))
-        .ok_or_else(|| format!("no known device matches `{target}`: run network_scan first"))?;
+    let k = all.iter_mut().find(|k| matches(k, target)).ok_or_else(|| format!("no known device matches `{target}`: run network_scan first"))?;
     k.name = name.trim().to_string();
     let named = k.clone();
     save(&all);
@@ -117,18 +90,12 @@ pub fn name(target: &str, name: &str) -> Result<Known, String> {
 }
 
 fn norm(s: &str) -> String {
-    s.to_lowercase()
-        .chars()
-        .filter(|c| c.is_alphanumeric())
-        .collect()
+    s.to_lowercase().chars().filter(|c| c.is_alphanumeric()).collect()
 }
 
 fn matches(k: &Known, target: &str) -> bool {
     let t = norm(target);
-    !t.is_empty()
-        && (k.ip == target.trim()
-            || norm(&k.mac) == t
-            || (!k.name.is_empty() && norm(&k.name) == t))
+    !t.is_empty() && (k.ip == target.trim() || norm(&k.mac) == t || (!k.name.is_empty() && norm(&k.name) == t))
 }
 
 /// The device a user means: an address, a MAC or a name given before
@@ -139,18 +106,14 @@ pub fn find(target: &str) -> Option<Known> {
         return Some(k.clone());
     }
     let t = norm(target);
-    all.into_iter()
-        .find(|k| !k.name.is_empty() && (norm(&k.name).contains(&t) || t.contains(&norm(&k.name))))
+    all.into_iter().find(|k| !k.name.is_empty() && (norm(&k.name).contains(&t) || t.contains(&norm(&k.name))))
 }
 
 /// An address for `target`: an IP as given, or the one last seen for a
 /// known device.
 pub fn resolve(target: &str) -> Option<(IpAddr, Option<String>)> {
     if let Ok(ip) = target.trim().parse::<IpAddr>() {
-        let mac = load()
-            .into_iter()
-            .find(|k| k.ip == target.trim())
-            .map(|k| k.mac);
+        let mac = load().into_iter().find(|k| k.ip == target.trim()).map(|k| k.mac);
         return Some((ip, mac));
     }
     let k = find(target)?;
@@ -159,24 +122,13 @@ pub fn resolve(target: &str) -> Option<(IpAddr, Option<String>)> {
 
 /// The remembered devices that did not answer this scan (off or asleep).
 pub fn missing(inv: &Inventory) -> Vec<Known> {
-    load()
-        .into_iter()
-        .filter(|k| {
-            !inv.devices
-                .iter()
-                .any(|d| d.mac.as_deref() == Some(k.mac.as_str()))
-        })
-        .collect()
+    load().into_iter().filter(|k| !inv.devices.iter().any(|d| d.mac.as_deref() == Some(k.mac.as_str()))).collect()
 }
 
 /// The name the user gave the device with this MAC.
 pub fn name_of(mac: Option<&str>) -> Option<String> {
     let mac = mac?;
-    load()
-        .into_iter()
-        .find(|k| k.mac == mac)
-        .map(|k| k.name)
-        .filter(|n| !n.is_empty())
+    load().into_iter().find(|k| k.mac == mac).map(|k| k.name).filter(|n| !n.is_empty())
 }
 
 #[cfg(test)]
@@ -185,12 +137,7 @@ mod tests {
 
     #[test]
     fn names_match_loosely() {
-        let k = Known {
-            mac: "aa:bb:cc:dd:ee:ff".into(),
-            name: "TV da sala".into(),
-            ip: "192.168.1.40".into(),
-            ..Known::default()
-        };
+        let k = Known { mac: "aa:bb:cc:dd:ee:ff".into(), name: "TV da sala".into(), ip: "192.168.1.40".into(), ..Known::default() };
         assert!(matches(&k, "tv da sala"));
         assert!(matches(&k, "192.168.1.40"));
         assert!(matches(&k, "AA-BB-CC-DD-EE-FF"));

@@ -33,14 +33,7 @@ pub fn short_path(path: &str, max: usize) -> String {
     }
     let last = parts.last().copied().unwrap_or(path);
     let keep = max.saturating_sub(1);
-    let tail: String = last
-        .chars()
-        .rev()
-        .take(keep)
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .collect();
+    let tail: String = last.chars().rev().take(keep).collect::<Vec<_>>().into_iter().rev().collect();
     format!("…{tail}")
 }
 
@@ -50,34 +43,19 @@ mod tests {
 
     #[test]
     fn cabendo_aparece_inteiro() {
-        assert_eq!(
-            short_path(r"C:\Users\danie\Music\CoTurbon", 60),
-            r"C:\Users\danie\Music\CoTurbon"
-        );
+        assert_eq!(short_path(r"C:\Users\danie\Music\CoTurbon", 60), r"C:\Users\danie\Music\CoTurbon");
     }
 
     #[test]
     fn grande_demais_fica_com_as_tres_ultimas_pastas() {
-        assert_eq!(
-            short_path(r"C:\Users\danie\Music\CoTurbon\sandbox\paint", 30),
-            r"…\CoTurbon\sandbox\paint"
-        );
-        assert_eq!(
-            short_path("/home/danie/projetos/loja/frontend/src", 28),
-            "…/loja/frontend/src"
-        );
+        assert_eq!(short_path(r"C:\Users\danie\Music\CoTurbon\sandbox\paint", 30), r"…\CoTurbon\sandbox\paint");
+        assert_eq!(short_path("/home/danie/projetos/loja/frontend/src", 28), "…/loja/frontend/src");
     }
 
     #[test]
     fn se_nem_tres_cabem_usa_menos() {
-        assert_eq!(
-            short_path(r"C:\Users\danie\Music\CoTurbon\sandbox\paint", 15),
-            r"…\sandbox\paint"
-        );
-        assert_eq!(
-            short_path(r"C:\Users\danie\Music\CoTurbon\sandbox\paint", 8),
-            "…\\paint"
-        );
+        assert_eq!(short_path(r"C:\Users\danie\Music\CoTurbon\sandbox\paint", 15), r"…\sandbox\paint");
+        assert_eq!(short_path(r"C:\Users\danie\Music\CoTurbon\sandbox\paint", 8), "…\\paint");
     }
 
     #[test]
@@ -89,21 +67,14 @@ mod tests {
 
     #[test]
     fn o_prefixo_verbatim_do_windows_sai() {
-        assert_eq!(
-            short_path(r"\\?\C:\Users\danie\CoTurbon", 60),
-            r"C:\Users\danie\CoTurbon"
-        );
+        assert_eq!(short_path(r"\\?\C:\Users\danie\CoTurbon", 60), r"C:\Users\danie\CoTurbon");
     }
 
     #[test]
     fn nunca_passa_do_limite() {
         let p = r"C:\Users\danie\Music\CoTurbon\sandbox\paint\src";
         for max in 1..60 {
-            assert!(
-                short_path(p, max).chars().count() <= max.max(1),
-                "max {max}: {}",
-                short_path(p, max)
-            );
+            assert!(short_path(p, max).chars().count() <= max.max(1), "max {max}: {}", short_path(p, max));
         }
     }
 }

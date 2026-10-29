@@ -105,21 +105,11 @@ async fn session(ip: IpAddr) -> Result<TcpStream, String> {
         .map_err(|e| e.to_string())?;
     let saved = crate::tv::load_secret("mqtt", ip);
     let login = saved.as_deref().and_then(|l| l.split_once('\n'));
-    s.write_all(&connect_packet(
-        &format!("codeturbo-{}", std::process::id()),
-        login,
-    ))
-    .await
-    .map_err(|e| e.to_string())?;
-    let (h, body) = tokio::time::timeout(Duration::from_secs(4), read_packet(&mut s))
-        .await
-        .map_err(|_| "no answer from the broker".to_string())??;
+    s.write_all(&connect_packet(&format!("codeturbo-{}", std::process::id()), login)).await.map_err(|e| e.to_string())?;
+    let (h, body) = tokio::time::timeout(Duration::from_secs(4), read_packet(&mut s)).await.map_err(|_| "no answer from the broker".to_string())??;
     match (h, body.get(1)) {
         (0x20, Some(0)) => Ok(s),
-        (0x20, Some(4 | 5)) => Err(
-            "the broker wants a login: give its user and password (they are kept on this computer)"
-                .into(),
-        ),
+        (0x20, Some(4 | 5)) => Err("the broker wants a login: give its user and password (they are kept on this computer)".into()),
         (_, code) => Err(format!("the broker refused the connection ({code:?})")),
     }
 }
@@ -140,23 +130,15 @@ fn summarize(topic: &str, payload: &str) -> String {
         return format!("{} Zigbee device(s): {}", names.len(), names.join(", "));
     }
     let short: String = payload.chars().take(300).collect();
-    if short.len() < payload.len() {
-        format!("{short}…")
-    } else {
-        short
-    }
+    if short.len() < payload.len() { format!("{short}…") } else { short }
 }
 
 pub(crate) async fn control(ip: IpAddr, act: &Act) -> Result<String, String> {
     match act {
         Act::Publish { topic, payload } => {
             let mut s = session(ip).await?;
-            s.write_all(&publish_packet(topic, payload))
-                .await
-                .map_err(|e| e.to_string())?;
-            s.write_all(&[0xE0, 0x00])
-                .await
-                .map_err(|e| e.to_string())?;
+            s.write_all(&publish_packet(topic, payload)).await.map_err(|e| e.to_string())?;
+            s.write_all(&[0xE0, 0x00]).await.map_err(|e| e.to_string())?;
             Ok(format!("sent {payload} to {topic}"))
         }
         // Status: the Zigbee2MQTT device list, when there is one.
@@ -166,17 +148,11 @@ pub(crate) async fn control(ip: IpAddr, act: &Act) -> Result<String, String> {
                 _ => "zigbee2mqtt/bridge/devices".to_string(),
             };
             let mut s = session(ip).await?;
-            s.write_all(&subscribe_packet(1, &topic))
-                .await
-                .map_err(|e| e.to_string())?;
+            s.write_all(&subscribe_packet(1, &topic)).await.map_err(|e| e.to_string())?;
             let mut seen = Vec::new();
             let deadline = tokio::time::Instant::now() + Duration::from_secs(4);
             while seen.len() < 40 {
-                let Ok(Ok((h, body))) =
-                    tokio::time::timeout_at(deadline, read_packet(&mut s)).await
-                else {
-                    break;
-                };
+                let Ok(Ok((h, body))) = tokio::time::timeout_at(deadline, read_packet(&mut s)).await else { break };
                 if h & 0xF0 == 0x30
                     && let Some((t, p)) = parse_publish(h, &body)
                 {
@@ -189,9 +165,7 @@ pub(crate) async fn control(ip: IpAddr, act: &Act) -> Result<String, String> {
             }
             Ok(seen.join("\n"))
         }
-        other => Err(format!(
-            "an MQTT broker takes publish or listen, not {other:?}"
-        )),
+        other => Err(format!("an MQTT broker takes publish or listen, not {other:?}")),
     }
 }
 
@@ -206,10 +180,7 @@ mod tests {
         assert_eq!(&c[2..8], &[0, 4, b'M', b'Q', b'T', b'T']);
         let p = publish_packet("zigbee2mqtt/lamp/set", r#"{"state":"ON"}"#);
         assert_eq!(p[0], 0x30);
-        assert_eq!(
-            parse_publish(p[0], &p[2..]).unwrap(),
-            ("zigbee2mqtt/lamp/set".into(), r#"{"state":"ON"}"#.into())
-        );
+        assert_eq!(parse_publish(p[0], &p[2..]).unwrap(), ("zigbee2mqtt/lamp/set".into(), r#"{"state":"ON"}"#.into()));
         let mut long = Vec::new();
         remaining(&mut long, 321);
         assert_eq!(long, vec![0xC1, 0x02]);
@@ -218,9 +189,6 @@ mod tests {
     #[test]
     fn zigbee_device_lists_are_summarised() {
         let list = r#"[{"type":"Coordinator","friendly_name":"Coordinator"},{"type":"EndDevice","friendly_name":"sala lamp","definition":{"description":"Smart bulb"}}]"#;
-        assert_eq!(
-            summarize("zigbee2mqtt/bridge/devices", list),
-            "1 Zigbee device(s): sala lamp (Smart bulb)"
-        );
+        assert_eq!(summarize("zigbee2mqtt/bridge/devices", list), "1 Zigbee device(s): sala lamp (Smart bulb)");
     }
 }

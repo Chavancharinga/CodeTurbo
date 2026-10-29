@@ -39,34 +39,16 @@ pub struct LspConfig {
     pub request_timeout: Duration,
 }
 
-fn server(
-    name: &str,
-    command: &str,
-    args: &[&str],
-    markers: &[&str],
-    exts: &[&str],
-) -> ServerConfig {
+fn server(name: &str, command: &str, args: &[&str], markers: &[&str], exts: &[&str]) -> ServerConfig {
     let v = |xs: &[&str]| xs.iter().map(|s| s.to_string()).collect();
-    ServerConfig {
-        name: name.into(),
-        command: command.into(),
-        args: v(args),
-        root_markers: v(markers),
-        extensions: v(exts),
-    }
+    ServerConfig { name: name.into(), command: command.into(), args: v(args), root_markers: v(markers), extensions: v(exts) }
 }
 
 impl Default for LspConfig {
     fn default() -> Self {
         Self {
             servers: vec![
-                server(
-                    "rust-analyzer",
-                    "rust-analyzer",
-                    &[],
-                    &["Cargo.toml", "rust-analyzer.toml"],
-                    &["rs"],
-                ),
+                server("rust-analyzer", "rust-analyzer", &[], &["Cargo.toml", "rust-analyzer.toml"], &["rs"]),
                 server(
                     "typescript-language-server",
                     "typescript-language-server",
@@ -123,17 +105,9 @@ pub fn apply_edits(text: &str, edits: &[Value]) -> String {
         .map(|e| {
             let r = &e["range"];
             let pos = |p: &Value| {
-                offset(
-                    text,
-                    p["line"].as_u64().unwrap_or(0) as usize,
-                    p["character"].as_u64().unwrap_or(0) as usize,
-                )
+                offset(text, p["line"].as_u64().unwrap_or(0) as usize, p["character"].as_u64().unwrap_or(0) as usize)
             };
-            (
-                pos(&r["start"]),
-                pos(&r["end"]),
-                e["newText"].as_str().unwrap_or(""),
-            )
+            (pos(&r["start"]), pos(&r["end"]), e["newText"].as_str().unwrap_or(""))
         })
         .collect();
     spans.sort_by_key(|a| std::cmp::Reverse(a.0));
@@ -168,14 +142,8 @@ fn render(rel: &str, diags: &[Diag]) -> String {
     if diags.is_empty() {
         return format!("lsp {rel}: clean");
     }
-    let (e, w) = (
-        diag::count(diags, diag::Level::Error),
-        diag::count(diags, diag::Level::Warning),
-    );
-    format!(
-        "lsp {rel}: {e} error(s), {w} warning(s)\n{}",
-        diag::render_list(diags, MAX_DIAGS)
-    )
+    let (e, w) = (diag::count(diags, diag::Level::Error), diag::count(diags, diag::Level::Warning));
+    format!("lsp {rel}: {e} error(s), {w} warning(s)\n{}", diag::render_list(diags, MAX_DIAGS))
 }
 
 impl LspManager {
@@ -195,8 +163,7 @@ impl LspManager {
 
     fn server_for(&self, ext: &str) -> Option<&ServerConfig> {
         self.cfg.servers.iter().find(|s| {
-            s.extensions.iter().any(|e| e == ext)
-                && s.root_markers.iter().any(|m| self.root.join(m).exists())
+            s.extensions.iter().any(|e| e == ext) && s.root_markers.iter().any(|m| self.root.join(m).exists())
         })
     }
 
@@ -212,24 +179,14 @@ impl LspManager {
         {
             return Ok(Some(c.clone()));
         }
-        match Client::start(
-            &server.command,
-            &server.args,
-            &self.root,
-            self.cfg.request_timeout,
-        )
-        .await
-        {
+        match Client::start(&server.command, &server.args, &self.root, self.cfg.request_timeout).await {
             Ok(c) => {
                 clients.insert(server.name.clone(), c.clone());
                 Ok(Some(c))
             }
             Err(e) => {
                 self.broken.lock().unwrap().insert(server.name.clone());
-                Err(format!(
-                    "[lsp] {} not available ({e}); built-in checks only — install it for type-level diagnostics",
-                    server.name
-                ))
+                Err(format!("[lsp] {} not available ({e}); built-in checks only — install it for type-level diagnostics", server.name))
             }
         }
     }
@@ -239,9 +196,7 @@ impl LspManager {
     pub async fn after_write(&self, rel: &str) -> WriteNotes {
         let mut notes = WriteNotes::default();
         let ext = rel.rsplit('.').next().unwrap_or("");
-        let Some(server) = self.server_for(ext) else {
-            return notes;
-        };
+        let Some(server) = self.server_for(ext) else { return notes };
         let client = match self.client(server).await {
             Ok(Some(c)) => c,
             Ok(None) => return notes,
@@ -251,13 +206,9 @@ impl LspManager {
             }
         };
         let path = self.root.join(rel);
-        let Ok(mut text) = std::fs::read_to_string(&path) else {
-            return notes;
-        };
+        let Ok(mut text) = std::fs::read_to_string(&path) else { return notes };
         let lang = language_id(ext);
-        let Ok((mut version, mut seq)) = client.sync(&path, lang, &text).await else {
-            return notes;
-        };
+        let Ok((mut version, mut seq)) = client.sync(&path, lang, &text).await else { return notes };
 
         let can_format = !client.capabilities()["documentFormattingProvider"].is_null()
             && client.capabilities()["documentFormattingProvider"] != false;
@@ -266,10 +217,7 @@ impl LspManager {
                 "textDocument": {"uri": rpc::path_to_uri(&path)},
                 "options": {"tabSize": 4, "insertSpaces": true}
             });
-            if let Ok(Value::Array(edits)) = client
-                .request("textDocument/formatting", params, self.cfg.request_timeout)
-                .await
-            {
+            if let Ok(Value::Array(edits)) = client.request("textDocument/formatting", params, self.cfg.request_timeout).await {
                 let formatted = apply_edits(&text, &edits);
                 if formatted != text && std::fs::write(&path, &formatted).is_ok() {
                     text = formatted;
@@ -281,10 +229,7 @@ impl LspManager {
             }
         }
 
-        if let Some(d) = client
-            .diagnostics(&path, version, seq, self.cfg.inline_wait)
-            .await
-        {
+        if let Some(d) = client.diagnostics(&path, version, seq, self.cfg.inline_wait).await {
             notes.text = render(rel, &d);
             return notes;
         }
@@ -294,9 +239,7 @@ impl LspManager {
             if let Some(d) = client.diagnostics(&path, version, seq, wait).await
                 && !d.is_empty()
             {
-                late.lock()
-                    .unwrap()
-                    .push(format!("[late] {}", render(&owned, &d)));
+                late.lock().unwrap().push(format!("[late] {}", render(&owned, &d)));
             }
         });
         notes.text = format!("lsp {rel}: pending (will follow with a later result)");
@@ -305,30 +248,14 @@ impl LspManager {
 
     /// Code navigation through the language server: `definition`,
     /// `references` or `hover` for `symbol` on line `line` (1-based) of `rel`.
-    pub async fn navigate(
-        &self,
-        action: &str,
-        rel: &str,
-        line: u32,
-        symbol: &str,
-    ) -> Result<String, String> {
+    pub async fn navigate(&self, action: &str, rel: &str, line: u32, symbol: &str) -> Result<String, String> {
         let ext = rel.rsplit('.').next().unwrap_or("");
-        let server = self.server_for(ext).ok_or_else(|| {
-            format!("no language server is set up for .{ext} files in this project")
-        })?;
-        let client = self
-            .client(server)
-            .await?
-            .ok_or("the language server is not available")?;
+        let server = self.server_for(ext).ok_or_else(|| format!("no language server is set up for .{ext} files in this project"))?;
+        let client = self.client(server).await?.ok_or("the language server is not available")?;
         let path = self.root.join(rel);
         let text = std::fs::read_to_string(&path).map_err(|e| format!("{rel}: {e}"))?;
-        let row = text
-            .lines()
-            .nth(line.saturating_sub(1) as usize)
-            .ok_or_else(|| format!("{rel} has no line {line}"))?;
-        let byte = row
-            .find(symbol)
-            .ok_or_else(|| format!("`{symbol}` is not on line {line} of {rel}"))?;
+        let row = text.lines().nth(line.saturating_sub(1) as usize).ok_or_else(|| format!("{rel} has no line {line}"))?;
+        let byte = row.find(symbol).ok_or_else(|| format!("`{symbol}` is not on line {line} of {rel}"))?;
         // LSP columns count UTF-16 units.
         let character = row[..byte].encode_utf16().count();
         client.sync(&path, language_id(ext), &text).await?;
@@ -341,34 +268,15 @@ impl LspManager {
                 ("textDocument/references", p)
             }
             "hover" => ("textDocument/hover", position),
-            other => {
-                return Err(format!(
-                    "unknown action `{other}`: definition, references or hover"
-                ));
-            }
+            other => return Err(format!("unknown action `{other}`: definition, references or hover")),
         };
-        let result = client
-            .request(method, params, self.cfg.request_timeout)
-            .await?;
+        let result = client.request(method, params, self.cfg.request_timeout).await?;
         if action == "hover" {
             let c = &result["contents"];
-            let text = c["value"]
-                .as_str()
-                .map(str::to_string)
-                .or_else(|| c.as_str().map(str::to_string))
-                .unwrap_or_else(|| {
-                    c.as_array()
-                        .into_iter()
-                        .flatten()
-                        .filter_map(|p| p["value"].as_str().or(p.as_str()))
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                });
-            return Ok(if text.trim().is_empty() {
-                format!("no information for `{symbol}`")
-            } else {
-                text
+            let text = c["value"].as_str().map(str::to_string).or_else(|| c.as_str().map(str::to_string)).unwrap_or_else(|| {
+                c.as_array().into_iter().flatten().filter_map(|p| p["value"].as_str().or(p.as_str())).collect::<Vec<_>>().join("\n")
             });
+            return Ok(if text.trim().is_empty() { format!("no information for `{symbol}`") } else { text });
         }
         let locations: Vec<Value> = match result {
             Value::Array(a) => a,
@@ -380,34 +288,20 @@ impl LspManager {
             .take(60)
             .filter_map(|l| {
                 let uri = l["uri"].as_str().or(l["targetUri"].as_str())?;
-                let range = if l["range"].is_object() {
-                    &l["range"]
-                } else {
-                    &l["targetSelectionRange"]
-                };
+                let range = if l["range"].is_object() { &l["range"] } else { &l["targetSelectionRange"] };
                 let file = rpc::uri_key(uri);
                 // Keys are normalised (lower case on Windows): compare the same way.
                 let root_key = rpc::uri_key(&self.root.to_string_lossy());
-                let shown = file
-                    .strip_prefix(&root_key)
-                    .map(|r| r.trim_start_matches('/').to_string())
-                    .unwrap_or_else(|| file.clone());
+                let shown = file.strip_prefix(&root_key).map(|r| r.trim_start_matches('/').to_string()).unwrap_or_else(|| file.clone());
                 let n = range["start"]["line"].as_u64()? + 1;
-                let src = std::fs::read_to_string(&file)
-                    .ok()
-                    .and_then(|t| t.lines().nth(n as usize - 1).map(|s| s.trim().to_string()))
-                    .unwrap_or_default();
+                let src = std::fs::read_to_string(&file).ok().and_then(|t| t.lines().nth(n as usize - 1).map(|s| s.trim().to_string())).unwrap_or_default();
                 Some(format!("{shown}:{n}: {src}"))
             })
             .collect();
         if lines.is_empty() {
             return Ok(format!("no {action} found for `{symbol}`"));
         }
-        Ok(format!(
-            "{} {action} of `{symbol}`:\n{}",
-            lines.len(),
-            lines.join("\n")
-        ))
+        Ok(format!("{} {action} of `{symbol}`:\n{}", lines.len(), lines.join("\n")))
     }
 
     /// Late diagnostics that arrived since the last call.

@@ -27,11 +27,7 @@ fn location(s: &str) -> Option<(String, u32, u32)> {
     let s = s.trim().trim_end_matches(':');
     let (rest, col) = s.rsplit_once(':')?;
     let (path, line) = rest.rsplit_once(':')?;
-    Some((
-        path.trim().to_string(),
-        line.trim().parse().ok()?,
-        col.trim().parse().ok()?,
-    ))
+    Some((path.trim().to_string(), line.trim().parse().ok()?, col.trim().parse().ok()?))
 }
 
 /// The problems named in `text`: compiler and linter lines
@@ -63,43 +59,24 @@ pub fn parse(text: &str) -> Vec<Finding> {
             };
             let after = after.trim_start();
             let at = after.char_indices().find_map(|(i, c)| {
-                (c == ':')
-                    .then(|| &after[i..])
-                    .filter(|t| {
-                        let d: String = t[1..].chars().take_while(char::is_ascii_digit).collect();
-                        !d.is_empty() && t[1 + d.len()..].starts_with(':')
-                    })
-                    .map(|_| i)
+                (c == ':').then(|| &after[i..]).filter(|t| {
+                    let d: String = t[1..].chars().take_while(char::is_ascii_digit).collect();
+                    !d.is_empty() && t[1 + d.len()..].starts_with(':')
+                }).map(|_| i)
             });
             if let Some(i) = at
                 && let Some(sep) = after[i..].find(": ")
                 && let Some((path, line, col)) = location(&after[..i + sep])
             {
-                push(Finding {
-                    error,
-                    path,
-                    line,
-                    col,
-                    message: after[i + sep + 2..].trim().to_string(),
-                });
+                push(Finding { error, path, line, col, message: after[i + sep + 2..].trim().to_string() });
                 continue;
             }
         }
         if let Some(p) = l.split("panicked at ").nth(1)
             && let Some((path, line, col)) = location(p)
         {
-            let message = lines
-                .get(i + 1)
-                .map_or(String::new(), |m| m.trim().to_string());
-            push(Finding {
-                error: true,
-                path,
-                line,
-                col,
-                message: format!("panicked: {message}")
-                    .trim_end_matches(": ")
-                    .to_string(),
-            });
+            let message = lines.get(i + 1).map_or(String::new(), |m| m.trim().to_string());
+            push(Finding { error: true, path, line, col, message: format!("panicked: {message}").trim_end_matches(": ").to_string() });
         }
     }
     out
@@ -115,10 +92,7 @@ fn fit(s: &str, width: usize) -> String {
     if s.chars().count() <= width {
         s
     } else {
-        format!(
-            "{}…",
-            s.chars().take(width.saturating_sub(1)).collect::<String>()
-        )
+        format!("{}…", s.chars().take(width.saturating_sub(1)).collect::<String>())
     }
 }
 
@@ -130,41 +104,18 @@ pub fn render(findings: &[Finding], root: &Path, width: usize) -> Vec<Line<'stat
     let outer = width.max(36) - 2;
     // The box takes two columns of border and one of air on each side.
     let width = outer - 4;
-    let errors: Vec<u32> = findings
-        .iter()
-        .filter(|f| f.error)
-        .map(|f| f.line)
-        .collect();
+    let errors: Vec<u32> = findings.iter().filter(|f| f.error).map(|f| f.line).collect();
     let all: Vec<u32> = findings.iter().map(|f| f.line).collect();
-    let (kind, lines) = if errors.is_empty() {
-        ("warnings", &all)
-    } else {
-        ("errors", &errors)
-    };
-    let list = lines
-        .iter()
-        .take(8)
-        .map(u32::to_string)
-        .collect::<Vec<_>>()
-        .join(", ");
+    let (kind, lines) = if errors.is_empty() { ("warnings", &all) } else { ("errors", &errors) };
+    let list = lines.iter().take(8).map(u32::to_string).collect::<Vec<_>>().join(", ");
     let header_color = if errors.is_empty() { YELLOW } else { RED };
     let mut out: Vec<Line<'static>> = Vec::new();
     for f in findings.iter().take(MAX_FINDINGS) {
         let color = if f.error { RED } else { YELLOW };
-        out.push(Line::styled(
-            format!("  {}:{}:{}", f.path, f.line, f.col),
-            Style::new().fg(DIM),
-        ));
-        let file = if Path::new(&f.path).is_absolute() {
-            Path::new(&f.path).to_path_buf()
-        } else {
-            root.join(&f.path)
-        };
+        out.push(Line::styled(format!("  {}:{}:{}", f.path, f.line, f.col), Style::new().fg(DIM)));
+        let file = if Path::new(&f.path).is_absolute() { Path::new(&f.path).to_path_buf() } else { root.join(&f.path) };
         let src = std::fs::read_to_string(file).ok();
-        let code: Vec<&str> = src
-            .as_deref()
-            .map(|s| s.lines().collect())
-            .unwrap_or_default();
+        let code: Vec<&str> = src.as_deref().map(|s| s.lines().collect()).unwrap_or_default();
         let at = f.line as usize;
         let gutter = format!("{}", at + 2).len().max(3);
         let room = width.saturating_sub(gutter + 9);
@@ -173,71 +124,34 @@ pub fn render(findings: &[Finding], root: &Path, width: usize) -> Vec<Line<'stat
                 let text = fit(code[n - 1], room);
                 if n == at {
                     out.push(Line::from(vec![
-                        Span::styled(
-                            format!("  ▶ {n:>gutter$} │ "),
-                            Style::new().fg(color).add_modifier(Modifier::BOLD),
-                        ),
-                        Span::styled(
-                            format!("{text:<room$}"),
-                            Style::new().fg(Color::White).bg(RED_BG),
-                        ),
+                        Span::styled(format!("  ▶ {n:>gutter$} │ "), Style::new().fg(color).add_modifier(Modifier::BOLD)),
+                        Span::styled(format!("{text:<room$}"), Style::new().fg(Color::White).bg(RED_BG)),
                     ]));
                     // The arrow under the column, then what is wrong.
-                    let col = (f.col as usize)
-                        .saturating_sub(1)
-                        .min(room.saturating_sub(1));
-                    let col = expand(&code[n - 1].chars().take(col).collect::<String>())
-                        .chars()
-                        .count()
-                        .min(room.saturating_sub(1));
+                    let col = (f.col as usize).saturating_sub(1).min(room.saturating_sub(1));
+                    let col = expand(&code[n - 1].chars().take(col).collect::<String>()).chars().count().min(room.saturating_sub(1));
                     out.push(Line::from(vec![
                         Span::styled(format!("    {:>gutter$} │ ", ""), Style::new().fg(DIM)),
-                        Span::styled(
-                            format!(
-                                "{}^ {}",
-                                " ".repeat(col),
-                                fit(&f.message, room.saturating_sub(col + 2))
-                            ),
-                            Style::new().fg(color).add_modifier(Modifier::BOLD),
-                        ),
+                        Span::styled(format!("{}^ {}", " ".repeat(col), fit(&f.message, room.saturating_sub(col + 2))), Style::new().fg(color).add_modifier(Modifier::BOLD)),
                     ]));
                 } else {
-                    out.push(Line::styled(
-                        format!("    {n:>gutter$} │ {text}"),
-                        Style::new().fg(DIM),
-                    ));
+                    out.push(Line::styled(format!("    {n:>gutter$} │ {text}"), Style::new().fg(DIM)));
                 }
             }
         } else {
             // The file is not there to read: at least the message.
-            out.push(Line::styled(
-                format!("    {}", fit(&f.message, width.saturating_sub(6))),
-                Style::new().fg(color),
-            ));
+            out.push(Line::styled(format!("    {}", fit(&f.message, width.saturating_sub(6))), Style::new().fg(color)));
         }
     }
     if findings.len() > MAX_FINDINGS {
-        out.push(Line::styled(
-            format!("  … and {} more problem(s)", findings.len() - MAX_FINDINGS),
-            Style::new().fg(DIM),
-        ));
+        out.push(Line::styled(format!("  … and {} more problem(s)", findings.len() - MAX_FINDINGS), Style::new().fg(DIM)));
     }
-    boxed(
-        out,
-        outer,
-        header_color,
-        &format!("  {kind} on lines {list}"),
-    )
+    boxed(out, outer, header_color, &format!("  {kind} on lines {list}"))
 }
 
 /// `body` inside a dashed box of the given colour, with the DEBUGGER tag and
 /// `summary` in the top edge, so it reads apart from the conversation.
-fn boxed(
-    body: Vec<Line<'static>>,
-    width: usize,
-    color: Color,
-    summary: &str,
-) -> Vec<Line<'static>> {
+fn boxed(body: Vec<Line<'static>>, width: usize, color: Color, summary: &str) -> Vec<Line<'static>> {
     let edge = Style::new().fg(color);
     let inner = width - 2;
     let tag = " DEBUGGER ";
@@ -247,13 +161,7 @@ fn boxed(
     out.push(Line::from(vec![
         Span::raw("  "),
         Span::styled("┌", edge),
-        Span::styled(
-            tag,
-            Style::new()
-                .fg(Color::Black)
-                .bg(color)
-                .add_modifier(Modifier::BOLD),
-        ),
+        Span::styled(tag, Style::new().fg(Color::Black).bg(color).add_modifier(Modifier::BOLD)),
         Span::styled(summary.to_string(), edge.add_modifier(Modifier::BOLD)),
         Span::styled(format!(" {}┐", "┄".repeat(fill)), edge),
     ]));
@@ -261,10 +169,7 @@ fn boxed(
         let shown: usize = line.spans.iter().map(|s| s.content.chars().count()).sum();
         let mut spans = vec![Span::raw("  "), Span::styled("┆ ", edge)];
         spans.extend(line.spans);
-        spans.push(Span::styled(
-            format!("{} ┆", " ".repeat((inner - 2).saturating_sub(shown))),
-            edge,
-        ));
+        spans.push(Span::styled(format!("{} ┆", " ".repeat((inner - 2).saturating_sub(shown))), edge));
         out.push(Line::from(spans));
     }
     out.push(Line::styled(format!("  └{}┘", "┄".repeat(inner)), edge));

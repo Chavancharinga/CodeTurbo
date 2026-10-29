@@ -6,8 +6,8 @@ pub mod cli;
 pub mod dns;
 mod http;
 pub mod openai;
-mod pricing;
 pub mod reply_stream;
+mod pricing;
 pub mod sse;
 
 pub use pricing::{Price, PriceTable};
@@ -27,25 +27,12 @@ pub enum Role {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ContentBlock {
-    Text {
-        text: String,
-    },
-    ToolUse {
-        id: String,
-        name: String,
-        input: Value,
-    },
-    ToolResult {
-        tool_use_id: String,
-        content: String,
-        is_error: bool,
-    },
+    Text { text: String },
+    ToolUse { id: String, name: String, input: Value },
+    ToolResult { tool_use_id: String, content: String, is_error: bool },
     /// An image the user side shows the model (e.g. a page screenshot),
     /// base64-encoded.
-    Image {
-        media_type: String,
-        data: String,
-    },
+    Image { media_type: String, data: String },
     /// Provider-specific block (thinking, redacted thinking, ...) that must be
     /// echoed back byte-for-byte to the provider that produced it.
     Opaque(Value),
@@ -136,12 +123,7 @@ pub enum Delta {
     /// has streamed in, and the arguments' size so far.
     /// `code` is the end of what is being written (the last lines of the
     /// file's content), so the screen can show the code as it appears.
-    Composing {
-        tool: String,
-        path: Option<String>,
-        chars: usize,
-        code: Option<String>,
-    },
+    Composing { tool: String, path: Option<String>, chars: usize, code: Option<String> },
     /// Something the user should know (a retry after a rate limit).
     Notice(String),
 }
@@ -151,11 +133,7 @@ pub enum Delta {
 pub fn partial_path(json: &str) -> Option<String> {
     let head = &json[..json.len().min(400)];
     let rest = &head[head.find("\"path\"")? + 6..];
-    let rest = rest
-        .trim_start()
-        .strip_prefix(':')?
-        .trim_start()
-        .strip_prefix('"')?;
+    let rest = rest.trim_start().strip_prefix(':')?.trim_start().strip_prefix('"')?;
     let end = rest.find('"')?;
     Some(rest[..end].to_string())
 }
@@ -173,11 +151,7 @@ pub fn partial_code(call: &str) -> Option<String> {
             return Some(rest[..rest.find("</parameter>").unwrap_or(rest.len())].to_string());
         }
         let k = format!("\"{key}\"");
-        let rest = call[call.find(&k)? + k.len()..]
-            .trim_start()
-            .strip_prefix(':')?
-            .trim_start()
-            .strip_prefix('"')?;
+        let rest = call[call.find(&k)? + k.len()..].trim_start().strip_prefix(':')?.trim_start().strip_prefix('"')?;
         let mut out = String::new();
         let mut chars = rest.chars();
         while let Some(c) = chars.next() {
@@ -188,12 +162,7 @@ pub fn partial_code(call: &str) -> Option<String> {
                     Some('r') => {}
                     Some('u') => {
                         let hex: String = chars.by_ref().take(4).collect();
-                        out.push(
-                            u32::from_str_radix(&hex, 16)
-                                .ok()
-                                .and_then(char::from_u32)
-                                .unwrap_or('?'),
-                        );
+                        out.push(u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32).unwrap_or('?'));
                     }
                     Some(other) => out.push(other),
                     None => break,

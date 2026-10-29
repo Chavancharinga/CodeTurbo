@@ -15,9 +15,7 @@ impl Rng {
         let b = &t.brief;
         let seed = format!("{}|{}|{}|{}", b.subject, b.audience, b.tone, b.signature)
             .bytes()
-            .fold(0xcbf2_9ce4_8422_2325u64, |h, c| {
-                (h ^ c as u64).wrapping_mul(0x0100_0000_01b3)
-            });
+            .fold(0xcbf2_9ce4_8422_2325u64, |h, c| (h ^ c as u64).wrapping_mul(0x0100_0000_01b3));
         Rng(seed | 1)
     }
 
@@ -102,11 +100,7 @@ pub fn ornament_svg(t: &Tokens) -> String {
         }
         Tone::Playful => {
             for _ in 0..(9 + rng.below(6)) {
-                let (x, y, s) = (
-                    rng.unit() * 220.0 + 10.0,
-                    rng.unit() * 220.0 + 10.0,
-                    8.0 + rng.unit() * 18.0,
-                );
+                let (x, y, s) = (rng.unit() * 220.0 + 10.0, rng.unit() * 220.0 + 10.0, 8.0 + rng.unit() * 18.0);
                 let rot = rng.below(360);
                 shapes.push_str(&match rng.below(3) {
                     0 => format!("<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{s:.1}\" height=\"{s:.1}\" transform=\"rotate({rot} {x:.1} {y:.1})\"/>", x - s / 2.0, y - s / 2.0),
@@ -134,9 +128,7 @@ pub fn ornament_svg(t: &Tokens) -> String {
             }
         }
     }
-    format!(
-        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 240 240\" fill=\"currentColor\" aria-hidden=\"true\">{shapes}</svg>"
-    )
+    format!("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 240 240\" fill=\"currentColor\" aria-hidden=\"true\">{shapes}</svg>")
 }
 
 /// A section divider in the project's own shape, full width, `currentColor`.
@@ -151,30 +143,17 @@ pub fn divider_svg(t: &Tokens) -> String {
             let mut x = 0;
             while x < 1440 {
                 x += 60 + rng.below(4) * 30;
-                d.push_str(&format!(
-                    " L{} {}",
-                    x.min(1440),
-                    if rng.unit() < 0.5 { 40 } else { 20 }
-                ));
+                d.push_str(&format!(" L{} {}", x.min(1440), if rng.unit() < 0.5 { 40 } else { 20 }));
             }
             d + " L1440 80Z"
         }
-        Tone::Editorial => format!(
-            "M0 80 L0 {} L1440 {} L1440 80Z",
-            50 + rng.below(20),
-            30 + rng.below(20)
-        ),
+        Tone::Editorial => format!("M0 80 L0 {} L1440 {} L1440 80Z", 50 + rng.below(20), 30 + rng.below(20)),
         Tone::Playful => {
             let mut d = String::from("M0 80 L0 50");
             let mut x = 0;
             while x < 1440 {
                 let w = 40 + rng.below(40);
-                d.push_str(&format!(
-                    " L{} {} L{} 50",
-                    x + w / 2,
-                    15 + rng.below(20),
-                    (x + w).min(1440)
-                ));
+                d.push_str(&format!(" L{} {} L{} 50", x + w / 2, 15 + rng.below(20), (x + w).min(1440)));
                 x += w;
             }
             d + " L1440 80Z"
@@ -182,27 +161,17 @@ pub fn divider_svg(t: &Tokens) -> String {
         Tone::Warm | Tone::Balanced => {
             let a = 20.0 + rng.unit() * 30.0;
             let b = 20.0 + rng.unit() * 30.0;
-            format!(
-                "M0 80 L0 {a:.0} C360 {:.0} 1080 {:.0} 1440 {b:.0} L1440 80Z",
-                a - 30.0,
-                b + 30.0
-            )
+            format!("M0 80 L0 {a:.0} C360 {:.0} 1080 {:.0} 1440 {b:.0} L1440 80Z", a - 30.0, b + 30.0)
         }
     };
-    format!(
-        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1440 80\" preserveAspectRatio=\"none\" fill=\"currentColor\" aria-hidden=\"true\"><path d=\"{path}\"/></svg>"
-    )
+    format!("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1440 80\" preserveAspectRatio=\"none\" fill=\"currentColor\" aria-hidden=\"true\"><path d=\"{path}\"/></svg>")
 }
 
 /// Base stylesheet built on the tokens. It already follows every rule the
 /// inspector enforces, so pages start professional instead of fixing later.
 pub fn base_css(t: &Tokens) -> String {
-    format!(
-        "{}
-{}",
-        core_css(t),
-        style_css(t)
-    )
+    format!("{}
+{}", core_css(t), style_css(t))
 }
 
 fn core_css(t: &Tokens) -> String {
@@ -212,11 +181,7 @@ fn core_css(t: &Tokens) -> String {
         Tone::Technical => "0",
         _ => "-0.015em",
     };
-    let button_case = if t.tone == Tone::Technical {
-        "uppercase"
-    } else {
-        "none"
-    };
+    let button_case = if t.tone == Tone::Technical { "uppercase" } else { "none" };
     format!(
         r#"*, *::before, *::after {{ box-sizing: border-box; }}
 html {{ -webkit-text-size-adjust: 100%; }}
@@ -284,9 +249,7 @@ pub fn style_css(t: &Tokens) -> String {
         ));
     }
     if st.uppercase_display() {
-        s.push_str(
-            "h1, h2 { text-transform: uppercase; letter-spacing: -0.01em; line-height: 0.95; }\n",
-        );
+        s.push_str("h1, h2 { text-transform: uppercase; letter-spacing: -0.01em; line-height: 0.95; }\n");
     }
     match st {
         crate::style::Style::Swiss => s.push_str(".section > h2, .section > .container > h2 { border-top: 4px solid var(--color-ink); padding-top: var(--space-4); }\n"),

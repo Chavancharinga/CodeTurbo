@@ -33,132 +33,42 @@ pub struct CommandInfo {
 }
 
 pub const COMMANDS: [CommandInfo; 21] = [
-    CommandInfo {
-        name: "/provider",
-        aliases: &[],
-        about: "choose the model provider",
-        cmd: Command::Provider,
-    },
+    CommandInfo { name: "/provider", aliases: &[], about: "choose the model provider", cmd: Command::Provider },
     CommandInfo {
         name: "/model",
         aliases: &["/models"],
         about: "choose the model",
         cmd: Command::Model,
     },
-    CommandInfo {
-        name: "/key",
-        aliases: &[],
-        about: "set the provider API key",
-        cmd: Command::Key,
-    },
+    CommandInfo { name: "/key", aliases: &[], about: "set the provider API key", cmd: Command::Key },
     CommandInfo {
         name: "/approval",
         aliases: &[],
         about: "choose when to ask before acting",
         cmd: Command::Approval,
     },
-    CommandInfo {
-        name: "/effort",
-        aliases: &[],
-        about: "set how hard the model thinks (low to max)",
-        cmd: Command::Effort,
-    },
-    CommandInfo {
-        name: "/devices",
-        aliases: &["/tv"],
-        about: "find the devices on your network and control them",
-        cmd: Command::Devices,
-    },
-    CommandInfo {
-        name: "/sense",
-        aliases: &["/wifi"],
-        about: "sense movement and breathing through WiFi, full screen (x closes)",
-        cmd: Command::Sense,
-    },
-    CommandInfo {
-        name: "/mcp",
-        aliases: &[],
-        about: "external tool servers (MCP) and their tools",
-        cmd: Command::Mcp,
-    },
-    CommandInfo {
-        name: "/review",
-        aliases: &[],
-        about: "review the changes with several agents in parallel",
-        cmd: Command::Review,
-    },
-    CommandInfo {
-        name: "/plan",
-        aliases: &[],
-        about: "turn plan mode on or off",
-        cmd: Command::Plan,
-    },
-    CommandInfo {
-        name: "/usage",
-        aliases: &[],
-        about: "tokens and cost of the session",
-        cmd: Command::Usage,
-    },
-    CommandInfo {
-        name: "/undo",
-        aliases: &[],
-        about: "undo the changes of the last task",
-        cmd: Command::Undo,
-    },
-    CommandInfo {
-        name: "/rule",
-        aliases: &[],
-        about: "pin a rule the model must always follow",
-        cmd: Command::Rule,
-    },
-    CommandInfo {
-        name: "/retry",
-        aliases: &[],
-        about: "run the last task again",
-        cmd: Command::Retry,
-    },
-    CommandInfo {
-        name: "/copy",
-        aliases: &[],
-        about: "copy the last answer",
-        cmd: Command::Copy,
-    },
-    CommandInfo {
-        name: "/export",
-        aliases: &[],
-        about: "save the conversation as Markdown",
-        cmd: Command::Export,
-    },
-    CommandInfo {
-        name: "/compact",
-        aliases: &["/shake"],
-        about: "shrink old results and free context",
-        cmd: Command::Shake,
-    },
+    CommandInfo { name: "/effort", aliases: &[], about: "set how hard the model thinks (low to max)", cmd: Command::Effort },
+    CommandInfo { name: "/devices", aliases: &["/tv"], about: "find the devices on your network and control them", cmd: Command::Devices },
+    CommandInfo { name: "/sense", aliases: &["/wifi"], about: "sense movement and breathing through WiFi, full screen (x closes)", cmd: Command::Sense },
+    CommandInfo { name: "/mcp", aliases: &[], about: "external tool servers (MCP) and their tools", cmd: Command::Mcp },
+    CommandInfo { name: "/review", aliases: &[], about: "review the changes with several agents in parallel", cmd: Command::Review },
+    CommandInfo { name: "/plan", aliases: &[], about: "turn plan mode on or off", cmd: Command::Plan },
+    CommandInfo { name: "/usage", aliases: &[], about: "tokens and cost of the session", cmd: Command::Usage },
+    CommandInfo { name: "/undo", aliases: &[], about: "undo the changes of the last task", cmd: Command::Undo },
+    CommandInfo { name: "/rule", aliases: &[], about: "pin a rule the model must always follow", cmd: Command::Rule },
+    CommandInfo { name: "/retry", aliases: &[], about: "run the last task again", cmd: Command::Retry },
+    CommandInfo { name: "/copy", aliases: &[], about: "copy the last answer", cmd: Command::Copy },
+    CommandInfo { name: "/export", aliases: &[], about: "save the conversation as Markdown", cmd: Command::Export },
+    CommandInfo { name: "/compact", aliases: &["/shake"], about: "shrink old results and free context", cmd: Command::Shake },
     CommandInfo {
         name: "/clear",
         aliases: &["/new"],
         about: "start a new conversation",
         cmd: Command::Clear,
     },
-    CommandInfo {
-        name: "/update",
-        aliases: &[],
-        about: "update CodeTurbo",
-        cmd: Command::Update,
-    },
-    CommandInfo {
-        name: "/help",
-        aliases: &[],
-        about: "list the commands and shortcuts",
-        cmd: Command::Help,
-    },
-    CommandInfo {
-        name: "/exit",
-        aliases: &["/quit"],
-        about: "quit CodeTurbo",
-        cmd: Command::Exit,
-    },
+    CommandInfo { name: "/update", aliases: &[], about: "update CodeTurbo", cmd: Command::Update },
+    CommandInfo { name: "/help", aliases: &[], about: "list the commands and shortcuts", cmd: Command::Help },
+    CommandInfo { name: "/exit", aliases: &["/quit"], about: "quit CodeTurbo", cmd: Command::Exit },
 ];
 
 /// What a submitted line is.
@@ -181,10 +91,7 @@ pub fn parse(line: &str) -> Parsed {
         return Parsed::Task;
     }
     let w = word.to_lowercase();
-    match COMMANDS
-        .iter()
-        .find(|c| c.name == w || c.aliases.contains(&w.as_str()))
-    {
+    match COMMANDS.iter().find(|c| c.name == w || c.aliases.contains(&w.as_str())) {
         Some(c) => Parsed::Command(c.cmd, rest.trim().to_string()),
         None => Parsed::Unknown(w),
     }
@@ -196,8 +103,5 @@ pub fn suggestions(typed: &str) -> Vec<&'static CommandInfo> {
         return Vec::new();
     }
     let t = typed.to_lowercase();
-    COMMANDS
-        .iter()
-        .filter(|c| c.name.starts_with(&t) || c.aliases.iter().any(|a| a.starts_with(&t)))
-        .collect()
+    COMMANDS.iter().filter(|c| c.name.starts_with(&t) || c.aliases.iter().any(|a| a.starts_with(&t))).collect()
 }

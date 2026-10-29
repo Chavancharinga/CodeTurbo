@@ -60,11 +60,7 @@ async fn working_browser() -> Option<std::path::PathBuf> {
 async fn browse(root: &Path, actions: Vec<Action>) -> Option<(coturbo_browse::Report, Vec<Frame>)> {
     let browser = working_browser().await?;
     let mut frames = Vec::new();
-    let report = run(&browser, root, &actions, (1000, 650), &mut |f| {
-        frames.push(f)
-    })
-    .await
-    .expect("the session runs");
+    let report = run(&browser, root, &actions, (1000, 650), &mut |f| frames.push(f)).await.expect("the session runs");
     Some((report, frames))
 }
 
@@ -88,36 +84,17 @@ fn actions_are_read_from_json() {
     let a = Action::parse_all(&list).unwrap();
     assert_eq!(a[2], Action::Click(Target::Text("Sobre".into())));
     assert_eq!(a[3], Action::Click(Target::Ref("@e7".into())));
-    assert_eq!(
-        a[4],
-        Action::Fill(Target::Selector("#nome".into()), "Maria".into())
-    );
-    assert_eq!(
-        a[5],
-        Action::Fill(Target::Text("Seu nome".into()), "Ana".into())
-    );
+    assert_eq!(a[4], Action::Fill(Target::Selector("#nome".into()), "Maria".into()));
+    assert_eq!(a[5], Action::Fill(Target::Text("Seu nome".into()), "Ana".into()));
     assert_eq!(a[8], Action::Text(None));
     assert_eq!(a[9], Action::Text(Some(Target::Selector("#out".into()))));
     assert_eq!(a[10], Action::Viewport(390, 844));
     assert_eq!(a[12], Action::Wait(10_000), "a wait is capped");
-    for (bad, why) in [
-        (json!([]), "at least one"),
-        (json!([{"do": "click"}]), "target"),
-        (json!([{"do": "voar"}]), "unknown"),
-        (json!([{"do": "fill", "selector": "#a"}]), "value"),
-        (json!([{"x": 1}]), "do"),
-    ] {
+    for (bad, why) in [(json!([]), "at least one"), (json!([{"do": "click"}]), "target"), (json!([{"do": "voar"}]), "unknown"), (json!([{"do": "fill", "selector": "#a"}]), "value"), (json!([{"x": 1}]), "do")] {
         let e = Action::parse_all(&bad).unwrap_err();
         assert!(e.contains(why), "{bad}: {e}");
     }
-    assert!(
-        Action::parse_all(&json!(
-            (0..41)
-                .map(|_| json!({"do": "snapshot"}))
-                .collect::<Vec<_>>()
-        ))
-        .is_err()
-    );
+    assert!(Action::parse_all(&json!((0..41).map(|_| json!({"do": "snapshot"})).collect::<Vec<_>>())).is_err());
 }
 
 #[tokio::test]
@@ -137,112 +114,47 @@ async fn it_navigates_the_menu_fills_the_form_and_sees_what_is_wrong() {
         Action::Click(Target::Text("não existe esse botão".into())),
         Action::Snapshot,
     ];
-    let Some((r, frames)) = browse(dir.path(), actions).await else {
-        return;
-    };
+    let Some((r, frames)) = browse(dir.path(), actions).await else { return };
     let log = r.log.join("\n");
     // It opened the page and listed the menu with references.
-    assert!(
-        log.contains("opened file:///") && log.contains("Loja da Ana"),
-        "{log}"
-    );
-    assert!(
-        log.contains("link \"Sobre\" → about.html") && log.contains("link \"Contato\" → #contato"),
-        "{log}"
-    );
-    assert!(
-        log.contains("input \"Seu nome\"") || log.contains("Seu nome"),
-        "{log}"
-    );
+    assert!(log.contains("opened file:///") && log.contains("Loja da Ana"), "{log}");
+    assert!(log.contains("link \"Sobre\" → about.html") && log.contains("link \"Contato\" → #contato"), "{log}");
+    assert!(log.contains("input \"Seu nome\"") || log.contains("Seu nome"), "{log}");
     // The menu works: it went to the other page, read it, and came back.
-    assert!(
-        log.contains("clicked \"Sobre\" → file:///")
-            && log.contains("about.html")
-            && log.contains("Sobre nós"),
-        "{log}"
-    );
+    assert!(log.contains("clicked \"Sobre\" → file:///") && log.contains("about.html") && log.contains("Sobre nós"), "{log}");
     assert!(log.contains("Uma loja pequena."), "{log}");
-    assert!(
-        log.contains("went back to file:///") && log.contains("index.html"),
-        "{log}"
-    );
+    assert!(log.contains("went back to file:///") && log.contains("index.html"), "{log}");
     // A button and a form behave.
     assert!(log.contains("clicked \"Comprar\""), "{log}");
     assert!(log.contains("filled #nome with \"Maria\""), "{log}");
     assert!(log.contains("Olá, Maria"), "{log}");
     // What a person would notice.
     let problems = r.problems.join("\n");
-    assert!(
-        problems.contains("console.error: falhou ao carregar o carrinho"),
-        "{problems}"
-    );
+    assert!(problems.contains("console.error: falhou ao carregar o carrinho"), "{problems}");
     assert!(problems.contains("nao-existe.png"), "{problems}");
-    assert!(
-        problems.contains("\"Newsletter\" lands on <div#banner>"),
-        "the cookie banner sits on the button: {problems}"
-    );
+    assert!(problems.contains("\"Newsletter\" lands on <div#banner>"), "the cookie banner sits on the button: {problems}");
     // A button that is not there ends the session with the reason.
-    assert!(
-        log.contains("ERROR: could not find {\"text\":\"não existe esse botão\"} on the page"),
-        "{log}"
-    );
-    assert!(
-        !log.contains("\n12."),
-        "nothing runs after the failure: {log}"
-    );
+    assert!(log.contains("ERROR: could not find {\"text\":\"não existe esse botão\"} on the page"), "{log}");
+    assert!(!log.contains("\n12."), "nothing runs after the failure: {log}");
     // The mini window gets a picture after every step, with the pointer.
     assert!(frames.len() >= 10, "{} frames", frames.len());
-    assert!(
-        frames
-            .iter()
-            .all(|f| f.png.starts_with(&[0x89, b'P', b'N', b'G']) && f.size == (1000, 650))
-    );
+    assert!(frames.iter().all(|f| f.png.starts_with(&[0x89, b'P', b'N', b'G']) && f.size == (1000, 650)));
     let clicks: Vec<&Frame> = frames.iter().filter(|f| f.clicked).collect();
-    assert!(
-        clicks.len() >= 3 && clicks.iter().all(|f| f.cursor.is_some()),
-        "pointer on every click"
-    );
-    let moving: Vec<&Frame> = frames
-        .iter()
-        .filter(|f| !f.clicked && f.cursor.is_some() && f.caption.starts_with("clicking"))
-        .collect();
-    assert!(
-        !moving.is_empty(),
-        "the pointer is shown arriving before it clicks"
-    );
-    let sobre = frames
-        .iter()
-        .find(|f| f.caption.contains("Sobre") && f.clicked)
-        .unwrap();
-    assert!(
-        sobre.url.ends_with("about.html") && sobre.title == "Sobre nós",
-        "{}",
-        sobre.url
-    );
+    assert!(clicks.len() >= 3 && clicks.iter().all(|f| f.cursor.is_some()), "pointer on every click");
+    let moving: Vec<&Frame> = frames.iter().filter(|f| !f.clicked && f.cursor.is_some() && f.caption.starts_with("clicking")).collect();
+    assert!(!moving.is_empty(), "the pointer is shown arriving before it clicks");
+    let sobre = frames.iter().find(|f| f.caption.contains("Sobre") && f.clicked).unwrap();
+    assert!(sobre.url.ends_with("about.html") && sobre.title == "Sobre nós", "{}", sobre.url);
     // The last state is handed back as a photo.
-    assert!(
-        r.shots
-            .last()
-            .is_some_and(|p| p.starts_with(&[0x89, b'P', b'N', b'G']))
-    );
+    assert!(r.shots.last().is_some_and(|p| p.starts_with(&[0x89, b'P', b'N', b'G'])));
 }
 
 #[tokio::test]
 async fn it_uses_references_scrolls_and_resizes_for_a_phone() {
     let dir = site();
-    let Some((r, _)) = browse(
-        dir.path(),
-        vec![Action::Open("index.html".into()), Action::Snapshot],
-    )
-    .await
-    else {
-        return;
-    };
+    let Some((r, _)) = browse(dir.path(), vec![Action::Open("index.html".into()), Action::Snapshot]).await else { return };
     let log = r.log.join("\n");
-    let line = log
-        .lines()
-        .find(|l| l.contains("link \"Contato\""))
-        .expect("the menu is listed");
+    let line = log.lines().find(|l| l.contains("link \"Contato\"")).expect("the menu is listed");
     let reference = line.split_whitespace().next().unwrap().to_string();
     assert!(reference.starts_with("@e"), "{line}");
     let actions = vec![
@@ -260,107 +172,33 @@ async fn it_uses_references_scrolls_and_resizes_for_a_phone() {
     assert!(log.contains("clicked \"Contato\""), "{log}");
     assert!(log.contains("scrolled to"), "{log}");
     assert!(log.contains("pressed Tab"), "{log}");
-    assert!(
-        frames.iter().any(|f| f.size == (390, 844)),
-        "the phone frames carry their size"
-    );
-    assert_eq!(
-        r.shots.len(),
-        1,
-        "the photo asked for is the last state, so the same picture is not kept twice"
-    );
+    assert!(frames.iter().any(|f| f.size == (390, 844)), "the phone frames carry their size");
+    assert_eq!(r.shots.len(), 1, "the photo asked for is the last state, so the same picture is not kept twice");
 }
 
 #[tokio::test]
 async fn the_browser_stays_open_between_calls_with_the_page_as_it_was() {
     let dir = site();
-    let Some(path) = working_browser().await else {
-        return;
-    };
-    let mut browser = coturbo_browse::Browser::open(&path, (1000, 650))
-        .await
-        .expect("opens");
+    let Some(path) = working_browser().await else { return };
+    let mut browser = coturbo_browse::Browser::open(&path, (1000, 650)).await.expect("opens");
     let mut frames = Vec::new();
     // First call: open the page and fill the form, without sending it.
-    let first = browser
-        .run(
-            dir.path(),
-            &[
-                Action::Open("index.html".into()),
-                Action::Fill(Target::Selector("#nome".into()), "Joana".into()),
-            ],
-            &mut |f| frames.push(f),
-        )
-        .await
-        .unwrap();
-    assert!(
-        first.log.join("\n").contains("filled #nome with \"Joana\""),
-        "{:?}",
-        first.log
-    );
+    let first = browser.run(dir.path(), &[Action::Open("index.html".into()), Action::Fill(Target::Selector("#nome".into()), "Joana".into())], &mut |f| frames.push(f)).await.unwrap();
+    assert!(first.log.join("\n").contains("filled #nome with \"Joana\""), "{:?}", first.log);
     // Second call, no open: the page is still there with what was typed, so sending works.
-    let second = browser
-        .run(
-            dir.path(),
-            &[
-                Action::Click(Target::Text("Enviar".into())),
-                Action::Text(Some(Target::Selector("#out".into()))),
-            ],
-            &mut |f| frames.push(f),
-        )
-        .await
-        .unwrap();
+    let second = browser.run(dir.path(), &[Action::Click(Target::Text("Enviar".into())), Action::Text(Some(Target::Selector("#out".into())))], &mut |f| frames.push(f)).await.unwrap();
     let log = second.log.join("\n");
-    assert!(
-        log.contains("clicked \"Enviar\"") && log.contains("Olá, Joana"),
-        "the second call continued the first: {log}"
-    );
+    assert!(log.contains("clicked \"Enviar\"") && log.contains("Olá, Joana"), "the second call continued the first: {log}");
     // And a third call sees the scroll and the page, not a blank one.
-    let third = browser
-        .run(
-            dir.path(),
-            &[Action::Scroll(300), Action::Snapshot],
-            &mut |f| frames.push(f),
-        )
-        .await
-        .unwrap();
+    let third = browser.run(dir.path(), &[Action::Scroll(300), Action::Snapshot], &mut |f| frames.push(f)).await.unwrap();
     let log = third.log.join("\n");
-    assert!(
-        log.contains("scrolled to")
-            && log.contains("Loja da Ana")
-            && log.contains("link \"Sobre\""),
-        "{log}"
-    );
+    assert!(log.contains("scrolled to") && log.contains("Loja da Ana") && log.contains("link \"Sobre\""), "{log}");
     // Findings are per call: the console error of the page load is reported once, not again.
-    assert!(
-        first
-            .problems
-            .iter()
-            .any(|p| p.contains("falhou ao carregar o carrinho")),
-        "{:?}",
-        first.problems
-    );
-    assert!(
-        !second
-            .problems
-            .iter()
-            .any(|p| p.contains("falhou ao carregar o carrinho")),
-        "{:?}",
-        second.problems
-    );
+    assert!(first.problems.iter().any(|p| p.contains("falhou ao carregar o carrinho")), "{:?}", first.problems);
+    assert!(!second.problems.iter().any(|p| p.contains("falhou ao carregar o carrinho")), "{:?}", second.problems);
     // The pictures of every call carry the texts of the page.
-    assert!(
-        frames.iter().any(|f| f
-            .labels
-            .iter()
-            .any(|l| l.text == "Bem-vinda" && l.kind == "h1")),
-        "the headline is among the labels"
-    );
-    assert!(frames.iter().any(|f| {
-        f.labels
-            .iter()
-            .any(|l| l.text == "Comprar" && l.kind == "button" && l.w > 20.0 && l.y > 0.0)
-    }));
+    assert!(frames.iter().any(|f| f.labels.iter().any(|l| l.text == "Bem-vinda" && l.kind == "h1")), "the headline is among the labels");
+    assert!(frames.iter().any(|f| f.labels.iter().any(|l| l.text == "Comprar" && l.kind == "button" && l.w > 20.0 && l.y > 0.0)));
     browser.close().await;
 }
 
@@ -372,22 +210,9 @@ async fn pages_are_shown_without_their_scrollbars() {
         "<!doctype html><title>Tall</title><div style=\"height:3000px\">long page</div><p id=w></p><script>document.getElementById('w').textContent='bar:'+(innerWidth-document.documentElement.clientWidth)</script>",
     )
     .unwrap();
-    let Some((r, _)) = browse(
-        dir.path(),
-        vec![
-            Action::Open("tall.html".into()),
-            Action::Text(Some(Target::Selector("#w".into()))),
-        ],
-    )
-    .await
-    else {
-        return;
-    };
+    let Some((r, _)) = browse(dir.path(), vec![Action::Open("tall.html".into()), Action::Text(Some(Target::Selector("#w".into())))]).await else { return };
     let log = r.log.join("\n");
-    assert!(
-        log.contains("bar:0"),
-        "a scrollbar would take width from the page: {log}"
-    );
+    assert!(log.contains("bar:0"), "a scrollbar would take width from the page: {log}");
 }
 
 /// The page's console and requests can be read, like in the browser's tools.
@@ -399,26 +224,8 @@ async fn the_console_and_the_requests_are_read() {
         r#"<!doctype html><html><body><p>hi</p><script>console.log("started", 3); console.warn("slow cart"); fetch("missing.json").catch(()=>{});</script></body></html>"#,
     )
     .unwrap();
-    let Some((report, _)) = browse(
-        dir.path(),
-        vec![
-            Action::Open("logs.html".into()),
-            Action::Wait(400),
-            Action::Console,
-            Action::Network,
-        ],
-    )
-    .await
-    else {
-        return;
-    };
+    let Some((report, _)) = browse(dir.path(), vec![Action::Open("logs.html".into()), Action::Wait(400), Action::Console, Action::Network]).await else { return };
     let log = report.log.join("\n");
-    assert!(
-        log.contains("[log] started 3") && log.contains("[warning] slow cart"),
-        "{log}"
-    );
-    assert!(
-        log.contains("GET file://") && log.contains("missing.json"),
-        "{log}"
-    );
+    assert!(log.contains("[log] started 3") && log.contains("[warning] slow cart"), "{log}");
+    assert!(log.contains("GET file://") && log.contains("missing.json"), "{log}");
 }

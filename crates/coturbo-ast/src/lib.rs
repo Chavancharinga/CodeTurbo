@@ -34,11 +34,7 @@ fn range_of(node: &impl AstNode) -> Range<usize> {
 }
 
 fn join(prefix: &str, name: &str) -> String {
-    if prefix.is_empty() {
-        name.to_string()
-    } else {
-        format!("{prefix}::{name}")
-    }
+    if prefix.is_empty() { name.to_string() } else { format!("{prefix}::{name}") }
 }
 
 /// Name of the type an `impl` block targets, without generics (`Foo<T>` -> `Foo`).
@@ -58,11 +54,7 @@ fn collect_assoc(list: Option<ast::AssocItemList>, prefix: &str, out: &mut Vec<S
             ast::AssocItem::MacroCall(_) => continue,
         };
         if let Some(name) = name {
-            out.push(Symbol {
-                path: join(prefix, &name.text()),
-                kind,
-                range: range_of(&item),
-            });
+            out.push(Symbol { path: join(prefix, &name.text()), kind, range: range_of(&item) });
         }
     }
 }
@@ -71,11 +63,7 @@ fn collect_items(items: impl Iterator<Item = ast::Item>, prefix: &str, out: &mut
     for item in items {
         let named = |n: Option<ast::Name>, kind: &'static str, out: &mut Vec<Symbol>| {
             if let Some(n) = n {
-                out.push(Symbol {
-                    path: join(prefix, &n.text()),
-                    kind,
-                    range: range_of(&item),
-                });
+                out.push(Symbol { path: join(prefix, &n.text()), kind, range: range_of(&item) });
             }
         };
         match &item {
@@ -167,13 +155,7 @@ fn reindent(code: &str, indent: &str) -> String {
     let code = code.trim_matches('\n');
     code.lines()
         .enumerate()
-        .map(|(i, l)| {
-            if i == 0 || l.is_empty() {
-                l.to_string()
-            } else {
-                format!("{indent}{l}")
-            }
-        })
+        .map(|(i, l)| if i == 0 || l.is_empty() { l.to_string() } else { format!("{indent}{l}") })
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -182,11 +164,7 @@ fn checked(original: &str, edited: String) -> Result<String, AstError> {
     let before = parse(original).errors().len();
     let errors = parse(&edited).errors();
     if errors.len() > before {
-        let msg = errors
-            .iter()
-            .map(|e| e.to_string())
-            .collect::<Vec<_>>()
-            .join("; ");
+        let msg = errors.iter().map(|e| e.to_string()).collect::<Vec<_>>().join("; ");
         return Err(AstError::InvalidEdit(msg));
     }
     Ok(edited)
@@ -196,12 +174,7 @@ fn checked(original: &str, edited: String) -> Result<String, AstError> {
 pub fn replace_symbol(src: &str, path: &str, new_code: &str) -> Result<String, AstError> {
     let sym = find(src, path)?;
     let code = reindent(new_code, indent_at(src, sym.range.start));
-    let edited = format!(
-        "{}{}{}",
-        &src[..sym.range.start],
-        code,
-        &src[sym.range.end..]
-    );
+    let edited = format!("{}{}{}", &src[..sym.range.start], code, &src[sym.range.end..]);
     checked(src, edited)
 }
 
@@ -210,10 +183,6 @@ pub fn insert_symbol(src: &str, after_path: &str, code: &str) -> Result<String, 
     let sym = find(src, after_path)?;
     let indent = indent_at(src, sym.range.start);
     let code = reindent(code, indent);
-    let edited = format!(
-        "{}\n\n{indent}{code}{}",
-        &src[..sym.range.end],
-        &src[sym.range.end..]
-    );
+    let edited = format!("{}\n\n{indent}{code}{}", &src[..sym.range.end], &src[sym.range.end..]);
     checked(src, edited)
 }

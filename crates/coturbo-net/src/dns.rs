@@ -68,10 +68,7 @@ fn parse(msg: &[u8]) -> Option<Vec<Record>> {
         let body = msg.get(start..start + len)?;
         let data = match kind {
             PTR => Data::Ptr(read_name(msg, start)?.0),
-            SRV if len >= 6 => Data::Srv {
-                port: u16::from_be_bytes([body[4], body[5]]),
-                target: read_name(msg, start + 6)?.0,
-            },
+            SRV if len >= 6 => Data::Srv { port: u16::from_be_bytes([body[4], body[5]]), target: read_name(msg, start + 6)?.0 },
             TXT => {
                 let mut items = Vec::new();
                 let mut i = 0;
@@ -150,18 +147,9 @@ mod tests {
         name(&mut m, "tv.local");
         m.extend_from_slice(&[0, 1, 0x80, 1, 0, 0, 0, 120, 0, 4, 192, 168, 1, 20]);
         let r = records(&m);
-        assert_eq!(
-            r[0].data,
-            Data::Ptr("Living-Room._googlecast._tcp.local".into())
-        );
+        assert_eq!(r[0].data, Data::Ptr("Living-Room._googlecast._tcp.local".into()));
         assert_eq!(r[1].name, "Living-Room._googlecast._tcp.local");
-        assert_eq!(
-            r[1].data,
-            Data::Srv {
-                port: 8009,
-                target: "tv.local".into()
-            }
-        );
+        assert_eq!(r[1].data, Data::Srv { port: 8009, target: "tv.local".into() });
         assert_eq!(r[2].data, Data::A(Ipv4Addr::new(192, 168, 1, 20)));
     }
 

@@ -36,28 +36,13 @@ async fn diagnostics_ride_along_with_each_edit() {
     fs::write(dir.path().join("src/a.ts"), "let x = 1 // BAD\nWARN here\n").unwrap();
     let n = lsp.after_write("src/a.ts").await;
     assert!(!n.formatted);
-    assert!(
-        n.text.starts_with("lsp src/a.ts: 1 error(s), 1 warning(s)"),
-        "{}",
-        n.text
-    );
-    assert!(
-        n.text
-            .contains("error[fake-bad] src/a.ts:1:14: found BAD\n    let x = 1 // BAD"),
-        "{}",
-        n.text
-    );
-    assert!(
-        !n.text.contains("second line"),
-        "only the first message line is kept"
-    );
+    assert!(n.text.starts_with("lsp src/a.ts: 1 error(s), 1 warning(s)"), "{}", n.text);
+    assert!(n.text.contains("error[fake-bad] src/a.ts:1:14: found BAD\n    let x = 1 // BAD"), "{}", n.text);
+    assert!(!n.text.contains("second line"), "only the first message line is kept");
 
     // Same document, new version: the stale publish must not be reused.
     fs::write(dir.path().join("src/a.ts"), "let x = 1\n").unwrap();
-    assert_eq!(
-        lsp.after_write("src/a.ts").await.text,
-        "lsp src/a.ts: clean"
-    );
+    assert_eq!(lsp.after_write("src/a.ts").await.text, "lsp src/a.ts: clean");
     // Files the server does not handle are left alone.
     fs::write(dir.path().join("notes.md"), "BAD").unwrap();
     assert_eq!(lsp.after_write("notes.md").await.text, "");
@@ -70,10 +55,7 @@ async fn format_on_write_rewrites_the_file() {
     fs::write(dir.path().join("src/a.ts"), "if (x) {\n\treturn 1\n}\n").unwrap();
     let n = lsp.after_write("src/a.ts").await;
     assert!(n.formatted);
-    assert_eq!(
-        fs::read_to_string(dir.path().join("src/a.ts")).unwrap(),
-        "if (x) {\n    return 1\n}\n"
-    );
+    assert_eq!(fs::read_to_string(dir.path().join("src/a.ts")).unwrap(), "if (x) {\n    return 1\n}\n");
     assert!(n.text.ends_with("clean"), "{}", n.text);
 }
 
@@ -97,21 +79,13 @@ async fn slow_servers_deliver_late_and_unversioned_ones_settle() {
         }
     }
     assert_eq!(late.len(), 1);
-    assert!(
-        late[0].starts_with("[late] lsp src/a.ts: 1 error(s)"),
-        "{late:?}"
-    );
+    assert!(late[0].starts_with("[late] lsp src/a.ts: 1 error(s)"), "{late:?}");
     assert!(lsp.drain_late().is_empty(), "drained once");
 
     let dir = project();
     let lsp = LspManager::new(dir.path(), cfg(FAKE, &["unversioned"]));
     fs::write(dir.path().join("src/a.ts"), "WARN\n").unwrap();
-    assert!(
-        lsp.after_write("src/a.ts")
-            .await
-            .text
-            .contains("0 error(s), 1 warning(s)")
-    );
+    assert!(lsp.after_write("src/a.ts").await.text.contains("0 error(s), 1 warning(s)"));
 }
 
 #[tokio::test]
@@ -122,30 +96,14 @@ async fn crashing_or_missing_servers_never_block_edits() {
     let t = std::time::Instant::now();
     let first = lsp.after_write("src/a.ts").await;
     let second = lsp.after_write("src/a.ts").await;
-    assert!(
-        t.elapsed() < Duration::from_secs(5),
-        "took {:?}",
-        t.elapsed()
-    );
-    assert!(
-        first.text.contains("pending") || first.text.is_empty(),
-        "{}",
-        first.text
-    );
-    assert!(
-        second.text.contains("pending") || second.text.is_empty(),
-        "{}",
-        second.text
-    );
+    assert!(t.elapsed() < Duration::from_secs(5), "took {:?}", t.elapsed());
+    assert!(first.text.contains("pending") || first.text.is_empty(), "{}", first.text);
+    assert!(second.text.contains("pending") || second.text.is_empty(), "{}", second.text);
 
     let lsp = LspManager::new(dir.path(), cfg("definitely-not-a-language-server", &[]));
     let n = lsp.after_write("src/a.ts").await;
     assert!(n.text.starts_with("[lsp] fake not available"), "{}", n.text);
-    assert_eq!(
-        lsp.after_write("src/a.ts").await.text,
-        "",
-        "reported only once"
-    );
+    assert_eq!(lsp.after_write("src/a.ts").await.text, "", "reported only once");
 }
 
 #[test]
@@ -167,9 +125,6 @@ fn uris_round_trip_to_comparable_keys() {
     assert!(uri.starts_with("file:///") && uri.contains("%20"), "{uri}");
     assert_eq!(uri_key(&uri), uri_key(&p.to_string_lossy()));
     if cfg!(windows) {
-        assert_eq!(
-            uri_key("file:///c%3A/Users/X/a.ts"),
-            uri_key("C:\\Users\\X\\a.ts")
-        );
+        assert_eq!(uri_key("file:///c%3A/Users/X/a.ts"), uri_key("C:\\Users\\X\\a.ts"));
     }
 }

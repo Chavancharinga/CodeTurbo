@@ -15,99 +15,24 @@ pub struct ProviderInfo {
     pub base_url: Option<&'static str>,
 }
 
-const fn p(
-    id: &'static str,
-    label: &'static str,
-    key_var: Option<&'static str>,
-    base_url: Option<&'static str>,
-) -> ProviderInfo {
-    ProviderInfo {
-        id,
-        label,
-        key_var,
-        base_url,
-    }
+const fn p(id: &'static str, label: &'static str, key_var: Option<&'static str>, base_url: Option<&'static str>) -> ProviderInfo {
+    ProviderInfo { id, label, key_var, base_url }
 }
 
 pub const PROVIDERS: &[ProviderInfo] = &[
-    p(
-        "claude-code",
-        "Claude Code (your Claude plan, through the official app)",
-        None,
-        None,
-    ),
-    p(
-        "codex",
-        "Codex (your ChatGPT plan, through the official app)",
-        None,
-        None,
-    ),
-    p(
-        "antigravity",
-        "Antigravity (your Google plan, through the agy CLI)",
-        None,
-        None,
-    ),
-    p(
-        "anthropic",
-        "Anthropic (Claude)",
-        Some("ANTHROPIC_API_KEY"),
-        None,
-    ),
-    p(
-        "openai",
-        "OpenAI (or any compatible server, with base_url)",
-        Some("OPENAI_API_KEY"),
-        None,
-    ),
-    p(
-        "gemini",
-        "Google Gemini (AI Studio)",
-        Some("GEMINI_API_KEY"),
-        Some("https://generativelanguage.googleapis.com/v1beta/openai"),
-    ),
-    p(
-        "openrouter",
-        "OpenRouter (hundreds of models, several free)",
-        Some("OPENROUTER_API_KEY"),
-        Some("https://openrouter.ai/api/v1"),
-    ),
-    p(
-        "groq",
-        "Groq (very fast)",
-        Some("GROQ_API_KEY"),
-        Some("https://api.groq.com/openai/v1"),
-    ),
-    p(
-        "deepseek",
-        "DeepSeek",
-        Some("DEEPSEEK_API_KEY"),
-        Some("https://api.deepseek.com/v1"),
-    ),
-    p(
-        "mistral",
-        "Mistral",
-        Some("MISTRAL_API_KEY"),
-        Some("https://api.mistral.ai/v1"),
-    ),
-    p(
-        "xai",
-        "xAI (Grok)",
-        Some("XAI_API_KEY"),
-        Some("https://api.x.ai/v1"),
-    ),
-    p(
-        "together",
-        "Together AI",
-        Some("TOGETHER_API_KEY"),
-        Some("https://api.together.xyz/v1"),
-    ),
-    p(
-        "lmstudio",
-        "LM Studio (local models, no key)",
-        None,
-        Some("http://localhost:1234/v1"),
-    ),
+    p("claude-code", "Claude Code (your Claude plan, through the official app)", None, None),
+    p("codex", "Codex (your ChatGPT plan, through the official app)", None, None),
+    p("antigravity", "Antigravity (your Google plan, through the agy CLI)", None, None),
+    p("anthropic", "Anthropic (Claude)", Some("ANTHROPIC_API_KEY"), None),
+    p("openai", "OpenAI (or any compatible server, with base_url)", Some("OPENAI_API_KEY"), None),
+    p("gemini", "Google Gemini (AI Studio)", Some("GEMINI_API_KEY"), Some("https://generativelanguage.googleapis.com/v1beta/openai")),
+    p("openrouter", "OpenRouter (hundreds of models, several free)", Some("OPENROUTER_API_KEY"), Some("https://openrouter.ai/api/v1")),
+    p("groq", "Groq (very fast)", Some("GROQ_API_KEY"), Some("https://api.groq.com/openai/v1")),
+    p("deepseek", "DeepSeek", Some("DEEPSEEK_API_KEY"), Some("https://api.deepseek.com/v1")),
+    p("mistral", "Mistral", Some("MISTRAL_API_KEY"), Some("https://api.mistral.ai/v1")),
+    p("xai", "xAI (Grok)", Some("XAI_API_KEY"), Some("https://api.x.ai/v1")),
+    p("together", "Together AI", Some("TOGETHER_API_KEY"), Some("https://api.together.xyz/v1")),
+    p("lmstudio", "LM Studio (local models, no key)", None, Some("http://localhost:1234/v1")),
     p("ollama", "Ollama (local models, no key)", None, None),
 ];
 
@@ -122,18 +47,13 @@ fn listening(port: u16) -> bool {
 /// the hosted ones. The picker lists only these.
 pub fn detected(id: &str, creds: &Credentials) -> bool {
     use coturbo_providers::cli::on_path;
-    let home = |sub: &str| {
-        std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
-            .map(|h| std::path::PathBuf::from(h).join(sub))
-    };
+    let home = |sub: &str| std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(|h| std::path::PathBuf::from(h).join(sub));
     match id {
         "claude-code" => on_path("claude"),
         "codex" => on_path("codex"),
         "antigravity" => on_path("agy") || coturbo_providers::cli::agy_path().is_some(),
         "ollama" => on_path("ollama") || listening(11434),
-        "lmstudio" => {
-            on_path("lms") || home(".lmstudio").is_some_and(|d| d.is_dir()) || listening(1234)
-        }
+        "lmstudio" => on_path("lms") || home(".lmstudio").is_some_and(|d| d.is_dir()) || listening(1234),
         _ => provider(id).is_some_and(|p| p.key_var.is_some()) && api_key(id, creds).is_some(),
     }
 }
@@ -141,30 +61,15 @@ pub fn detected(id: &str, creds: &Credentials) -> bool {
 /// How the provider stands on this computer, for the sign-in screen: whether
 /// you are signed in (the official app's own login), have a key, or run it.
 pub fn standing(id: &str, creds: &Credentials) -> String {
-    let home = |sub: &str| {
-        std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
-            .map(|h| std::path::PathBuf::from(h).join(sub))
-    };
+    let home = |sub: &str| std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(|h| std::path::PathBuf::from(h).join(sub));
     let has = |sub: &str| home(sub).is_some_and(|f| f.is_file());
     match id {
-        "claude-code" => if has(".claude/.credentials.json") {
-            " ● logged in (login)"
-        } else {
-            " · installed, sign in with `claude`"
-        }
-        .to_string(),
-        "codex" => if has(".codex/auth.json") {
-            " ● logged in (login)"
-        } else {
-            " · installed, sign in with `codex`"
-        }
-        .to_string(),
+        "claude-code" => if has(".claude/.credentials.json") { " ● logged in (login)" } else { " · installed, sign in with `claude`" }.to_string(),
+        "codex" => if has(".codex/auth.json") { " ● logged in (login)" } else { " · installed, sign in with `codex`" }.to_string(),
         // The official CLI shares the sign-in of the Antigravity IDE and app.
         "antigravity" => " ● installed (shares the IDE's login)".to_string(),
         "ollama" | "lmstudio" => " ● running (local)".to_string(),
-        _ if provider(id).is_some_and(|p| p.key_var.is_some()) && api_key(id, creds).is_some() => {
-            " ● connected (api key)".to_string()
-        }
+        _ if provider(id).is_some_and(|p| p.key_var.is_some()) && api_key(id, creds).is_some() => " ● connected (api key)".to_string(),
         _ => String::new(),
     }
 }
@@ -185,9 +90,8 @@ fn read_or_empty(path: &Path) -> Result<String, String> {
 /// everything else in the file as it was.
 pub fn save_config(dir: &Path, values: &[(&str, Option<&str>)]) -> Result<(), String> {
     let path = dir.join("config.toml");
-    let mut doc: toml_edit::DocumentMut = read_or_empty(&path)?
-        .parse()
-        .map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut doc: toml_edit::DocumentMut =
+        read_or_empty(&path)?.parse().map_err(|e| format!("{}: {e}", path.display()))?;
     for &(key, value) in values {
         match value {
             Some(v) => doc[key] = toml_edit::value(v),
@@ -219,12 +123,7 @@ impl Credentials {
             .ok()
             .and_then(|doc| {
                 let table = doc.get("keys")?.as_table()?;
-                Some(
-                    table
-                        .iter()
-                        .filter_map(|(k, v)| Some((k.to_string(), v.as_str()?.to_string())))
-                        .collect(),
-                )
+                Some(table.iter().filter_map(|(k, v)| Some((k.to_string(), v.as_str()?.to_string()))).collect())
             })
             .unwrap_or_default();
         Self { keys }
@@ -235,8 +134,7 @@ impl Credentials {
     }
 
     pub fn set(&mut self, provider: &str, key: &str) {
-        self.keys
-            .insert(provider.to_string(), key.trim().to_string());
+        self.keys.insert(provider.to_string(), key.trim().to_string());
     }
 
     /// Writes the keys to `credentials.toml`, readable only by the user
@@ -282,11 +180,7 @@ pub struct Trust {
 fn normalize(p: &Path) -> std::path::PathBuf {
     let p = p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
     // Windows paths compare without case.
-    if cfg!(windows) {
-        std::path::PathBuf::from(p.to_string_lossy().to_lowercase())
-    } else {
-        p
-    }
+    if cfg!(windows) { std::path::PathBuf::from(p.to_string_lossy().to_lowercase()) } else { p }
 }
 
 impl Trust {
@@ -295,13 +189,7 @@ impl Trust {
             .and_then(|d| std::fs::read_to_string(d.join(TRUSTED)).ok())
             .and_then(|t| t.parse::<toml_edit::DocumentMut>().ok())
             .and_then(|doc| {
-                Some(
-                    doc.get("folders")?
-                        .as_array()?
-                        .iter()
-                        .filter_map(|v| v.as_str().map(std::path::PathBuf::from))
-                        .collect(),
-                )
+                Some(doc.get("folders")?.as_array()?.iter().filter_map(|v| v.as_str().map(std::path::PathBuf::from)).collect())
             })
             .unwrap_or_default();
         Self { folders }
@@ -315,9 +203,7 @@ impl Trust {
 
     /// Trusts `folder` and saves the list.
     pub fn add(&mut self, dir: Option<&Path>, folder: &Path) -> Result<(), String> {
-        let f = folder
-            .canonicalize()
-            .unwrap_or_else(|_| folder.to_path_buf());
+        let f = folder.canonicalize().unwrap_or_else(|_| folder.to_path_buf());
         if !self.covers(&f) {
             self.folders.push(f);
         }
@@ -335,19 +221,12 @@ impl Trust {
 
 /// Whether CodeTurbo was already used in `folder` (its own files are there).
 pub fn known_project(folder: &Path) -> bool {
-    folder.join(".codeturbo").is_dir()
-        || folder.join("CODETURBO.md").is_file()
-        || folder.join(".codeturbo.toml").is_file()
+    folder.join(".codeturbo").is_dir() || folder.join("CODETURBO.md").is_file() || folder.join(".codeturbo.toml").is_file()
 }
 
 /// A folder too broad to work in: the home folder or a drive root.
 pub fn too_broad(folder: &Path) -> bool {
-    let f = folder
-        .canonicalize()
-        .unwrap_or_else(|_| folder.to_path_buf());
-    let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
-        .map(std::path::PathBuf::from);
-    f.parent().is_none()
-        || f.components().count() <= 2
-        || home.is_some_and(|h| h.canonicalize().unwrap_or(h) == f)
+    let f = folder.canonicalize().unwrap_or_else(|_| folder.to_path_buf());
+    let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(std::path::PathBuf::from);
+    f.parent().is_none() || f.components().count() <= 2 || home.is_some_and(|h| h.canonicalize().unwrap_or(h) == f)
 }

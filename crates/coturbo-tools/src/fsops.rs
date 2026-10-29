@@ -38,9 +38,7 @@ fn rustfmt(src: &str) -> String {
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn();
-    let Ok(mut child) = child else {
-        return src.to_string();
-    };
+    let Ok(mut child) = child else { return src.to_string() };
     if let Some(mut stdin) = child.stdin.take() {
         let _ = stdin.write_all(src.as_bytes());
     }
@@ -61,11 +59,7 @@ impl Tools {
     pub(crate) fn read_file(&self, input: &Value) -> Res {
         let path = self.resolve(arg(input, "path")?)?;
         // Pictures go to the model as pictures; PDFs and notebooks as text.
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("")
-            .to_lowercase();
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
         if let Some(media) = match ext.as_str() {
             "png" => Some("image/png"),
             "jpg" | "jpeg" => Some("image/jpeg"),
@@ -74,31 +68,16 @@ impl Tools {
             _ => None,
         } {
             use base64::Engine;
-            let bytes =
-                fs::read(&path).map_err(|e| format!("cannot read {}: {e}", self.display(&path)))?;
-            let mut out = ToolOutput::ok(format!(
-                "{} ({} KB image, shown to you)",
-                self.display(&path),
-                bytes.len() / 1024
-            ));
-            out.images.push((
-                media.into(),
-                base64::engine::general_purpose::STANDARD.encode(bytes),
-            ));
+            let bytes = fs::read(&path).map_err(|e| format!("cannot read {}: {e}", self.display(&path)))?;
+            let mut out = ToolOutput::ok(format!("{} ({} KB image, shown to you)", self.display(&path), bytes.len() / 1024));
+            out.images.push((media.into(), base64::engine::general_purpose::STANDARD.encode(bytes)));
             return Ok(out);
         }
         if ext == "pdf" {
-            let bytes =
-                fs::read(&path).map_err(|e| format!("cannot read {}: {e}", self.display(&path)))?;
-            let text = pdf_extract::extract_text_from_mem(&bytes).map_err(|e| {
-                format!("cannot read the PDF's text ({e}); it may be scanned images")
-            })?;
+            let bytes = fs::read(&path).map_err(|e| format!("cannot read {}: {e}", self.display(&path)))?;
+            let text = pdf_extract::extract_text_from_mem(&bytes).map_err(|e| format!("cannot read the PDF's text ({e}); it may be scanned images"))?;
             let text: String = text.chars().take(60_000).collect();
-            return Ok(ToolOutput::ok(format!(
-                "{} (PDF text)\n{}",
-                self.display(&path),
-                text.trim()
-            )));
+            return Ok(ToolOutput::ok(format!("{} (PDF text)\n{}", self.display(&path), text.trim())));
         }
         if ext == "ipynb" {
             let raw = read_text(&path)?;
@@ -133,17 +112,9 @@ impl Tools {
 
     /// Path, current content and the content an edit tool would write, without
     /// writing anything. Shared by execution and by the approval preview.
-    pub(crate) fn plan_edit(
-        &self,
-        name: &str,
-        input: &Value,
-    ) -> Result<(PathBuf, String, String), String> {
+    pub(crate) fn plan_edit(&self, name: &str, input: &Value) -> Result<(PathBuf, String, String), String> {
         let path = self.resolve(arg(input, "path")?)?;
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("")
-            .to_ascii_lowercase();
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
         // Formatter for this kind of file, if any: rustfmt for Rust, the
         // built-in HTML formatter for pages.
         let format = |src: &str| -> Option<String> {
@@ -163,11 +134,7 @@ impl Tools {
         };
         if name == "write_file" {
             let content = arg(input, "content")?;
-            let old = if path.exists() {
-                read_text(&path)?
-            } else {
-                String::new()
-            };
+            let old = if path.exists() { read_text(&path)? } else { String::new() };
             let new = keep_formatted(&old, content.to_string());
             return Ok((path, old, new));
         }
@@ -178,12 +145,7 @@ impl Tools {
                 match src.matches(old).count() {
                     1 => keep_formatted(&src, src.replacen(old, new, 1)),
                     0 => return Err(format!("`old` not found in {}", self.display(&path))),
-                    n => {
-                        return Err(format!(
-                            "`old` matches {n} times in {}; add context to make it unique",
-                            self.display(&path)
-                        ));
-                    }
+                    n => return Err(format!("`old` matches {n} times in {}; add context to make it unique", self.display(&path))),
                 }
             }
             "replace_symbol" => {
@@ -256,24 +218,13 @@ impl Tools {
     pub(crate) fn grep(&self, input: &Value) -> Res {
         let re = regex::Regex::new(arg(input, "pattern")?).map_err(|e| e.to_string())?;
         let mut hits = Vec::new();
-        let mut entries: Vec<_> = self
-            .walker(input)?
-            .flatten()
-            .filter(|e| e.file_type().is_some_and(|t| t.is_file()))
-            .collect();
+        let mut entries: Vec<_> = self.walker(input)?.flatten().filter(|e| e.file_type().is_some_and(|t| t.is_file())).collect();
         entries.sort_by(|a, b| a.path().cmp(b.path()));
         'files: for e in entries {
-            let Ok(text) = fs::read_to_string(e.path()) else {
-                continue;
-            };
+            let Ok(text) = fs::read_to_string(e.path()) else { continue };
             for (i, line) in text.lines().enumerate() {
                 if re.is_match(line) {
-                    hits.push(format!(
-                        "{}:{}: {}",
-                        self.display(e.path()),
-                        i + 1,
-                        line.trim()
-                    ));
+                    hits.push(format!("{}:{}: {}", self.display(e.path()), i + 1, line.trim()));
                     if hits.len() >= MAX_GREP {
                         hits.push("[match limit reached]".into());
                         break 'files;
@@ -281,11 +232,7 @@ impl Tools {
                 }
             }
         }
-        Ok(ToolOutput::ok(if hits.is_empty() {
-            "no matches".into()
-        } else {
-            hits.join("\n")
-        }))
+        Ok(ToolOutput::ok(if hits.is_empty() { "no matches".into() } else { hits.join("\n") }))
     }
 
     pub(crate) fn read_symbol(&self, input: &Value) -> Res {
@@ -296,9 +243,7 @@ impl Tools {
         }
         let path = self.resolve(arg(input, "path")?)?;
         let src = read_text(&path)?;
-        coturbo_ast::read_symbol(&src, arg(input, "symbol")?)
-            .map(ToolOutput::ok)
-            .map_err(|e| e.to_string())
+        coturbo_ast::read_symbol(&src, arg(input, "symbol")?).map(ToolOutput::ok).map_err(|e| e.to_string())
     }
 
     pub(crate) fn replace_symbol(&self, input: &Value) -> Res {
@@ -308,11 +253,7 @@ impl Tools {
 
     pub(crate) fn insert_symbol(&self, input: &Value) -> Res {
         let after = arg(input, "after")?;
-        self.apply_edit(
-            "insert_symbol",
-            input,
-            format!("inserted after `{after}` in"),
-        )
+        self.apply_edit("insert_symbol", input, format!("inserted after `{after}` in"))
     }
 }
 
@@ -329,22 +270,11 @@ pub fn notebook(raw: &str) -> Option<String> {
     let mut out = String::new();
     for (i, cell) in v["cells"].as_array()?.iter().enumerate() {
         let kind = cell["cell_type"].as_str().unwrap_or("?");
-        out.push_str(&format!(
-            "# cell {} [{kind}]\n{}\n",
-            i + 1,
-            text(&cell["source"]).trim_end()
-        ));
+        out.push_str(&format!("# cell {} [{kind}]\n{}\n", i + 1, text(&cell["source"]).trim_end()));
         for o in cell["outputs"].as_array().into_iter().flatten() {
-            let body = if o["text"].is_null() {
-                text(&o["data"]["text/plain"])
-            } else {
-                text(&o["text"])
-            };
+            let body = if o["text"].is_null() { text(&o["data"]["text/plain"]) } else { text(&o["text"]) };
             if !body.trim().is_empty() {
-                out.push_str(&format!(
-                    "# output\n{}\n",
-                    body.trim_end().chars().take(2000).collect::<String>()
-                ));
+                out.push_str(&format!("# output\n{}\n", body.trim_end().chars().take(2000).collect::<String>()));
             }
             if o["data"]["image/png"].is_string() {
                 out.push_str("# output: an image\n");

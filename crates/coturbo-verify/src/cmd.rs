@@ -20,17 +20,9 @@ impl CmdOutput {
 
 /// Prefers a POSIX `sh` (Git Bash on Windows); falls back to `cmd /C`.
 pub fn shell(command: &str) -> Command {
-    let use_cmd = cfg!(windows)
-        && std::process::Command::new("sh")
-            .arg("-c")
-            .arg("exit 0")
-            .output()
-            .is_err();
-    let mut c = if use_cmd {
-        Command::new("cmd")
-    } else {
-        Command::new("sh")
-    };
+    let use_cmd =
+        cfg!(windows) && std::process::Command::new("sh").arg("-c").arg("exit 0").output().is_err();
+    let mut c = if use_cmd { Command::new("cmd") } else { Command::new("sh") };
     c.arg(if use_cmd { "/C" } else { "-c" }).arg(command);
     c
 }

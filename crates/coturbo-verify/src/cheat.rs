@@ -91,24 +91,12 @@ fn lang(path: &str) -> Option<&'static str> {
 /// Attribute path, e.g. `tokio::test` for `#[tokio::test(flavor = "x")]`.
 fn attr_path(attr: &ast::Attr) -> String {
     let t = attr.syntax().text().to_string();
-    let t = t
-        .trim_start_matches("#!")
-        .trim_start_matches('#')
-        .trim_start_matches('[')
-        .trim();
-    t.split(|c: char| c == '(' || c == ']' || c == '=' || c.is_whitespace())
-        .next()
-        .unwrap_or("")
-        .to_string()
+    let t = t.trim_start_matches("#!").trim_start_matches('#').trim_start_matches('[').trim();
+    t.split(|c: char| c == '(' || c == ']' || c == '=' || c.is_whitespace()).next().unwrap_or("").to_string()
 }
 
 fn trivial_body(body: &str) -> bool {
-    let inner: String = body
-        .trim()
-        .trim_start_matches('{')
-        .trim_end_matches('}')
-        .split_whitespace()
-        .collect();
+    let inner: String = body.trim().trim_start_matches('{').trim_end_matches('}').split_whitespace().collect();
     inner.is_empty() || inner == "assert!(true)" || inner == "assert!(true);"
 }
 
@@ -123,10 +111,7 @@ fn rust_profile(src: &str) -> Profile {
                 _ => {}
             }
         } else if let Some(mc) = ast::MacroCall::cast(node.clone()) {
-            let path = mc
-                .path()
-                .map(|p| p.syntax().text().to_string())
-                .unwrap_or_default();
+            let path = mc.path().map(|p| p.syntax().text().to_string()).unwrap_or_default();
             if matches!(path.as_str(), "todo" | "unimplemented") {
                 p.placeholders += 1;
             }
@@ -138,10 +123,7 @@ fn rust_profile(src: &str) -> Profile {
             if is_test {
                 p.tests += 1;
                 let name = f.name().map(|n| n.text().to_string()).unwrap_or_default();
-                let body = f
-                    .body()
-                    .map(|b| b.syntax().text().to_string())
-                    .unwrap_or_default();
+                let body = f.body().map(|b| b.syntax().text().to_string()).unwrap_or_default();
                 p.test_bodies.insert(name, trivial_body(&body));
             }
         }
@@ -150,10 +132,7 @@ fn rust_profile(src: &str) -> Profile {
 }
 
 fn count(re: &str, src: &str) -> usize {
-    regex::Regex::new(re)
-        .expect("valid regex")
-        .find_iter(src)
-        .count()
+    regex::Regex::new(re).expect("valid regex").find_iter(src).count()
 }
 
 fn text_profile(lang: &str, src: &str) -> Profile {
@@ -161,14 +140,8 @@ fn text_profile(lang: &str, src: &str) -> Profile {
         "js" => Profile {
             // Skipped tests still count as tests: skipping is reported on its own.
             tests: count(r"\b(?:x?it|x?test)(?:\.only|\.skip)?\s*\(", src),
-            skipped: count(
-                r"\b(?:it|test|describe)\.skip\s*\(|\bx(?:it|describe|test)\s*\(",
-                src,
-            ),
-            suppressed: count(
-                r"eslint-disable|@ts-ignore|@ts-expect-error|@ts-nocheck",
-                src,
-            ),
+            skipped: count(r"\b(?:it|test|describe)\.skip\s*\(|\bx(?:it|describe|test)\s*\(", src),
+            suppressed: count(r"eslint-disable|@ts-ignore|@ts-expect-error|@ts-nocheck", src),
             placeholders: count(r"expect\(\s*true\s*\)\.toBe\(\s*true\s*\)", src),
             test_bodies: HashMap::new(),
         },
@@ -183,58 +156,27 @@ fn text_profile(lang: &str, src: &str) -> Profile {
 }
 
 fn profile(lang: &str, src: &str) -> Profile {
-    if lang == "rust" {
-        rust_profile(src)
-    } else {
-        text_profile(lang, src)
-    }
+    if lang == "rust" { rust_profile(src) } else { text_profile(lang, src) }
 }
 
 /// Findings for one file edited from `before` to `after`.
 pub fn compare(path: &str, before: &str, after: &str) -> Vec<Finding> {
-    let Some(lang) = lang(path) else {
-        return Vec::new();
-    };
+    let Some(lang) = lang(path) else { return Vec::new() };
     let (b, a) = (profile(lang, before), profile(lang, after));
     let mut out = Vec::new();
-    let mut push = |kind, detail: String| {
-        out.push(Finding {
-            path: path.to_string(),
-            kind,
-            detail,
-        })
-    };
+    let mut push = |kind, detail: String| out.push(Finding { path: path.to_string(), kind, detail });
     if a.tests < b.tests {
-        push(
-            CheatKind::FewerTests,
-            format!("tests dropped from {} to {}", b.tests, a.tests),
-        );
+        push(CheatKind::FewerTests, format!("tests dropped from {} to {}", b.tests, a.tests));
     }
     if a.skipped > b.skipped {
-        push(
-            CheatKind::SkippedTest,
-            format!("{} new skipped/ignored test(s)", a.skipped - b.skipped),
-        );
+        push(CheatKind::SkippedTest, format!("{} new skipped/ignored test(s)", a.skipped - b.skipped));
     }
     if a.suppressed > b.suppressed {
-        push(
-            CheatKind::LintSuppressed,
-            format!(
-                "{} new lint/type-check suppression(s)",
-                a.suppressed - b.suppressed
-            ),
-        );
+        push(CheatKind::LintSuppressed, format!("{} new lint/type-check suppression(s)", a.suppressed - b.suppressed));
     }
     if a.placeholders > b.placeholders {
-        let what = if lang == "rust" {
-            "todo!/unimplemented!"
-        } else {
-            "always-true assertion"
-        };
-        push(
-            CheatKind::Placeholder,
-            format!("{} new {what}", a.placeholders - b.placeholders),
-        );
+        let what = if lang == "rust" { "todo!/unimplemented!" } else { "always-true assertion" };
+        push(CheatKind::Placeholder, format!("{} new {what}", a.placeholders - b.placeholders));
     }
     let mut emptied: Vec<&String> = a
         .test_bodies

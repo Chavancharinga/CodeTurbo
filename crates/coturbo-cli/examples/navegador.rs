@@ -48,10 +48,7 @@ fn tool(name: &str, rest: &str) -> Line<'static> {
     line(vec![
         Span::styled("  ● ", Style::new().fg(Color::Rgb(86, 204, 128))),
         Span::styled(name.to_string(), Style::new().add_modifier(Modifier::BOLD)),
-        Span::styled(
-            format!(" {rest}"),
-            Style::new().fg(Color::Rgb(47, 123, 255)),
-        ),
+        Span::styled(format!(" {rest}"), Style::new().fg(Color::Rgb(47, 123, 255))),
     ])
 }
 
@@ -65,18 +62,9 @@ async fn main() {
     let browser = coturbo_design::render::find_browser().expect("Edge ou Chrome");
     // With an address as the second argument, it just visits it and draws the screen.
     if let Some(url) = std::env::args().nth(2) {
-        let actions = vec![
-            Action::Open(url),
-            Action::Wait(1500),
-            Action::Scroll(500),
-            Action::Wait(800),
-        ];
+        let actions = vec![Action::Open(url), Action::Wait(1500), Action::Scroll(500), Action::Wait(800)];
         let mut frames: Vec<Frame> = Vec::new();
-        let report = coturbo_browse::run(&browser, &site, &actions, (1100, 700), &mut |f| {
-            frames.push(f)
-        })
-        .await
-        .expect("navegação");
+        let report = coturbo_browse::run(&browser, &site, &actions, (1100, 700), &mut |f| frames.push(f)).await.expect("navegação");
         eprintln!("{}\n{} quadros", report.log.join("\n"), frames.len());
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         let (cancel, _crx) = tokio::sync::mpsc::unbounded_channel();
@@ -89,20 +77,12 @@ async fn main() {
             ..Status::default()
         };
         let mut app = App::new(status, tx, cancel, Arc::new(AtomicBool::new(false)));
-        app.apply(Out::Lines(vec![
-            line(vec![Span::raw("› abra o meu GitHub e navegue")]),
-            Line::default(),
-            tool("browse", "· 4 step(s)"),
-        ]));
+        app.apply(Out::Lines(vec![line(vec![Span::raw("› abra o meu GitHub e navegue")]), Line::default(), tool("browse", "· 4 step(s)")]));
         app.apply(Out::Browser(frames.last().expect("quadro").clone()));
         std::thread::sleep(Duration::from_millis(800));
         let mut term = Terminal::new(TestBackend::new(140, 36)).unwrap();
         term.draw(|f| app.draw(f)).unwrap();
-        std::fs::write(
-            out.join("github.html"),
-            screen_html::html(term.backend().buffer()),
-        )
-        .unwrap();
+        std::fs::write(out.join("github.html"), screen_html::html(term.backend().buffer())).unwrap();
         return;
     }
     let actions = vec![
@@ -113,17 +93,8 @@ async fn main() {
         Action::Click(Target::Text("Fazer pedido".into())),
     ];
     let mut frames: Vec<Frame> = Vec::new();
-    let report = coturbo_browse::run(&browser, &site, &actions, (880, 560), &mut |f| {
-        frames.push(f)
-    })
-    .await
-    .expect("navegação");
-    eprintln!(
-        "{}\nproblemas: {:?}\n{} quadros",
-        report.log.join("\n"),
-        report.problems,
-        frames.len()
-    );
+    let report = coturbo_browse::run(&browser, &site, &actions, (880, 560), &mut |f| frames.push(f)).await.expect("navegação");
+    eprintln!("{}\nproblemas: {:?}\n{} quadros", report.log.join("\n"), report.problems, frames.len());
 
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
     let (cancel, _crx) = tokio::sync::mpsc::unbounded_channel();
@@ -141,76 +112,42 @@ async fn main() {
         Line::default(),
         tool("browse", "· 5 step(s)"),
         Line::default(),
-        line(vec![Span::styled(
-            "    1. abriu index.html — \"Casa do Café\"",
-            Style::new().fg(Color::Rgb(110, 125, 150)),
-        )]),
-        line(vec![Span::styled(
-            "    2. @e1 link \"Grãos\" · @e4 button \"Adicionar ao carrinho\" · @e5 input",
-            Style::new().fg(Color::Rgb(110, 125, 150)),
-        )]),
-        line(vec![Span::styled(
-            "    3. clicou em \"Adicionar ao carrinho\"",
-            Style::new().fg(Color::Rgb(110, 125, 150)),
-        )]),
+        line(vec![Span::styled("    1. abriu index.html — \"Casa do Café\"", Style::new().fg(Color::Rgb(110, 125, 150)))]),
+        line(vec![Span::styled("    2. @e1 link \"Grãos\" · @e4 button \"Adicionar ao carrinho\" · @e5 input", Style::new().fg(Color::Rgb(110, 125, 150)))]),
+        line(vec![Span::styled("    3. clicou em \"Adicionar ao carrinho\"", Style::new().fg(Color::Rgb(110, 125, 150)))]),
     ]));
     app.apply(Out::Busy(Some("browse · 5 step(s)".into())));
     let click = |c: &Frame| c.caption.contains("Fazer pedido");
     // The last click: the pointer on its way, then the press.
-    let arriving = frames
-        .iter()
-        .position(|f| click(f) && !f.clicked)
-        .expect("o ponteiro chegando");
-    let pressed = frames
-        .iter()
-        .position(|f| click(f) && f.clicked)
-        .expect("o clique");
+    let arriving = frames.iter().position(|f| click(f) && !f.clicked).expect("o ponteiro chegando");
+    let pressed = frames.iter().position(|f| click(f) && f.clicked).expect("o clique");
     app.apply(Out::Browser(frames[arriving - 1].clone()));
     std::thread::sleep(Duration::from_millis(500));
     app.apply(Out::Browser(frames[arriving].clone()));
     std::thread::sleep(Duration::from_millis(170));
     let mut term = Terminal::new(TestBackend::new(124, 34)).unwrap();
     term.draw(|f| app.draw(f)).unwrap();
-    std::fs::write(
-        out.join("a_caminho.html"),
-        screen_html::html(term.backend().buffer()),
-    )
-    .unwrap();
+    std::fs::write(out.join("a_caminho.html"), screen_html::html(term.backend().buffer())).unwrap();
     app.apply(Out::Browser(frames[pressed].clone()));
     std::thread::sleep(Duration::from_millis(90));
     term.draw(|f| app.draw(f)).unwrap();
-    std::fs::write(
-        out.join("clique.html"),
-        screen_html::html(term.backend().buffer()),
-    )
-    .unwrap();
+    std::fs::write(out.join("clique.html"), screen_html::html(term.backend().buffer())).unwrap();
     // The opening, in four instants after the first picture.
     let (tx2, _r2) = tokio::sync::mpsc::unbounded_channel();
     let (c2, _c2r) = tokio::sync::mpsc::unbounded_channel();
-    let status2 = Status {
-        provider: "claude-code".into(),
-        model: "sonnet".into(),
-        approval: "edição livre".into(),
-        folder: r"C:\Users\danie\Music\CoTurbon\sandbox\loja".into(),
-        ..Status::default()
-    };
+    let status2 = Status { provider: "claude-code".into(), model: "sonnet".into(), approval: "edição livre".into(), folder: r"C:\Users\danie\Music\CoTurbon\sandbox\loja".into(), ..Status::default() };
     let mut film = App::new(status2, tx2, c2, Arc::new(AtomicBool::new(false)));
     film.apply(Out::Lines(vec![
         line(vec![Span::raw("› teste o fluxo de compra da loja")]),
         Line::default(),
         tool("browse", "· 5 step(s)"),
         Line::default(),
-        line(vec![Span::styled(
-            "    1. abriu index.html — \"Casa do Café\"",
-            Style::new().fg(Color::Rgb(110, 125, 150)),
-        )]),
+        line(vec![Span::styled("    1. abriu index.html — \"Casa do Café\"", Style::new().fg(Color::Rgb(110, 125, 150)))]),
     ]));
     film.apply(Out::Busy(Some("browse · 5 step(s)".into())));
     std::thread::sleep(Duration::from_millis(1800));
     film.apply(Out::Browser(frames[0].clone()));
-    let mut strip = String::from(
-        "<!doctype html><meta charset=utf-8><body style='margin:0;background:#0d1117;display:grid;grid-template-columns:1fr 1fr'>",
-    );
+    let mut strip = String::from("<!doctype html><meta charset=utf-8><body style='margin:0;background:#0d1117;display:grid;grid-template-columns:1fr 1fr'>");
     let mut term2 = Terminal::new(TestBackend::new(110, 22)).unwrap();
     let mut last = 0u64;
     for at in [120u64, 260, 400, 640] {

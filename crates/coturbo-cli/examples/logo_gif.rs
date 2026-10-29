@@ -20,9 +20,7 @@ const PAD: usize = 4;
 const PER_MOOD: usize = 40;
 
 fn main() {
-    let out = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "codeturbo.gif".into());
+    let out = std::env::args().nth(1).unwrap_or_else(|| "codeturbo.gif".into());
     let only: Option<usize> = std::env::args().nth(2).and_then(|a| a.parse().ok());
     let first = frame(MOODS[0], 0, PAD);
     let (ch, cw) = (first.len(), first[0].len());
@@ -50,8 +48,5 @@ fn main() {
             total += 1;
         }
     }
-    eprintln!(
-        "wrote {out} ({w}x{h}, {total} frames, {} moods)",
-        MOODS.len()
-    );
+    eprintln!("wrote {out} ({w}x{h}, {total} frames, {} moods)", MOODS.len());
 }

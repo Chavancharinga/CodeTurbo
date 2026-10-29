@@ -25,10 +25,7 @@ fn colors_convert_and_measure() {
     assert_eq!(parse_hex("#10b981"), Some((16, 185, 129)));
     assert_eq!(hex((16, 185, 129)), "#10b981");
     assert!((contrast((0, 0, 0), (255, 255, 255)) - 21.0).abs() < 0.01);
-    assert!(
-        contrast((255, 255, 255), (16, 185, 129)) < 3.0,
-        "white on emerald is hard to read"
-    );
+    assert!(contrast((255, 255, 255), (16, 185, 129)) < 3.0, "white on emerald is hard to read");
     let (h, s) = hue_sat((255, 0, 0));
     assert!(h.abs() < 0.5 && s > 0.99);
 }
@@ -44,60 +41,26 @@ fn tones_come_from_plain_words() {
 
 #[test]
 fn compiled_tokens_are_readable_and_not_the_defaults() {
-    for tone in [
-        "editorial e sóbrio",
-        "divertido",
-        "técnico",
-        "acolhedor",
-        "moderno",
-        "confiável e humano",
-    ] {
+    for tone in ["editorial e sóbrio", "divertido", "técnico", "acolhedor", "moderno", "confiável e humano"] {
         let t = compile(&brief(tone));
         let bg = t.color("bg");
         assert!(contrast(t.color("ink"), bg) >= 7.0, "{tone}: body text");
-        assert!(
-            contrast(t.color("muted"), bg) >= 4.5,
-            "{tone}: secondary text"
-        );
-        assert!(
-            contrast(t.color("on-primary"), t.color("primary")) >= 4.5,
-            "{tone}: button label"
-        );
-        assert!(
-            contrast(t.color("primary"), bg) >= 3.0,
-            "{tone}: primary against the page"
-        );
+        assert!(contrast(t.color("muted"), bg) >= 4.5, "{tone}: secondary text");
+        assert!(contrast(t.color("on-primary"), t.color("primary")) >= 4.5, "{tone}: button label");
+        assert!(contrast(t.color("primary"), bg) >= 3.0, "{tone}: primary against the page");
         for f in [&t.font_display, &t.font_body] {
-            assert!(
-                ![
-                    "Inter",
-                    "Roboto",
-                    "Poppins",
-                    "Open Sans",
-                    "Montserrat",
-                    "Lato"
-                ]
-                .contains(&f.as_str()),
-                "{f}"
-            );
+            assert!(!["Inter", "Roboto", "Poppins", "Open Sans", "Montserrat", "Lato"].contains(&f.as_str()), "{f}");
         }
         let radii: std::collections::BTreeSet<u32> = t.radius.iter().map(|(_, r)| *r).collect();
         // Square on purpose only in the brutalist style.
-        assert!(
-            radii.len() >= 2 || t.style == coturbo_design::style::Style::Brutalist,
-            "{tone}: distinct radii"
-        );
+        assert!(radii.len() >= 2 || t.style == coturbo_design::style::Style::Brutalist, "{tone}: distinct radii");
         // Same brief, same tokens.
         assert_eq!(compile(&brief(tone)), t);
     }
     let a = compile(&brief("divertido"));
     let mut other = brief("divertido");
     other.subject = "estúdio de cerâmica".into();
-    assert_ne!(
-        a.colors,
-        compile(&other).colors,
-        "different subjects get different palettes"
-    );
+    assert_ne!(a.colors, compile(&other).colors, "different subjects get different palettes");
 }
 
 #[test]
@@ -109,10 +72,7 @@ fn the_contract_round_trips() {
     let c = Contract::parse(&md);
     assert_eq!(c.colors().len(), 11);
     assert_eq!(c.space(), t.space);
-    assert_eq!(
-        c.radii(),
-        t.radius.iter().map(|(_, r)| *r).collect::<Vec<_>>()
-    );
+    assert_eq!(c.radii(), t.radius.iter().map(|(_, r)| *r).collect::<Vec<_>>());
     assert!(c.vars["--font-display"].contains(&t.font_display));
 }
 
@@ -153,23 +113,13 @@ fn a_generic_page_is_refused_for_the_right_reasons() {
         "all-centered",
         "motion",
     ] {
-        assert!(
-            rules.contains(&r),
-            "missing {r}: {rules:?}
-{}",
-            fiscal::render("index.html", &f)
-        );
+        assert!(rules.contains(&r), "missing {r}: {rules:?}
+{}", fiscal::render("index.html", &f));
     }
-    assert!(
-        f.iter()
-            .any(|x| x.rule == "contrast" && x.severity == Severity::P0)
-    );
+    assert!(f.iter().any(|x| x.rule == "contrast" && x.severity == Severity::P0));
     let report = fiscal::render("index.html", &f);
     assert!(report.starts_with("design index.html: "), "{report}");
-    assert!(
-        report.contains("index.html:2 [P1 default-font]"),
-        "{report}"
-    );
+    assert!(report.contains("index.html:2 [P1 default-font]"), "{report}");
 }
 
 #[test]
@@ -203,11 +153,7 @@ fn only_interface_files_are_inspected() {
     assert!(fiscal::is_ui_file("src/App.tsx"));
     assert!(fiscal::is_ui_file("index.HTML"));
     assert!(!fiscal::is_ui_file("src/main.rs"));
-    assert!(
-        fiscal::check("style.css", "a:hover { color: red; }", None)
-            .iter()
-            .all(|f| f.rule != "missing-focus-style")
-    );
+    assert!(fiscal::check("style.css", "a:hover { color: red; }", None).iter().all(|f| f.rule != "missing-focus-style"));
 }
 
 #[test]
@@ -217,42 +163,17 @@ fn rendered_measurements_are_judged() {
     assert_eq!((m.rounded, m.radii, m.rows, m.small), (9, 1, 3, 4));
     assert_eq!(m.overlaps, ["div.card × img"]);
     assert!(m.hscroll);
-    let page = Page {
-        desktop: m.clone(),
-        mobile: m,
-        ..Page::default()
-    };
+    let page = Page { desktop: m.clone(), mobile: m, ..Page::default() };
     let rules: Vec<&str> = judge(&page).iter().map(|f| f.rule).collect();
     for r in [
-        "render-overlap",
-        "render-cramped",
-        "render-cut-off",
-        "render-scrollbar",
-        "render-broken-image",
-        "render-not-responsive",
-        "render-small-target",
-        "render-identical-grids",
-        "render-single-radius",
-        "render-all-centered",
-        "render-single-shadow",
+        "render-overlap", "render-cramped", "render-cut-off", "render-scrollbar", "render-broken-image",
+        "render-not-responsive", "render-small-target", "render-identical-grids", "render-single-radius",
+        "render-all-centered", "render-single-shadow",
     ] {
         assert!(rules.contains(&r), "missing {r}: {rules:?}");
     }
-    let clean = Metrics {
-        rounded: 9,
-        radii: 3,
-        text: 10,
-        centered: 2,
-        ..Metrics::default()
-    };
-    assert!(
-        judge(&Page {
-            desktop: clean.clone(),
-            mobile: clean,
-            ..Page::default()
-        })
-        .is_empty()
-    );
+    let clean = Metrics { rounded: 9, radii: 3, text: 10, centered: 2, ..Metrics::default() };
+    assert!(judge(&Page { desktop: clean.clone(), mobile: clean, ..Page::default() }).is_empty());
     assert!(parse_metrics("<html>").is_none());
 }
 
@@ -261,9 +182,7 @@ fn rendered_measurements_are_judged() {
 /// fields with no label, no page language, no viewport.
 #[tokio::test]
 async fn the_rendered_page_is_checked_for_accessibility() {
-    let Some(browser) = coturbo_design::render::find_browser() else {
-        return;
-    };
+    let Some(browser) = coturbo_design::render::find_browser() else { return };
     let dir = tempfile::tempdir().unwrap();
     let page = dir.path().join("a11y.html");
     std::fs::write(
@@ -277,34 +196,13 @@ async fn the_rendered_page_is_checked_for_accessibility() {
 </body></html>"##,
     )
     .unwrap();
-    let m = coturbo_design::render::measure(&browser, &page, &dir.path().join("a11y.png"))
-        .await
-        .expect("rendered");
-    assert_eq!(
-        m.desktop.contrast.len(),
-        1,
-        "only the dark-on-dark text: {:?}",
-        m.desktop.contrast
-    );
-    assert!(
-        m.desktop.contrast[0].contains("Dark text"),
-        "{:?}",
-        m.desktop.contrast
-    );
-    assert_eq!(
-        (m.desktop.noalt, m.desktop.unlabeled),
-        (1, 1),
-        "the image and the placeholder-only field"
-    );
+    let m = coturbo_design::render::measure(&browser, &page, &dir.path().join("a11y.png")).await.expect("rendered");
+    assert_eq!(m.desktop.contrast.len(), 1, "only the dark-on-dark text: {:?}", m.desktop.contrast);
+    assert!(m.desktop.contrast[0].contains("Dark text"), "{:?}", m.desktop.contrast);
+    assert_eq!((m.desktop.noalt, m.desktop.unlabeled), (1, 1), "the image and the placeholder-only field");
     assert!(m.desktop.nolang && m.desktop.noviewport);
     let rules: Vec<&str> = judge(&m).iter().map(|f| f.rule).collect();
-    for r in [
-        "render-low-contrast",
-        "render-missing-alt",
-        "render-unlabeled-field",
-        "render-no-viewport",
-        "render-no-lang",
-    ] {
+    for r in ["render-low-contrast", "render-missing-alt", "render-unlabeled-field", "render-no-viewport", "render-no-lang"] {
         assert!(rules.contains(&r), "missing {r}: {rules:?}");
     }
 }
@@ -313,36 +211,20 @@ async fn the_rendered_page_is_checked_for_accessibility() {
 /// patchwork of colours.
 #[tokio::test]
 async fn the_rendered_page_is_checked_for_rhythm_and_coherence() {
-    let Some(browser) = coturbo_design::render::find_browser() else {
-        return;
-    };
+    let Some(browser) = coturbo_design::render::find_browser() else { return };
     let dir = tempfile::tempdir().unwrap();
     let page = dir.path().join("rhythm.html");
     let long = "Words that keep going across the whole width of a very wide desktop screen without any measure at all. ".repeat(4);
-    let sizes: String = (0..11)
-        .map(|i| {
-            format!(
-                "<p style=\"font-size:{}px;color:#{:02x}2a3a\">Size {i}</p>",
-                12 + i * 3,
-                20 + i * 9
-            )
-        })
-        .collect();
+    let sizes: String = (0..11).map(|i| format!("<p style=\"font-size:{}px;color:#{:02x}2a3a\">Size {i}</p>", 12 + i * 3, 20 + i * 9)).collect();
     std::fs::write(
         &page,
         format!(r#"<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head>
 <body style="font-family:Georgia;margin:0;padding:16px"><p style="font-size:16px">{long}</p>{sizes}</body></html>"#),
     )
     .unwrap();
-    let m = coturbo_design::render::measure(&browser, &page, &dir.path().join("r.png"))
-        .await
-        .expect("rendered");
+    let m = coturbo_design::render::measure(&browser, &page, &dir.path().join("r.png")).await.expect("rendered");
     let rules: Vec<&str> = judge(&m).iter().map(|f| f.rule).collect();
-    for r in [
-        "render-long-lines",
-        "render-too-many-sizes",
-        "render-too-many-colours",
-    ] {
+    for r in ["render-long-lines", "render-too-many-sizes", "render-too-many-colours"] {
         assert!(rules.contains(&r), "missing {r}: {rules:?}");
     }
 }
@@ -352,57 +234,25 @@ async fn review_renders_in_the_installed_browser() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("index.html"), GENERIC).unwrap();
     std::fs::write(dir.path().join("main.rs"), "fn main() {}").unwrap();
-    assert!(
-        coturbo_design::review(dir.path(), &["main.rs".into()])
-            .await
-            .is_none()
-    );
-    let r = coturbo_design::review(dir.path(), &["index.html".into()])
-        .await
-        .unwrap();
+    assert!(coturbo_design::review(dir.path(), &["main.rs".into()]).await.is_none());
+    let r = coturbo_design::review(dir.path(), &["index.html".into()]).await.unwrap();
     assert!(!r.ok);
     assert!(r.summary.starts_with("✗ design refused"), "{}", r.summary);
     if coturbo_design::render::find_browser().is_some() {
         assert!(r.summary.contains("rendered page"), "{}", r.summary);
-        assert!(
-            dir.path().join(".codeturbo/design/index.png").exists(),
-            "desktop screenshot saved"
-        );
-        assert!(
-            dir.path()
-                .join(".codeturbo/design/index-phone.png")
-                .exists(),
-            "phone screenshot saved"
-        );
-        assert!(
-            dir.path()
-                .join(".codeturbo/design/index-tablet.png")
-                .exists(),
-            "tablet screenshot saved"
-        );
-        assert!(
-            dir.path()
-                .join(".codeturbo/design/index-laptop.png")
-                .exists(),
-            "laptop screenshot saved"
-        );
+        assert!(dir.path().join(".codeturbo/design/index.png").exists(), "desktop screenshot saved");
+        assert!(dir.path().join(".codeturbo/design/index-phone.png").exists(), "phone screenshot saved");
+        assert!(dir.path().join(".codeturbo/design/index-tablet.png").exists(), "tablet screenshot saved");
+        assert!(dir.path().join(".codeturbo/design/index-laptop.png").exists(), "laptop screenshot saved");
     }
 }
 
 #[test]
 fn repeated_accordion_items_are_not_cards() {
     let page = r#"<div class="faq-item">a</div><div class="faq-item">b</div><div class="faq-item">c</div>"#;
-    assert!(
-        fiscal::check("p.html", page, None)
-            .iter()
-            .all(|f| f.rule != "identical-cards")
-    );
+    assert!(fiscal::check("p.html", page, None).iter().all(|f| f.rule != "identical-cards"));
     let cards = page.replace("faq-item", "price-card");
-    assert!(
-        fiscal::check("p.html", &cards, None)
-            .iter()
-            .any(|f| f.rule == "identical-cards")
-    );
+    assert!(fiscal::check("p.html", &cards, None).iter().any(|f| f.rule == "identical-cards"));
 }
 
 #[test]
@@ -417,35 +267,15 @@ p { font-size: 12px; line-height: 1.1; text-align: justify; }
 .d { color: red !important; } .e { color: red !important; } .f { color: red !important; }
 </style></head><body><p>Lorem ipsum dolor. Leve seu negócio ao próximo nível.</p>
 <a href="#">a</a><a href="#">b</a><a href="#">c</a><img src="https://picsum.photos/200"></body></html>"##;
-    let rules: Vec<&str> = fiscal::check("p.html", page, None)
-        .iter()
-        .map(|f| f.rule)
-        .collect();
+    let rules: Vec<&str> = fiscal::check("p.html", page, None).iter().map(|f| f.rule).collect();
     for r in [
-        "frosted-glass",
-        "outline-removed",
-        "small-text",
-        "line-height",
-        "justified-text",
-        "z-index",
-        "important",
-        "not-responsive",
-        "placeholder-text",
-        "placeholder-image",
-        "empty-links",
-        "cliche-copy",
+        "frosted-glass", "outline-removed", "small-text", "line-height", "justified-text", "z-index", "important",
+        "not-responsive", "placeholder-text", "placeholder-image", "empty-links", "cliche-copy",
     ] {
         assert!(rules.contains(&r), "missing {r}: {rules:?}");
     }
-    let fixed = page.replace(
-        ".grid {",
-        "@media (max-width: 700px) { .grid { grid-template-columns: 1fr; } }\n.grid {",
-    );
-    assert!(
-        !fiscal::check("p.html", &fixed, None)
-            .iter()
-            .any(|f| f.rule == "not-responsive")
-    );
+    let fixed = page.replace(".grid {", "@media (max-width: 700px) { .grid { grid-template-columns: 1fr; } }\n.grid {");
+    assert!(!fiscal::check("p.html", &fixed, None).iter().any(|f| f.rule == "not-responsive"));
 }
 
 #[test]
@@ -454,29 +284,13 @@ fn a_redesign_keeps_the_brand_and_organizes_it() {
     let mut b = brief("moderno");
     b.brand = vec!["#ffd60a".into(), "#ffffff".into(), "#111111".into()];
     let t = compile(&b);
-    assert_eq!(
-        t.color("primary"),
-        (255, 214, 10),
-        "the brand yellow stays exactly"
-    );
+    assert_eq!(t.color("primary"), (255, 214, 10), "the brand yellow stays exactly");
     assert_eq!(t.color("bg"), (255, 255, 255), "white stays the page");
     assert_eq!(t.color("ink"), (17, 17, 17), "black stays the text");
-    assert!(
-        contrast(t.color("on-primary"), t.color("primary")) >= 4.5,
-        "button labels readable on yellow"
-    );
-    assert!(
-        contrast(t.color("primary-ink"), t.color("bg")) >= 4.5,
-        "yellow made readable as text"
-    );
-    let grays: Vec<_> = ["gray-100", "gray-300", "gray-500", "gray-700"]
-        .iter()
-        .map(|n| luminance(t.color(n)))
-        .collect();
-    assert!(
-        grays.windows(2).all(|w| w[0] > w[1]),
-        "a neutral scale from light to dark"
-    );
+    assert!(contrast(t.color("on-primary"), t.color("primary")) >= 4.5, "button labels readable on yellow");
+    assert!(contrast(t.color("primary-ink"), t.color("bg")) >= 4.5, "yellow made readable as text");
+    let grays: Vec<_> = ["gray-100", "gray-300", "gray-500", "gray-700"].iter().map(|n| luminance(t.color(n))).collect();
+    assert!(grays.windows(2).all(|w| w[0] > w[1]), "a neutral scale from light to dark");
     assert!(contract::markdown(&t).contains("Brand colours kept: #ffd60a"));
 }
 
@@ -487,10 +301,7 @@ fn brand_colors_are_found_in_existing_files() {
         ".a{color:#111111} .b{background:#ffd60a} .c{background:#FFD60B} .d{color:#ffd60a} body{background:#fff}".to_string(),
     )];
     let found = fiscal::brand_colors(&files);
-    assert_eq!(
-        found[0], "#ffd60a",
-        "most used first, near shades merged: {found:?}"
-    );
+    assert_eq!(found[0], "#ffd60a", "most used first, near shades merged: {found:?}");
     assert!(found.contains(&"#111111".to_string()) && found.contains(&"#ffffff".to_string()));
 }
 
@@ -520,11 +331,7 @@ mod kit {
         other.subject = "estúdio de cerâmica artesanal".into();
         let b = compile(&other);
         assert_eq!(blueprint(&a), blueprint(&a), "same project, same plan");
-        assert_ne!(
-            blueprint(&a),
-            blueprint(&b),
-            "another project, another plan"
-        );
+        assert_ne!(blueprint(&a), blueprint(&b), "another project, another plan");
         assert_ne!(ornament_svg(&a), ornament_svg(&b));
         assert_ne!(divider_svg(&a), divider_svg(&b));
         let plan = blueprint(&a);
@@ -534,12 +341,7 @@ mod kit {
         for t in tones() {
             let tk = compile(&brief(t));
             for svg in [ornament_svg(&tk), divider_svg(&tk)] {
-                assert!(
-                    svg.starts_with("<svg")
-                        && svg.ends_with("</svg>")
-                        && svg.contains("aria-hidden"),
-                    "{svg}"
-                );
+                assert!(svg.starts_with("<svg") && svg.ends_with("</svg>") && svg.contains("aria-hidden"), "{svg}");
                 assert!(svg.len() < 4000, "small enough to inline: {}", svg.len());
             }
         }
@@ -567,9 +369,7 @@ mod kit {
             base_css(&t)
         );
         std::fs::write(dir.path().join("index.html"), page).unwrap();
-        let r = coturbo_design::review(dir.path(), &["index.html".into()])
-            .await
-            .unwrap();
+        let r = coturbo_design::review(dir.path(), &["index.html".into()]).await.unwrap();
         assert!(r.ok, "{}", r.summary);
     }
 }
@@ -577,18 +377,10 @@ mod kit {
 #[test]
 fn feature_lists_inside_plans_are_not_cards() {
     let page = r#"<ul><li class="price-feature">a</li><li class="price-feature">b</li><li class="price-feature">c</li></ul>"#;
-    assert!(
-        fiscal::check("p.html", page, None)
-            .iter()
-            .all(|f| f.rule != "identical-cards")
-    );
+    assert!(fiscal::check("p.html", page, None).iter().all(|f| f.rule != "identical-cards"));
     let order = r#"<section id="hero"></section><section id="features"></section><section id="testimonials"></section><section id="pricing"></section><section id="faq"></section><section id="contact"></section>"#;
     let f = fiscal::check("p.html", order, None);
-    assert!(
-        f.iter()
-            .any(|x| x.rule == "template-sequence" && !x.blocking()),
-        "the order is advice: {f:?}"
-    );
+    assert!(f.iter().any(|x| x.rule == "template-sequence" && !x.blocking()), "the order is advice: {f:?}");
 }
 
 #[test]
@@ -600,51 +392,21 @@ fn the_design_system_is_read_from_the_project() {
         std::fs::create_dir_all(f.parent().unwrap()).unwrap();
         std::fs::write(f, t).unwrap();
     };
-    w(
-        "src/site.css",
-        ":root { --brand: #ffd60a; --ink: #111111; }\nbody { font-family: 'Space Grotesk', sans-serif; color: #111111; background: #ffffff; }\n.btn { background: #ffd60a; border-radius: 6px; padding: 12px 24px; }\n.card { border-radius: 14px; padding: 24px; gap: 16px; }\n.chip { border-radius: 6px; padding: 4px 12px; }\nh1 { font-family: \"Fraunces\", serif; }\n.btn2 { background: #ffd60a; }",
-    );
-    w(
-        "tailwind.config.js",
-        "module.exports = { theme: { extend: { colors: { brand: '#ffd60a', night: '#0b0b0f' }, fontFamily: { display: ['Fraunces', 'serif'] } } } }",
-    );
-    w(
-        "design/tokens.json",
-        r##"{ "color": { "accent": "#ff5a36" } }"##,
-    );
-    w(
-        "package.json",
-        r#"{ "dependencies": { "tailwindcss": "3", "@radix-ui/react-dialog": "1" } }"#,
-    );
+    w("src/site.css", ":root { --brand: #ffd60a; --ink: #111111; }\nbody { font-family: 'Space Grotesk', sans-serif; color: #111111; background: #ffffff; }\n.btn { background: #ffd60a; border-radius: 6px; padding: 12px 24px; }\n.card { border-radius: 14px; padding: 24px; gap: 16px; }\n.chip { border-radius: 6px; padding: 4px 12px; }\nh1 { font-family: \"Fraunces\", serif; }\n.btn2 { background: #ffd60a; }");
+    w("tailwind.config.js", "module.exports = { theme: { extend: { colors: { brand: '#ffd60a', night: '#0b0b0f' }, fontFamily: { display: ['Fraunces', 'serif'] } } } }");
+    w("design/tokens.json", r##"{ "color": { "accent": "#ff5a36" } }"##);
+    w("package.json", r#"{ "dependencies": { "tailwindcss": "3", "@radix-ui/react-dialog": "1" } }"#);
     w("node_modules/x/ignored.css", "a { color: #00ff00; }");
     let e = extract::scan(dir.path());
     assert_eq!(e.colors[0], "#ffd60a", "most used first: {:?}", e.colors);
-    assert!(
-        e.colors.contains(&"#ff5a36".to_string()),
-        "token files count: {:?}",
-        e.colors
-    );
-    assert!(
-        !e.colors.contains(&"#00ff00".to_string()),
-        "dependencies are not the project"
-    );
-    assert!(
-        e.fonts.contains(&"Space Grotesk".to_string()) && e.fonts.contains(&"Fraunces".to_string()),
-        "{:?}",
-        e.fonts
-    );
+    assert!(e.colors.contains(&"#ff5a36".to_string()), "token files count: {:?}", e.colors);
+    assert!(!e.colors.contains(&"#00ff00".to_string()), "dependencies are not the project");
+    assert!(e.fonts.contains(&"Space Grotesk".to_string()) && e.fonts.contains(&"Fraunces".to_string()), "{:?}", e.fonts);
     assert_eq!(e.radii[0], 6);
     assert!(e.radii.contains(&14));
     assert!(e.spacing.contains(&24) && e.spacing.contains(&12));
-    assert!(
-        e.tokens
-            .iter()
-            .any(|(k, v)| k == "--brand" && v == "#ffd60a")
-    );
-    assert!(
-        e.frameworks.contains(&"Tailwind CSS".to_string())
-            && e.frameworks.iter().any(|f| f.contains("Radix"))
-    );
+    assert!(e.tokens.iter().any(|(k, v)| k == "--brand" && v == "#ffd60a"));
+    assert!(e.frameworks.contains(&"Tailwind CSS".to_string()) && e.frameworks.iter().any(|f| f.contains("Radix")));
     let s = extract::summary(&e);
     assert!(s.contains("fonts: ") && s.contains("Tailwind CSS"), "{s}");
 
@@ -666,11 +428,7 @@ fn a_page_linking_the_kit_file_satisfies_the_static_rules() {
     let t = compile(&brief("técnico"));
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("DESIGN.md"), contract::markdown(&t)).unwrap();
-    std::fs::write(
-        dir.path().join("codeturbo-kit.css"),
-        format!("{}\n{}", contract::css(&t), kit::base_css(&t)),
-    )
-    .unwrap();
+    std::fs::write(dir.path().join("codeturbo-kit.css"), format!("{}\n{}", contract::css(&t), kit::base_css(&t))).unwrap();
     // A page with NO inline styles, only the external kit and tokens.
     let page = r#"<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="codeturbo-kit.css"><title>X</title></head>
 <body><header class="container cluster"><strong>Nordlync</strong><a class="btn btn--secondary" href="/x">Entrar</a></header>
@@ -680,49 +438,23 @@ fn a_page_linking_the_kit_file_satisfies_the_static_rules() {
     let c = Contract::parse(&contract::markdown(&t));
     let merged = with_linked_css(dir.path(), "index.html", page);
     let f = fiscal::check("index.html", &merged, Some(&c));
-    assert!(
-        f.iter().all(|x| !x.blocking()),
-        "the external kit satisfies focus/responsiveness: {f:?}"
-    );
-    assert!(
-        merged.contains(":focus-visible"),
-        "the kit css was inlined for checking"
-    );
+    assert!(f.iter().all(|x| !x.blocking()), "the external kit satisfies focus/responsiveness: {f:?}");
+    assert!(merged.contains(":focus-visible"), "the kit css was inlined for checking");
 }
 
 #[test]
 fn design_md_follows_the_stitch_format_and_preview_renders() {
     let t = compile(&brief("editorial"));
     let md = contract::markdown(&t);
-    for section in [
-        "## Visual theme and atmosphere",
-        "## Palette and roles",
-        "## Do and don't",
-        "| Token | Colour | Role |",
-    ] {
+    for section in ["## Visual theme and atmosphere", "## Palette and roles", "## Do and don't", "| Token | Colour | Role |"] {
         assert!(md.contains(section), "falta secao {section}");
     }
-    assert!(
-        md.contains("| `--color-primary` |"),
-        "tabela de paleta: {md}"
-    );
+    assert!(md.contains("| `--color-primary` |"), "tabela de paleta: {md}");
     let roles = contract::color_roles(&t);
-    assert!(
-        roles
-            .iter()
-            .any(|(n, _, r)| *n == "ink" && r.contains("Main text"))
-    );
+    assert!(roles.iter().any(|(n, _, r)| *n == "ink" && r.contains("Main text")));
     let html = contract::preview_html(&t);
-    assert!(
-        html.starts_with("<!DOCTYPE html>")
-            && html.contains("Colours and roles")
-            && html.contains("btn--primary"),
-        "preview"
-    );
-    assert!(
-        html.contains(":root") && html.contains("--color-primary"),
-        "tokens inline no preview"
-    );
+    assert!(html.starts_with("<!DOCTYPE html>") && html.contains("Colours and roles") && html.contains("btn--primary"), "preview");
+    assert!(html.contains(":root") && html.contains("--color-primary"), "tokens inline no preview");
 }
 
 #[test]
@@ -772,116 +504,38 @@ article p { max-width: 95ch; }
     let f = fiscal::check("index.html", page, None);
     let rules: Vec<&str> = f.iter().map(|x| x.rule).collect();
     for r in [
-        "ai-gradient",
-        "gradient-text",
-        "hero-vh",
-        "transition-all",
-        "bounce-easing",
-        "focus-fade",
-        "tracked-caps",
-        "width-100vw",
-        "blur-orb",
-        "hidden-at-rest",
-        "prose-measure",
-        "double-sticky",
-        "eyebrow",
-        "italic-word",
-        "accent-word",
-        "arrow-link",
-        "middot-meta",
-        "invented-proof",
-        "placeholder-name",
-        "buzzwords",
-        "fake-browser",
-        "video-autoplay",
-        "svg-unlabeled",
-        "nested-card",
-        "email-close",
-        "fake-send",
+        "ai-gradient", "gradient-text", "hero-vh", "transition-all", "bounce-easing", "focus-fade", "tracked-caps", "width-100vw", "blur-orb",
+        "hidden-at-rest", "prose-measure", "double-sticky", "eyebrow", "italic-word", "accent-word", "arrow-link", "middot-meta", "invented-proof",
+        "placeholder-name", "buzzwords", "fake-browser", "video-autoplay", "svg-unlabeled", "nested-card", "email-close", "fake-send",
     ] {
         assert!(rules.contains(&r), "{r} not caught: {rules:?}");
     }
     assert!(f.iter().any(|x| x.message.contains("Hallmark gate")));
     // Scoped under .js, the reveal is fine; a form that really sends is fine.
-    let ok = page
-        .replace(".reveal { opacity: 0; }", ".js .reveal { opacity: 0; }")
-        .replace(
-            "e.preventDefault();",
-            "e.preventDefault(); fetch('/join', {method: 'POST'});",
-        );
-    let rules: Vec<&str> = fiscal::check("index.html", &ok, None)
-        .iter()
-        .map(|x| x.rule)
-        .collect();
-    assert!(
-        !rules.contains(&"hidden-at-rest") && !rules.contains(&"fake-send"),
-        "{rules:?}"
-    );
+    let ok = page.replace(".reveal { opacity: 0; }", ".js .reveal { opacity: 0; }").replace("e.preventDefault();", "e.preventDefault(); fetch('/join', {method: 'POST'});");
+    let rules: Vec<&str> = fiscal::check("index.html", &ok, None).iter().map(|x| x.rule).collect();
+    assert!(!rules.contains(&"hidden-at-rest") && !rules.contains(&"fake-send"), "{rules:?}");
 }
 
 #[test]
 fn the_palette_has_room_for_the_brand_and_the_page_must_use_it() {
     let mut with_brand = brief("editorial");
     with_brand.brand = vec!["#8b3a52".into(), "#c98b67".into()];
-    for t in [
-        compile(&brief("editorial")),
-        compile(&brief("divertido")),
-        compile(&with_brand),
-    ] {
-        let (deep, on_deep, tint, bg) = (
-            t.color("deep"),
-            t.color("on-deep"),
-            t.color("tint"),
-            t.color("bg"),
-        );
-        assert!(
-            contrast(on_deep, deep) >= 4.5,
-            "text on deep reads: {} on {}",
-            hex(on_deep),
-            hex(deep)
-        );
-        assert!(
-            contrast(deep, bg) >= 7.0,
-            "deep is a real dark band: {}",
-            hex(deep)
-        );
-        assert!(
-            contrast(t.color("ink"), tint) >= 4.5,
-            "text on tint reads: {}",
-            hex(tint)
-        );
+    for t in [compile(&brief("editorial")), compile(&brief("divertido")), compile(&with_brand)] {
+        let (deep, on_deep, tint, bg) = (t.color("deep"), t.color("on-deep"), t.color("tint"), t.color("bg"));
+        assert!(contrast(on_deep, deep) >= 4.5, "text on deep reads: {} on {}", hex(on_deep), hex(deep));
+        assert!(contrast(deep, bg) >= 7.0, "deep is a real dark band: {}", hex(deep));
+        assert!(contrast(t.color("ink"), tint) >= 4.5, "text on tint reads: {}", hex(tint));
         assert_ne!(tint, bg);
     }
     let md = contract::markdown(&compile(&brief("editorial")));
     assert!(md.contains("## Colour plan") && md.contains("## Copy") && md.contains("## Imagery"));
 
-    let plain = Metrics {
-        screens: 60,
-        colour: 4,
-        ..Default::default()
-    };
-    let page = Page {
-        desktop: plain.clone(),
-        mobile: plain.clone(),
-        tablet: plain.clone(),
-        laptop: plain,
-    };
-    assert!(
-        judge(&page)
-            .iter()
-            .any(|f| f.rule == "render-no-identity" && f.blocking())
-    );
-    let banded = Metrics {
-        screens: 60,
-        colour: 40,
-        ..Default::default()
-    };
-    let page = Page {
-        desktop: banded.clone(),
-        mobile: banded.clone(),
-        tablet: banded.clone(),
-        laptop: banded,
-    };
+    let plain = Metrics { screens: 60, colour: 4, ..Default::default() };
+    let page = Page { desktop: plain.clone(), mobile: plain.clone(), tablet: plain.clone(), laptop: plain };
+    assert!(judge(&page).iter().any(|f| f.rule == "render-no-identity" && f.blocking()));
+    let banded = Metrics { screens: 60, colour: 40, ..Default::default() };
+    let page = Page { desktop: banded.clone(), mobile: banded.clone(), tablet: banded.clone(), laptop: banded };
     assert!(!judge(&page).iter().any(|f| f.rule == "render-no-identity"));
 }
 
@@ -897,48 +551,23 @@ fn a_call_to_action_that_fits_any_page_is_flagged() {
 #[test]
 fn an_invented_income_promise_counts_as_invented_proof() {
     let page = "<!doctype html><html lang=\"pt\"><body><p>Aprenda a faturar de R$ 3.000 a R$ 7.000 por mês.</p></body></html>";
-    assert!(
-        fiscal::check("index.html", page, None)
-            .iter()
-            .any(|f| f.rule == "invented-proof" && f.blocking())
-    );
-    for claim in [
-        "Mais de 2.400 alunas formadas",
-        "+2.400 alunas",
-        "4.9 de 5 estrelas",
-        "6.000 procedimentos",
-    ] {
+    assert!(fiscal::check("index.html", page, None).iter().any(|f| f.rule == "invented-proof" && f.blocking()));
+    for claim in ["Mais de 2.400 alunas formadas", "+2.400 alunas", "4.9 de 5 estrelas", "6.000 procedimentos"] {
         let page = format!("<!doctype html><html lang=\"pt\"><body><p>{claim}</p></body></html>");
-        assert!(
-            fiscal::check("index.html", &page, None)
-                .iter()
-                .any(|f| f.rule == "invented-proof"),
-            "{claim}"
-        );
+        assert!(fiscal::check("index.html", &page, None).iter().any(|f| f.rule == "invented-proof"), "{claim}");
     }
-    let honest =
-        "<!doctype html><html lang=\"pt\"><body><p>35 aulas em vídeo e 8 módulos</p></body></html>";
-    assert!(
-        !fiscal::check("index.html", honest, None)
-            .iter()
-            .any(|f| f.rule == "invented-proof")
-    );
+    let honest = "<!doctype html><html lang=\"pt\"><body><p>35 aulas em vídeo e 8 módulos</p></body></html>";
+    assert!(!fiscal::check("index.html", honest, None).iter().any(|f| f.rule == "invented-proof"));
 }
 
 #[test]
 fn a_full_row_of_the_grid_runs_to_the_screen_edges() {
     use coturbo_design::grid::{Element, Kind, css};
-    let els = vec![Element {
-        id: "hero".into(),
-        kind: Kind::Title,
-        share: Some(1.0),
-        break_before: false,
-    }];
+    let els = vec![
+        Element { id: "hero".into(), kind: Kind::Title, share: Some(1.0), break_before: false },
+    ];
     let out = css(&els);
-    assert!(
-        out.contains(":where(#hero) { margin-inline: -16px; padding-inline: 16px; }"),
-        "{out}"
-    );
+    assert!(out.contains(":where(#hero) { margin-inline: -16px; padding-inline: 16px; }"), "{out}");
 }
 
 #[test]
@@ -951,43 +580,19 @@ fn a_named_style_fixes_the_look_of_the_whole_page() {
         assert_eq!(t.style, st);
         let radii: Vec<u32> = t.radius.iter().map(|(_, r)| *r).collect();
         assert_eq!(radii, st.radii().to_vec(), "{}", st.name());
-        assert!(
-            st.fonts().iter().any(|(d, _)| *d == t.font_display),
-            "{}: {}",
-            st.name(),
-            t.font_display
-        );
-        assert!(
-            contrast(t.color("ink"), t.color("bg")) >= 7.0,
-            "{}",
-            st.name()
-        );
+        assert!(st.fonts().iter().any(|(d, _)| *d == t.font_display), "{}: {}", st.name(), t.font_display);
+        assert!(contrast(t.color("ink"), t.color("bg")) >= 7.0, "{}", st.name());
         let md = contract::markdown(&t);
-        assert!(
-            md.contains(&format!("## Style: {}", st.name()))
-                && md.contains("## Motion")
-                && md.contains("## Icons"),
-            "{}",
-            st.name()
-        );
-        assert!(
-            md.contains("gsap/3.12.5/ScrollTrigger.min.js") && md.contains("<svg class=\"icon\"")
-        );
+        assert!(md.contains(&format!("## Style: {}", st.name())) && md.contains("## Motion") && md.contains("## Icons"), "{}", st.name());
+        assert!(md.contains("gsap/3.12.5/ScrollTrigger.min.js") && md.contains("<svg class=\"icon\""));
         assert!(!md.to_lowercase().contains("emoji icons") || md.contains("never emoji"));
         let js = coturbo_design::kit::motion_js(&t);
-        assert!(
-            js.contains("registerPlugin")
-                && js.contains("prefers-reduced-motion")
-                && js.contains("Headless")
-        );
+        assert!(js.contains("registerPlugin") && js.contains("prefers-reduced-motion") && js.contains("Headless"));
         assert!(js.contains(st.motion().ease));
     }
     let mut b = brief("editorial");
     b.style = "cinematic".into();
-    assert!(
-        coturbo_design::color::luminance(compile(&b).color("bg")) < 0.1,
-        "cinematic is dark"
-    );
+    assert!(coturbo_design::color::luminance(compile(&b).color("bg")) < 0.1, "cinematic is dark");
     b.style = "brutalist".into();
     let t = compile(&b);
     assert!(coturbo_design::kit::base_css(&t).contains("border: 3px solid var(--color-ink)"));
@@ -1000,11 +605,7 @@ fn single_weight_fonts_are_linked_without_weights() {
     let mut b = brief("editorial");
     b.fonts = vec!["Archivo Black".into(), "JetBrains Mono".into()];
     let link = contract::font_link(&compile(&b));
-    assert!(
-        link.contains("family=Archivo+Black&")
-            && link.contains("family=JetBrains+Mono:wght@400;600;700"),
-        "{link}"
-    );
+    assert!(link.contains("family=Archivo+Black&") && link.contains("family=JetBrains+Mono:wght@400;600;700"), "{link}");
 }
 
 #[test]

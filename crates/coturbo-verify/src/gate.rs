@@ -23,34 +23,20 @@ pub struct GateConfig {
 
 impl Default for GateConfig {
     fn default() -> Self {
-        Self {
-            verify: None,
-            run: None,
-            step_timeout: Duration::from_secs(600),
-            run_timeout: Duration::from_secs(60),
-        }
+        Self { verify: None, run: None, step_timeout: Duration::from_secs(600), run_timeout: Duration::from_secs(60) }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Step {
     /// `cargo <args> --message-format=json`; diagnostics are parsed.
-    Cargo {
-        name: String,
-        args: Vec<String>,
-    },
+    Cargo { name: String, args: Vec<String> },
     CargoTest,
     /// Shell command: exit code and warning lines decide. `optional` steps
     /// are skipped when the tool is not installed.
-    Shell {
-        name: String,
-        command: String,
-        optional: bool,
-    },
+    Shell { name: String, command: String, optional: bool },
     /// Smoke run: fails on non-zero exit, a panic or a stack trace.
-    Run {
-        command: String,
-    },
+    Run { command: String },
 }
 
 impl Step {
@@ -72,11 +58,7 @@ impl Step {
 }
 
 fn shell_step(name: &str, command: &str, optional: bool) -> Step {
-    Step::Shell {
-        name: name.into(),
-        command: command.into(),
-        optional,
-    }
+    Step::Shell { name: name.into(), command: command.into(), optional }
 }
 
 /// Package manager used to run `package.json` scripts, from the lockfile.
@@ -98,17 +80,10 @@ fn js_steps(root: &Path) -> Vec<Step> {
         .and_then(|s| serde_json::from_str::<Value>(&s).ok())
         .map(|v| v["scripts"].clone())
         .unwrap_or(Value::Null);
-    let has = |s: &str| {
-        scripts[s]
-            .as_str()
-            .is_some_and(|c| !c.contains("no test specified"))
-    };
+    let has = |s: &str| scripts[s].as_str().is_some_and(|c| !c.contains("no test specified"));
     let run = js_runner(root);
     let mut steps = Vec::new();
-    if let Some(s) = ["typecheck", "type-check", "tsc"]
-        .into_iter()
-        .find(|s| has(s))
-    {
+    if let Some(s) = ["typecheck", "type-check", "tsc"].into_iter().find(|s| has(s)) {
         steps.push(shell_step("typecheck", &format!("{run} {s}"), false));
     } else if root.join("tsconfig.json").exists() {
         steps.push(shell_step("typecheck", "npx tsc --noEmit", false));
@@ -134,17 +109,7 @@ pub fn detect(root: &Path, cfg: &GateConfig) -> Vec<Step> {
             };
             // No separate `cargo build`: clippy over all targets reports every
             // compile error, and `cargo test` builds everything again anyway.
-            steps.push(cargo(
-                "clippy",
-                &[
-                    "clippy",
-                    "--all-targets",
-                    "--message-format=json",
-                    "--",
-                    "-D",
-                    "warnings",
-                ],
-            ));
+            steps.push(cargo("clippy", &["clippy", "--all-targets", "--message-format=json", "--", "-D", "warnings"]));
             steps.push(Step::CargoTest);
         }
         if root.join("package.json").exists() {
@@ -195,20 +160,10 @@ impl GateReport {
 
     /// What the model sees: one line on success, compact diagnostics on failure.
     pub fn summary(&self) -> String {
-        let ran: Vec<&str> = self
-            .steps
-            .iter()
-            .filter(|s| !s.skipped)
-            .map(|s| s.name.as_str())
-            .collect();
+        let ran: Vec<&str> = self.steps.iter().filter(|s| !s.skipped).map(|s| s.name.as_str()).collect();
         match self.steps.iter().find(|s| !s.ok) {
-            None if ran.is_empty() => {
-                "verification skipped: no build, lint or test command found".into()
-            }
-            None => format!(
-                "✓ verification passed ({}): 0 errors, 0 warnings",
-                ran.join(", ")
-            ),
+            None if ran.is_empty() => "verification skipped: no build, lint or test command found".into(),
+            None => format!("✓ verification passed ({}): 0 errors, 0 warnings", ran.join(", ")),
             Some(f) => format!(
                 "✗ verification failed at `{}` (`{}`): {} error(s), {} warning(s). \
                  Warnings count as failures. Fix every item, then finish.\n{}",
@@ -236,11 +191,7 @@ async fn run_step(root: &Path, step: &Step, cfg: &GateConfig) -> StepResult {
         warnings: 0,
         details: String::new(),
     };
-    let timeout = if matches!(step, Step::Run { .. }) {
-        cfg.run_timeout
-    } else {
-        cfg.step_timeout
-    };
+    let timeout = if matches!(step, Step::Run { .. }) { cfg.run_timeout } else { cfg.step_timeout };
     let command = match step {
         Step::Cargo { args, .. } => {
             let args: Vec<&str> = args.iter().map(String::as_str).collect();
@@ -283,11 +234,7 @@ async fn run_step(root: &Path, step: &Step, cfg: &GateConfig) -> StepResult {
                 r.details = if failures.is_empty() {
                     cmd::tail_lines(&out.combined(), TAIL)
                 } else {
-                    failures
-                        .into_iter()
-                        .take(MAX_DIAGS)
-                        .collect::<Vec<_>>()
-                        .join("\n")
+                    failures.into_iter().take(MAX_DIAGS).collect::<Vec<_>>().join("\n")
                 };
             }
         }
@@ -304,17 +251,12 @@ async fn run_step(root: &Path, step: &Step, cfg: &GateConfig) -> StepResult {
                 r.errors = 1;
                 r.details = cmd::tail_lines(&out.combined(), TAIL);
             } else if !warnings.is_empty() {
-                r.details = warnings
-                    .into_iter()
-                    .take(MAX_DIAGS)
-                    .collect::<Vec<_>>()
-                    .join("\n");
+                r.details = warnings.into_iter().take(MAX_DIAGS).collect::<Vec<_>>().join("\n");
             }
         }
         Step::Run { .. } => {
             let all = out.combined();
-            let crashed =
-                all.contains("panicked at") || all.contains("Traceback (most recent call last)");
+            let crashed = all.contains("panicked at") || all.contains("Traceback (most recent call last)");
             r.ok = out.ok && !crashed;
             if !r.ok {
                 r.errors = 1;
@@ -333,18 +275,9 @@ async fn run_step(root: &Path, step: &Step, cfg: &GateConfig) -> StepResult {
 #[derive(Debug, Clone, Copy)]
 pub enum GateProgress<'a> {
     /// Step `index` of `total` is about to run.
-    Started {
-        name: &'a str,
-        index: usize,
-        total: usize,
-    },
+    Started { name: &'a str, index: usize, total: usize },
     /// It ran, in `secs` seconds.
-    Finished {
-        result: &'a StepResult,
-        index: usize,
-        total: usize,
-        secs: f32,
-    },
+    Finished { result: &'a StepResult, index: usize, total: usize, secs: f32 },
 }
 
 /// Runs the steps in order and stops at the first failure.
@@ -353,28 +286,14 @@ pub async fn run_gate(root: &Path, steps: &[Step], cfg: &GateConfig) -> GateRepo
 }
 
 /// [`run_gate`], telling `progress` when each step starts and ends.
-pub async fn run_gate_with(
-    root: &Path,
-    steps: &[Step],
-    cfg: &GateConfig,
-    progress: &mut (dyn FnMut(GateProgress<'_>) + Send),
-) -> GateReport {
+pub async fn run_gate_with(root: &Path, steps: &[Step], cfg: &GateConfig, progress: &mut (dyn FnMut(GateProgress<'_>) + Send)) -> GateReport {
     let mut report = GateReport { steps: Vec::new() };
     let total = steps.len();
     for (index, step) in steps.iter().enumerate() {
-        progress(GateProgress::Started {
-            name: &step.name(),
-            index,
-            total,
-        });
+        progress(GateProgress::Started { name: &step.name(), index, total });
         let started = std::time::Instant::now();
         let r = run_step(root, step, cfg).await;
-        progress(GateProgress::Finished {
-            result: &r,
-            index,
-            total,
-            secs: started.elapsed().as_secs_f32(),
-        });
+        progress(GateProgress::Finished { result: &r, index, total, secs: started.elapsed().as_secs_f32() });
         let failed = !r.ok;
         report.steps.push(r);
         if failed {

@@ -11,20 +11,7 @@ pub const FILE: &str = "DESIGN.md";
 fn font_stack(name: &str, display: bool, technical: bool) -> String {
     let generic = if name.contains("Mono") {
         "monospace"
-    } else if display
-        && !technical
-        && (name.contains("Serif")
-            || [
-                "Fraunces",
-                "Newsreader",
-                "Cormorant Garamond",
-                "Libre Caslon Display",
-                "Gloock",
-                "Playfair Display",
-                "Young Serif",
-            ]
-            .contains(&name))
-    {
+    } else if display && !technical && (name.contains("Serif") || ["Fraunces", "Newsreader", "Cormorant Garamond", "Libre Caslon Display", "Gloock", "Playfair Display", "Young Serif"].contains(&name)) {
         "serif"
     } else {
         "sans-serif"
@@ -39,14 +26,8 @@ pub fn css(t: &Tokens) -> String {
     for (n, c) in &t.colors {
         s.push_str(&format!("  --color-{n}: {};\n", hex(*c)));
     }
-    s.push_str(&format!(
-        "  --font-display: {};\n",
-        font_stack(&t.font_display, true, technical)
-    ));
-    s.push_str(&format!(
-        "  --font-body: {};\n",
-        font_stack(&t.font_body, false, technical)
-    ));
+    s.push_str(&format!("  --font-display: {};\n", font_stack(&t.font_display, true, technical)));
+    s.push_str(&format!("  --font-body: {};\n", font_stack(&t.font_body, false, technical)));
     for (n, rem) in &t.type_scale {
         s.push_str(&format!("  --text-{n}: {rem}rem;\n"));
     }
@@ -83,23 +64,10 @@ pub fn css(t: &Tokens) -> String {
 /// `<link>` tags loading the two fonts.
 pub fn font_link(t: &Tokens) -> String {
     // Fonts cut in a single weight: asking Google Fonts for others fails the whole request.
-    const SINGLE: [&str; 8] = [
-        "Archivo Black",
-        "Anton",
-        "Bebas Neue",
-        "DM Serif Display",
-        "Gloock",
-        "Young Serif",
-        "Instrument Serif",
-        "Libre Caslon Display",
-    ];
+    const SINGLE: [&str; 8] = ["Archivo Black", "Anton", "Bebas Neue", "DM Serif Display", "Gloock", "Young Serif", "Instrument Serif", "Libre Caslon Display"];
     let fam = |f: &str| {
         let name = f.replace(' ', "+");
-        if SINGLE.contains(&f) {
-            format!("family={name}")
-        } else {
-            format!("family={name}:wght@400;600;700")
-        }
+        if SINGLE.contains(&f) { format!("family={name}") } else { format!("family={name}:wght@400;600;700") }
     };
     format!(
         "<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n<link href=\"https://fonts.googleapis.com/css2?{}&{}&display=swap\" rel=\"stylesheet\">",
@@ -127,10 +95,7 @@ pub fn color_roles(t: &Tokens) -> Vec<(&'static str, String, &'static str)> {
         n if n.starts_with("gray") => "Neutral scale for hierarchy",
         _ => "",
     };
-    t.colors
-        .iter()
-        .map(|(n, c)| (*n, hex(*c), role(n)))
-        .collect()
+    t.colors.iter().map(|(n, c)| (*n, hex(*c), role(n))).collect()
 }
 
 /// A visual catalogue of the design system (swatches, type scale, buttons,
@@ -256,22 +221,10 @@ pub fn markdown(t: &Tokens) -> String {
         b.tone,
         t.tone.name(),
         b.signature,
-        if b.brand.is_empty() {
-            "none (new palette)".to_string()
-        } else {
-            b.brand.join(", ")
-        } + &if b.fonts.is_empty() {
-            String::new()
-        } else {
-            format!("\n- Project fonts kept: {}", b.fonts.join(", "))
-        },
+        if b.brand.is_empty() { "none (new palette)".to_string() } else { b.brand.join(", ") }
+            + &if b.fonts.is_empty() { String::new() } else { format!("\n- Project fonts kept: {}", b.fonts.join(", ")) },
         t.layout,
-        crate::kit::blueprint(t)
-            .iter()
-            .enumerate()
-            .map(|(i, s)| format!("{}. {s}", i + 1))
-            .collect::<Vec<_>>()
-            .join("\n"),
+        crate::kit::blueprint(t).iter().enumerate().map(|(i, s)| format!("{}. {s}", i + 1)).collect::<Vec<_>>().join("\n"),
         font_link(t),
         css(t),
         crate::kit::base_css(t),
@@ -281,21 +234,10 @@ pub fn markdown(t: &Tokens) -> String {
         style_rules = t.style.rules(),
         motion = {
             let m = t.style.motion();
-            format!(
-                "{}s, {}, rising {}px, parallax {}",
-                m.duration, m.ease, m.rise, m.parallax
-            )
+            format!("{}s, {}, rising {}px, parallax {}", m.duration, m.ease, m.rise, m.parallax)
         },
-        icons = crate::kit::icons(t)
-            .iter()
-            .map(|(n, svg)| format!("<!-- {n} -->\n{svg}"))
-            .collect::<Vec<_>>()
-            .join("\n"),
-        roles = color_roles(t)
-            .iter()
-            .map(|(n, hx, role)| format!("| `--color-{n}` | {hx} | {role} |"))
-            .collect::<Vec<_>>()
-            .join("\n")
+        icons = crate::kit::icons(t).iter().map(|(n, svg)| format!("<!-- {n} -->\n{svg}")).collect::<Vec<_>>().join("\n"),
+        roles = color_roles(t).iter().map(|(n, hx, role)| format!("| `--color-{n}` | {hx} | {role} |")).collect::<Vec<_>>().join("\n")
     )
 }
 
@@ -308,10 +250,7 @@ pub struct Contract {
 impl Contract {
     pub fn parse(text: &str) -> Contract {
         let re = regex::Regex::new(r"(--[a-z0-9-]+)\s*:\s*([^;]+);").expect("valid regex");
-        let vars = re
-            .captures_iter(text)
-            .map(|c| (c[1].to_string(), c[2].trim().to_string()))
-            .collect();
+        let vars = re.captures_iter(text).map(|c| (c[1].to_string(), c[2].trim().to_string())).collect();
         Contract { vars }
     }
 
@@ -322,11 +261,7 @@ impl Contract {
     }
 
     pub fn colors(&self) -> Vec<Rgb> {
-        self.vars
-            .iter()
-            .filter(|(k, _)| k.starts_with("--color-"))
-            .filter_map(|(_, v)| parse_hex(v))
-            .collect()
+        self.vars.iter().filter(|(k, _)| k.starts_with("--color-")).filter_map(|(_, v)| parse_hex(v)).collect()
     }
 
     /// Pixel values of the tokens starting with `prefix`, smallest first.

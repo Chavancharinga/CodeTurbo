@@ -69,10 +69,7 @@ pub struct ScanOptions {
 
 impl Default for ScanOptions {
     fn default() -> Self {
-        Self {
-            listen: Duration::from_millis(2500),
-            sweep: false,
-        }
+        Self { listen: Duration::from_millis(2500), sweep: false }
     }
 }
 
@@ -103,9 +100,7 @@ const COMMON_SERVICES: &[&str] = &[
 ];
 
 /// Ports tried by the sweep: web, SSH, cameras, printers, casting, MQTT, hubs.
-pub const SWEEP_PORTS: &[u16] = &[
-    22, 80, 443, 554, 1400, 1883, 5000, 6668, 8008, 8009, 8080, 8123, 8443, 9100,
-];
+pub const SWEEP_PORTS: &[u16] = &[22, 80, 443, 554, 1400, 1883, 5000, 6668, 8008, 8009, 8080, 8123, 8443, 9100];
 
 /// The address this computer uses on the local network.
 pub fn local_ipv4() -> Option<Ipv4Addr> {
@@ -121,11 +116,7 @@ pub fn local_ipv4() -> Option<Ipv4Addr> {
 /// Finds the devices on the local network.
 pub async fn scan(opts: ScanOptions) -> Inventory {
     let local = local_ipv4();
-    let (mdns, ssdp, own) = tokio::join!(
-        mdns(local, opts.listen),
-        ssdp(local, opts.listen),
-        own_discovery(local, opts.listen)
-    );
+    let (mdns, ssdp, own) = tokio::join!(mdns(local, opts.listen), ssdp(local, opts.listen), own_discovery(local, opts.listen));
     let upnp = describe_all(ssdp).await;
     let mut by_ip: BTreeMap<IpAddr, Device> = BTreeMap::new();
     for (ip, d) in mdns.into_iter().chain(own) {
@@ -142,10 +133,7 @@ pub async fn scan(opts: ScanOptions) -> Inventory {
         && let Some(l) = local
     {
         let o = l.octets();
-        let hosts: Vec<IpAddr> = (1..=254u8)
-            .map(|h| IpAddr::V4(Ipv4Addr::new(o[0], o[1], o[2], h)))
-            .filter(|ip| *ip != IpAddr::V4(l))
-            .collect();
+        let hosts: Vec<IpAddr> = (1..=254u8).map(|h| IpAddr::V4(Ipv4Addr::new(o[0], o[1], o[2], h))).filter(|ip| *ip != IpAddr::V4(l)).collect();
         for (ip, port) in probe(&hosts, SWEEP_PORTS).await {
             by_ip.entry(ip).or_default().open_ports.insert(port);
         }
@@ -177,9 +165,7 @@ pub async fn scan(opts: ScanOptions) -> Inventory {
 /// Kasa (a broadcast on 9999) and Yeelight (a multicast search on 1982).
 async fn own_discovery(local: Option<Ipv4Addr>, window: Duration) -> HashMap<IpAddr, Device> {
     let mut out: HashMap<IpAddr, Device> = HashMap::new();
-    let Some(socket) = lan_socket(local).await else {
-        return out;
-    };
+    let Some(socket) = lan_socket(local).await else { return out };
     let _ = socket.set_broadcast(true);
     let ask = home::kasa_probe();
     let _ = socket.send_to(&ask, (Ipv4Addr::BROADCAST, 9999)).await;
@@ -190,34 +176,18 @@ async fn own_discovery(local: Option<Ipv4Addr>, window: Duration) -> HashMap<IpA
             if let Some((alias, model)) = home::kasa_answer(m) {
                 let d = out.entry(from.ip()).or_default();
                 d.names.insert(alias.clone());
-                d.services.push(Service {
-                    kind: "kasa".into(),
-                    port: 9999,
-                    txt: vec![format!("model={model}"), format!("fn={alias}")],
-                });
+                d.services.push(Service { kind: "kasa".into(), port: 9999, txt: vec![format!("model={model}"), format!("fn={alias}")] });
             }
             return;
         }
         let text = String::from_utf8_lossy(m);
         if text.to_lowercase().contains("yeelight://") {
-            let field = |k: &str| {
-                text.lines().find_map(|l| {
-                    l.split_once(':')
-                        .filter(|(a, _)| a.trim().eq_ignore_ascii_case(k))
-                        .map(|(_, v)| v.trim().to_string())
-                })
-            };
+            let field = |k: &str| text.lines().find_map(|l| l.split_once(':').filter(|(a, _)| a.trim().eq_ignore_ascii_case(k)).map(|(_, v)| v.trim().to_string()));
             let d = out.entry(from.ip()).or_default();
             let model = field("model").unwrap_or_default();
-            let name = field("name")
-                .filter(|n| !n.is_empty())
-                .unwrap_or_else(|| format!("Yeelight {model}"));
+            let name = field("name").filter(|n| !n.is_empty()).unwrap_or_else(|| format!("Yeelight {model}"));
             d.names.insert(name.clone());
-            d.services.push(Service {
-                kind: "yeelight".into(),
-                port: 55443,
-                txt: vec![format!("model={model}"), format!("fn={name}")],
-            });
+            d.services.push(Service { kind: "yeelight".into(), port: 55443, txt: vec![format!("model={model}"), format!("fn={name}")] });
         }
     })
     .await;
@@ -231,22 +201,9 @@ async fn name_all(inv: &mut Inventory) {
     let router = inv
         .devices
         .iter()
-        .find(|d| {
-            d.upnp.iter().any(|u| {
-                u.device_type.contains("InternetGateway") || u.device_type.contains("WFADevice")
-            })
-        })
+        .find(|d| d.upnp.iter().any(|u| u.device_type.contains("InternetGateway") || u.device_type.contains("WFADevice")))
         .and_then(|d| d.ip)
-        .or_else(|| {
-            inv.local.map(|l| {
-                IpAddr::V4(Ipv4Addr::new(
-                    l.octets()[0],
-                    l.octets()[1],
-                    l.octets()[2],
-                    1,
-                ))
-            })
-        });
+        .or_else(|| inv.local.map(|l| IpAddr::V4(Ipv4Addr::new(l.octets()[0], l.octets()[1], l.octets()[2], 1))));
     let ips: Vec<Option<IpAddr>> = inv.devices.iter().map(|d| d.ip).collect();
     let clues: Vec<(Option<String>, Option<String>)> = futures_util::stream::iter(ips)
         .map(|ip| async move {
@@ -261,10 +218,7 @@ async fn name_all(inv: &mut Inventory) {
         .collect()
         .await;
     for (d, (host, title)) in inv.devices.iter_mut().zip(clues) {
-        let vendor = d
-            .mac
-            .as_deref()
-            .and_then(|m| identify::vendor_of(&vendors, m));
+        let vendor = d.mac.as_deref().and_then(|m| identify::vendor_of(&vendors, m));
         d.identity = identify::identify(d, vendor, host.as_deref(), title.as_deref());
         d.host = host;
     }
@@ -294,26 +248,17 @@ async fn lan_socket(local: Option<Ipv4Addr>) -> Option<UdpSocket> {
 async fn listen(socket: &UdpSocket, window: Duration, mut on: impl FnMut(&[u8], SocketAddr)) {
     let deadline = tokio::time::Instant::now() + window;
     let mut buf = vec![0u8; 9000];
-    while let Ok(Ok((n, from))) =
-        tokio::time::timeout_at(deadline, socket.recv_from(&mut buf)).await
-    {
+    while let Ok(Ok((n, from))) = tokio::time::timeout_at(deadline, socket.recv_from(&mut buf)).await {
         on(&buf[..n], from);
     }
 }
 
 /// Bonjour / mDNS: lists the service types announced, then asks for each.
 async fn mdns(local: Option<Ipv4Addr>, window: Duration) -> HashMap<IpAddr, Device> {
-    let Some(socket) = lan_socket(local).await else {
-        return HashMap::new();
-    };
+    let Some(socket) = lan_socket(local).await else { return HashMap::new() };
     let group: SocketAddr = "224.0.0.251:5353".parse().expect("valid address");
     let mut records = Vec::new();
-    let _ = socket
-        .send_to(
-            &dns::query(&["_services._dns-sd._udp.local"], dns::PTR),
-            group,
-        )
-        .await;
+    let _ = socket.send_to(&dns::query(&["_services._dns-sd._udp.local"], dns::PTR), group).await;
     listen(&socket, window / 2, |m, _| records.extend(dns::records(m))).await;
     let mut types: BTreeSet<String> = COMMON_SERVICES.iter().map(|s| s.to_string()).collect();
     for r in &records {
@@ -340,19 +285,14 @@ pub fn assemble(records: &[dns::Record]) -> HashMap<IpAddr, Device> {
     let mut instances: BTreeSet<(String, String)> = BTreeSet::new();
     for r in records {
         match &r.data {
-            dns::Data::A(ip) => hosts
-                .entry(r.name.to_lowercase())
-                .or_default()
-                .push(IpAddr::V4(*ip)),
+            dns::Data::A(ip) => hosts.entry(r.name.to_lowercase()).or_default().push(IpAddr::V4(*ip)),
             dns::Data::Srv { port, target } => {
                 srv.insert(r.name.clone(), (target.to_lowercase(), *port));
             }
             dns::Data::Txt(t) => {
                 txt.insert(r.name.clone(), t.clone());
             }
-            dns::Data::Ptr(inst)
-                if r.name.starts_with('_') && r.name != "_services._dns-sd._udp.local" =>
-            {
+            dns::Data::Ptr(inst) if r.name.starts_with('_') && r.name != "_services._dns-sd._udp.local" => {
                 instances.insert((r.name.clone(), inst.clone()));
             }
             _ => {}
@@ -360,18 +300,11 @@ pub fn assemble(records: &[dns::Record]) -> HashMap<IpAddr, Device> {
     }
     let mut out: HashMap<IpAddr, Device> = HashMap::new();
     for (kind, inst) in instances {
-        let Some((target, port)) = srv.get(&inst) else {
-            continue;
-        };
-        let Some(ips) = hosts.get(target) else {
-            continue;
-        };
+        let Some((target, port)) = srv.get(&inst) else { continue };
+        let Some(ips) = hosts.get(target) else { continue };
         let Some(ip) = ips.first() else { continue };
         let dev = out.entry(*ip).or_default();
-        let label = inst
-            .strip_suffix(&format!(".{kind}"))
-            .unwrap_or(&inst)
-            .replace("\\032", " ");
+        let label = inst.strip_suffix(&format!(".{kind}")).unwrap_or(&inst).replace("\\032", " ");
         let txt = txt.get(&inst).cloned().unwrap_or_default();
         // Cast devices put their real name in `fn=`.
         if let Some(name) = txt.iter().find_map(|t| t.strip_prefix("fn=")) {
@@ -379,14 +312,9 @@ pub fn assemble(records: &[dns::Record]) -> HashMap<IpAddr, Device> {
         } else {
             dev.names.insert(label);
         }
-        dev.names
-            .insert(target.trim_end_matches(".local").to_string());
+        dev.names.insert(target.trim_end_matches(".local").to_string());
         let txt = txt.into_iter().filter(|t| useful_txt(t)).take(6).collect();
-        dev.services.push(Service {
-            kind: kind.trim_end_matches(".local").to_string(),
-            port: *port,
-            txt,
-        });
+        dev.services.push(Service { kind: kind.trim_end_matches(".local").to_string(), port: *port, txt });
     }
     out
 }
@@ -394,30 +322,13 @@ pub fn assemble(records: &[dns::Record]) -> HashMap<IpAddr, Device> {
 /// TXT entries that tell what a device is.
 fn useful_txt(t: &str) -> bool {
     let key = t.split('=').next().unwrap_or("").to_ascii_lowercase();
-    matches!(
-        key.as_str(),
-        "md" | "model"
-            | "ty"
-            | "manufacturer"
-            | "mf"
-            | "fn"
-            | "am"
-            | "product"
-            | "vendor"
-            | "rp"
-            | "path"
-            | "ver"
-            | "fv"
-            | "id"
-    )
+    matches!(key.as_str(), "md" | "model" | "ty" | "manufacturer" | "mf" | "fn" | "am" | "product" | "vendor" | "rp" | "path" | "ver" | "fv" | "id")
 }
 
 /// UPnP / SSDP: everyone that answers an M-SEARCH, by address, with the
 /// description URL and server line.
 async fn ssdp(local: Option<Ipv4Addr>, window: Duration) -> Vec<(IpAddr, String, String)> {
-    let Some(socket) = lan_socket(local).await else {
-        return Vec::new();
-    };
+    let Some(socket) = lan_socket(local).await else { return Vec::new() };
     let msg = "M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: \"ssdp:discover\"\r\nMX: 2\r\nST: ssdp:all\r\n\r\n";
     for _ in 0..2 {
         let _ = socket.send_to(msg.as_bytes(), "239.255.255.250:1900").await;
@@ -428,9 +339,7 @@ async fn ssdp(local: Option<Ipv4Addr>, window: Duration) -> Vec<(IpAddr, String,
         let header = |key: &str| {
             text.lines().find_map(|l| {
                 let (k, v) = l.split_once(':')?;
-                k.trim()
-                    .eq_ignore_ascii_case(key)
-                    .then(|| v.trim().to_string())
+                k.trim().eq_ignore_ascii_case(key).then(|| v.trim().to_string())
             })
         };
         if let Some(loc) = header("location") {
@@ -441,17 +350,9 @@ async fn ssdp(local: Option<Ipv4Addr>, window: Duration) -> Vec<(IpAddr, String,
     seen.into_iter().collect()
 }
 
-async fn describe_all(
-    found: Vec<(IpAddr, String, String)>,
-) -> Vec<(IpAddr, (Upnp, Option<String>))> {
+async fn describe_all(found: Vec<(IpAddr, String, String)>) -> Vec<(IpAddr, (Upnp, Option<String>))> {
     use futures_util::StreamExt;
-    let Ok(client) = reqwest::Client::builder()
-        .timeout(Duration::from_secs(3))
-        .no_proxy()
-        .build()
-    else {
-        return Vec::new();
-    };
+    let Ok(client) = reqwest::Client::builder().timeout(Duration::from_secs(3)).no_proxy().build() else { return Vec::new() };
     futures_util::stream::iter(found)
         .map(|(ip, loc, server)| {
             let client = client.clone();
@@ -479,9 +380,7 @@ fn tag<'a>(xml: &'a str, name: &str) -> Option<&'a str> {
 
 /// A UPnP description document: the device and its control URLs.
 pub fn parse_description(location: &str, xml: &str) -> (Upnp, Option<String>) {
-    let base = tag(xml, "URLBase")
-        .map(str::to_string)
-        .unwrap_or_else(|| origin(location));
+    let base = tag(xml, "URLBase").map(str::to_string).unwrap_or_else(|| origin(location));
     let mut controls = Vec::new();
     let mut rest = xml;
     while let Some(i) = rest.find("<service>") {
@@ -500,12 +399,7 @@ pub fn parse_description(location: &str, xml: &str) -> (Upnp, Option<String>) {
         location: location.to_string(),
         device_type: tag(xml, "deviceType").unwrap_or("").to_string(),
         manufacturer: tag(xml, "manufacturer").unwrap_or("").to_string(),
-        model: [tag(xml, "modelName"), tag(xml, "modelNumber")]
-            .into_iter()
-            .flatten()
-            .filter(|s| !s.is_empty())
-            .collect::<Vec<_>>()
-            .join(" "),
+        model: [tag(xml, "modelName"), tag(xml, "modelNumber")].into_iter().flatten().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" "),
         server: String::new(),
         controls,
     };
@@ -534,11 +428,7 @@ pub fn arp_table() -> Vec<(Ipv4Addr, String)> {
         std::fs::read_to_string("/proc/net/arp").unwrap_or_default()
     } else {
         let args: &[&str] = if cfg!(windows) { &["-a"] } else { &["-an"] };
-        std::process::Command::new("arp")
-            .args(args)
-            .output()
-            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-            .unwrap_or_default()
+        std::process::Command::new("arp").args(args).output().map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default()
     };
     parse_arp(&text)
 }
@@ -548,11 +438,7 @@ pub fn parse_arp(text: &str) -> Vec<(Ipv4Addr, String)> {
     let mut out = Vec::new();
     for line in text.lines() {
         let words: Vec<&str> = line.split_whitespace().collect();
-        let ip = words.iter().find_map(|w| {
-            w.trim_matches(|c| c == '(' || c == ')')
-                .parse::<Ipv4Addr>()
-                .ok()
-        });
+        let ip = words.iter().find_map(|w| w.trim_matches(|c| c == '(' || c == ')').parse::<Ipv4Addr>().ok());
         let mac = words.iter().find_map(|w| normalize_mac(w));
         if let (Some(ip), Some(mac)) = (ip, mac) {
             let o = ip.octets();
@@ -568,39 +454,19 @@ pub fn parse_arp(text: &str) -> Vec<(Ipv4Addr, String)> {
 /// `aa-bb-cc-dd-ee-ff`, `aa:bb:..` or `a:b:..` as `aa:bb:cc:dd:ee:ff`.
 pub fn normalize_mac(w: &str) -> Option<String> {
     let parts: Vec<&str> = w.split([':', '-']).collect();
-    if parts.len() != 6
-        || !parts
-            .iter()
-            .all(|p| (1..=2).contains(&p.len()) && p.chars().all(|c| c.is_ascii_hexdigit()))
-    {
+    if parts.len() != 6 || !parts.iter().all(|p| (1..=2).contains(&p.len()) && p.chars().all(|c| c.is_ascii_hexdigit())) {
         return None;
     }
-    Some(
-        parts
-            .iter()
-            .map(|p| format!("{:0>2}", p.to_ascii_lowercase()))
-            .collect::<Vec<_>>()
-            .join(":"),
-    )
+    Some(parts.iter().map(|p| format!("{:0>2}", p.to_ascii_lowercase())).collect::<Vec<_>>().join(":"))
 }
 
 /// The `(address, port)` pairs that accept a connection.
 async fn probe(hosts: &[IpAddr], ports: &[u16]) -> Vec<(IpAddr, u16)> {
     use futures_util::StreamExt;
-    let pairs: Vec<(IpAddr, u16)> = hosts
-        .iter()
-        .flat_map(|h| ports.iter().map(move |p| (*h, *p)))
-        .collect();
+    let pairs: Vec<(IpAddr, u16)> = hosts.iter().flat_map(|h| ports.iter().map(move |p| (*h, *p))).collect();
     futures_util::stream::iter(pairs)
         .map(|(ip, port)| async move {
-            let ok = matches!(
-                tokio::time::timeout(
-                    Duration::from_millis(400),
-                    tokio::net::TcpStream::connect((ip, port))
-                )
-                .await,
-                Ok(Ok(_))
-            );
+            let ok = matches!(tokio::time::timeout(Duration::from_millis(400), tokio::net::TcpStream::connect((ip, port))).await, Ok(Ok(_)));
             ok.then_some((ip, port))
         })
         .buffer_unordered(256)
@@ -623,27 +489,10 @@ pub fn render(inv: &Inventory) -> String {
     out.push_str(&format!("{} device(s):\n", inv.devices.len()));
     for d in &inv.devices {
         let ip = d.ip.map(|i| i.to_string()).unwrap_or_default();
-        let names: Vec<&str> = d
-            .names
-            .iter()
-            .map(String::as_str)
-            .filter(|n| !n.is_empty())
-            .collect();
+        let names: Vec<&str> = d.names.iter().map(String::as_str).filter(|n| !n.is_empty()).collect();
         let id = &d.identity;
-        let what = [id.kind.as_str(), id.brand.as_str(), id.model.as_str()]
-            .iter()
-            .filter(|s| !s.is_empty())
-            .copied()
-            .collect::<Vec<_>>()
-            .join(" · ");
-        out.push_str(&format!(
-            "\n{ip}  {}",
-            if what.is_empty() {
-                "unidentified device"
-            } else {
-                &what
-            }
-        ));
+        let what = [id.kind.as_str(), id.brand.as_str(), id.model.as_str()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(" · ");
+        out.push_str(&format!("\n{ip}  {}", if what.is_empty() { "unidentified device" } else { &what }));
         // The user's own name for it comes first.
         match registry::name_of(d.mac.as_deref()) {
             Some(n) => out.push_str(&format!("  named \"{n}\"")),
@@ -668,24 +517,11 @@ pub fn render(inv: &Inventory) -> String {
             out.push_str(&format!("  {}\n", also.join(" · ")));
         }
         for s in &d.services {
-            let txt = if s.txt.is_empty() {
-                String::new()
-            } else {
-                format!("  {}", s.txt.join(" "))
-            };
+            let txt = if s.txt.is_empty() { String::new() } else { format!("  {}", s.txt.join(" ")) };
             out.push_str(&format!("  mdns {} port {}{txt}\n", s.kind, s.port));
         }
         for u in &d.upnp {
-            let what = [
-                u.manufacturer.as_str(),
-                u.model.as_str(),
-                u.device_type.as_str(),
-            ]
-            .iter()
-            .filter(|s| !s.is_empty())
-            .copied()
-            .collect::<Vec<_>>()
-            .join(" · ");
+            let what = [u.manufacturer.as_str(), u.model.as_str(), u.device_type.as_str()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(" · ");
             out.push_str(&format!("  upnp {what}  ({})\n", u.location));
             for (kind, url) in &u.controls {
                 out.push_str(&format!("    action service {kind} at {url}\n"));
@@ -700,17 +536,8 @@ pub fn render(inv: &Inventory) -> String {
     if !away.is_empty() {
         out.push_str("\nKnown devices not answering now (off or asleep; a TV can still be woken with its MAC):\n");
         for k in away.iter().take(20) {
-            let name = if k.name.is_empty() {
-                String::new()
-            } else {
-                format!("  named \"{}\"", k.name)
-            };
-            out.push_str(&format!(
-                "  {}  {}{name}  mac {}\n",
-                k.ip,
-                if k.what.is_empty() { "device" } else { &k.what },
-                k.mac
-            ));
+            let name = if k.name.is_empty() { String::new() } else { format!("  named \"{}\"", k.name) };
+            out.push_str(&format!("  {}  {}{name}  mac {}\n", k.ip, if k.what.is_empty() { "device" } else { &k.what }, k.mac));
         }
     }
     out
@@ -720,48 +547,30 @@ pub fn render(inv: &Inventory) -> String {
 pub fn is_private(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(v) => v.is_private() || v.is_link_local() || v.is_loopback(),
-        IpAddr::V6(v) => {
-            v.is_loopback()
-                || (v.segments()[0] & 0xfe00) == 0xfc00
-                || (v.segments()[0] & 0xffc0) == 0xfe80
-        }
+        IpAddr::V6(v) => v.is_loopback() || (v.segments()[0] & 0xfe00) == 0xfc00 || (v.segments()[0] & 0xffc0) == 0xfe80,
     }
 }
 
 /// The host of `url` resolved, refused unless every address is private.
 async fn private_host(url: &str) -> Result<(), String> {
-    let after = url
-        .find("://")
-        .map(|i| i + 3)
-        .ok_or("the address must start with http:// or https://")?;
+    let after = url.find("://").map(|i| i + 3).ok_or("the address must start with http:// or https://")?;
     let authority = url[after..].split(['/', '?', '#']).next().unwrap_or("");
     let host_port = authority.rsplit('@').next().unwrap_or("");
     let (host, port) = if let Some(rest) = host_port.strip_prefix('[') {
         let (h, p) = rest.split_once(']').ok_or("bad IPv6 address")?;
-        (
-            h.to_string(),
-            p.trim_start_matches(':').parse().unwrap_or(80),
-        )
+        (h.to_string(), p.trim_start_matches(':').parse().unwrap_or(80))
     } else {
         match host_port.rsplit_once(':') {
-            Some((h, p)) if p.chars().all(|c| c.is_ascii_digit()) => {
-                (h.to_string(), p.parse().unwrap_or(80))
-            }
+            Some((h, p)) if p.chars().all(|c| c.is_ascii_digit()) => (h.to_string(), p.parse().unwrap_or(80)),
             _ => (host_port.to_string(), 80u16),
         }
     };
     let ips: Vec<IpAddr> = match host.parse::<IpAddr>() {
         Ok(ip) => vec![ip],
-        Err(_) => tokio::net::lookup_host((host.as_str(), port))
-            .await
-            .map_err(|e| format!("could not find {host}: {e}"))?
-            .map(|a| a.ip())
-            .collect(),
+        Err(_) => tokio::net::lookup_host((host.as_str(), port)).await.map_err(|e| format!("could not find {host}: {e}"))?.map(|a| a.ip()).collect(),
     };
     if ips.is_empty() || !ips.iter().all(|ip| is_private(*ip)) {
-        return Err(format!(
-            "{host} is not on the local network: device control only reaches private addresses"
-        ));
+        return Err(format!("{host} is not on the local network: device control only reaches private addresses"));
     }
     Ok(())
 }
@@ -781,24 +590,13 @@ fn clip(s: String) -> String {
 
 fn lan_client() -> Result<reqwest::Client, String> {
     // Many devices have self-signed certificates: on the LAN only, accept them.
-    reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .no_proxy()
-        .danger_accept_invalid_certs(true)
-        .build()
-        .map_err(|e| e.to_string())
+    reqwest::Client::builder().timeout(Duration::from_secs(10)).no_proxy().danger_accept_invalid_certs(true).build().map_err(|e| e.to_string())
 }
 
 /// An HTTP request to a device on the local network.
-pub async fn http(
-    method: &str,
-    url: &str,
-    headers: &[(String, String)],
-    body: Option<&str>,
-) -> Result<String, String> {
+pub async fn http(method: &str, url: &str, headers: &[(String, String)], body: Option<&str>) -> Result<String, String> {
     private_host(url).await?;
-    let method = reqwest::Method::from_bytes(method.to_ascii_uppercase().as_bytes())
-        .map_err(|_| format!("unknown method {method}"))?;
+    let method = reqwest::Method::from_bytes(method.to_ascii_uppercase().as_bytes()).map_err(|_| format!("unknown method {method}"))?;
     let mut req = lan_client()?.request(method, url);
     for (k, v) in headers {
         req = req.header(k, v);
@@ -806,38 +604,18 @@ pub async fn http(
     if let Some(b) = body {
         req = req.body(b.to_string());
     }
-    let resp = req
-        .send()
-        .await
-        .map_err(|e| format!("the device did not answer: {e}"))?;
+    let resp = req.send().await.map_err(|e| format!("the device did not answer: {e}"))?;
     let status = resp.status();
-    let kind = resp
-        .headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("")
-        .to_string();
+    let kind = resp.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
     let text = resp.text().await.unwrap_or_default();
     Ok(clip(format!("HTTP {status} {kind}\n{text}")))
 }
 
 /// Calls a UPnP action (SOAP), e.g. `Play`, `Pause`, `SetVolume`.
-pub async fn upnp_action(
-    control_url: &str,
-    service_type: &str,
-    action: &str,
-    args: &[(String, String)],
-) -> Result<String, String> {
+pub async fn upnp_action(control_url: &str, service_type: &str, action: &str, args: &[(String, String)]) -> Result<String, String> {
     private_host(control_url).await?;
-    let esc = |s: &str| {
-        s.replace('&', "&amp;")
-            .replace('<', "&lt;")
-            .replace('>', "&gt;")
-    };
-    let inner: String = args
-        .iter()
-        .map(|(k, v)| format!("<{k}>{}</{k}>", esc(v)))
-        .collect();
+    let esc = |s: &str| s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+    let inner: String = args.iter().map(|(k, v)| format!("<{k}>{}</{k}>", esc(v))).collect();
     let envelope = format!(
         "<?xml version=\"1.0\" encoding=\"utf-8\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:{action} xmlns:u=\"{service_type}\">{inner}</u:{action}></s:Body></s:Envelope>"
     );
@@ -861,10 +639,7 @@ pub async fn upnp_action(
 /// Wakes a computer with a Wake-on-LAN magic packet.
 pub async fn wake(mac: &str, broadcast: Option<Ipv4Addr>) -> Result<String, String> {
     let mac = normalize_mac(mac).ok_or_else(|| format!("{mac} is not a MAC address"))?;
-    let bytes: Vec<u8> = mac
-        .split(':')
-        .map(|p| u8::from_str_radix(p, 16).unwrap_or(0))
-        .collect();
+    let bytes: Vec<u8> = mac.split(':').map(|p| u8::from_str_radix(p, 16).unwrap_or(0)).collect();
     let mut packet = vec![0xFFu8; 6];
     for _ in 0..16 {
         packet.extend_from_slice(&bytes);
@@ -873,15 +648,10 @@ pub async fn wake(mac: &str, broadcast: Option<Ipv4Addr>) -> Result<String, Stri
     if !is_private(IpAddr::V4(target)) && target != Ipv4Addr::BROADCAST {
         return Err(format!("{target} is not a local broadcast address"));
     }
-    let socket = UdpSocket::bind("0.0.0.0:0")
-        .await
-        .map_err(|e| e.to_string())?;
+    let socket = UdpSocket::bind("0.0.0.0:0").await.map_err(|e| e.to_string())?;
     socket.set_broadcast(true).map_err(|e| e.to_string())?;
     for port in [9u16, 7] {
-        socket
-            .send_to(&packet, (target, port))
-            .await
-            .map_err(|e| e.to_string())?;
+        socket.send_to(&packet, (target, port)).await.map_err(|e| e.to_string())?;
     }
     Ok(format!("magic packet sent to {mac} via {target}"))
 }
@@ -893,26 +663,11 @@ mod tests {
     #[test]
     fn reads_the_arp_table_of_each_system() {
         let windows = "Interface: 192.168.1.10 --- 0x5\n  Internet Address      Physical Address      Type\n  192.168.1.1           a4-2b-b0-11-22-33     dynamic\n  192.168.1.255         ff-ff-ff-ff-ff-ff     static\n  224.0.0.22            01-00-5e-00-00-16     static\n";
-        assert_eq!(
-            parse_arp(windows),
-            vec![(
-                Ipv4Addr::new(192, 168, 1, 1),
-                "a4:2b:b0:11:22:33".to_string()
-            )]
-        );
+        assert_eq!(parse_arp(windows), vec![(Ipv4Addr::new(192, 168, 1, 1), "a4:2b:b0:11:22:33".to_string())]);
         let mac_os = "? (10.0.0.7) at 3c:6:30:aa:bb:cc on en0 ifscope [ethernet]\n";
-        assert_eq!(
-            parse_arp(mac_os),
-            vec![(Ipv4Addr::new(10, 0, 0, 7), "3c:06:30:aa:bb:cc".to_string())]
-        );
+        assert_eq!(parse_arp(mac_os), vec![(Ipv4Addr::new(10, 0, 0, 7), "3c:06:30:aa:bb:cc".to_string())]);
         let linux = "IP address       HW type     Flags       HW address            Mask     Device\n192.168.0.20     0x1         0x2         b8:27:eb:01:02:03     *        wlan0\n";
-        assert_eq!(
-            parse_arp(linux),
-            vec![(
-                Ipv4Addr::new(192, 168, 0, 20),
-                "b8:27:eb:01:02:03".to_string()
-            )]
-        );
+        assert_eq!(parse_arp(linux), vec![(Ipv4Addr::new(192, 168, 0, 20), "b8:27:eb:01:02:03".to_string())]);
     }
 
     #[test]
@@ -921,32 +676,14 @@ mod tests {
         let (u, name) = parse_description("http://192.168.1.30:9197/dmr", xml);
         assert_eq!(name.as_deref(), Some("Sala TV"));
         assert_eq!(u.manufacturer, "Samsung");
-        assert_eq!(
-            u.controls[0],
-            (
-                "urn:schemas-upnp-org:service:AVTransport:1".into(),
-                "http://192.168.1.30:9197/upnp/control/AVTransport1".into()
-            )
-        );
-        assert_eq!(
-            u.controls[1].1,
-            "http://192.168.1.30:9197/RenderingControl/ctrl"
-        );
+        assert_eq!(u.controls[0], ("urn:schemas-upnp-org:service:AVTransport:1".into(), "http://192.168.1.30:9197/upnp/control/AVTransport1".into()));
+        assert_eq!(u.controls[1].1, "http://192.168.1.30:9197/RenderingControl/ctrl");
     }
 
     #[tokio::test]
     async fn control_never_leaves_the_local_network() {
-        assert!(
-            http("GET", "http://8.8.8.8/", &[], None)
-                .await
-                .unwrap_err()
-                .contains("not on the local network")
-        );
-        assert!(
-            upnp_action("http://1.1.1.1:80/ctl", "urn:x", "Play", &[])
-                .await
-                .is_err()
-        );
+        assert!(http("GET", "http://8.8.8.8/", &[], None).await.unwrap_err().contains("not on the local network"));
+        assert!(upnp_action("http://1.1.1.1:80/ctl", "urn:x", "Play", &[]).await.is_err());
         assert!(private_host("http://192.168.1.5:8080/x").await.is_ok());
         assert!(private_host("http://[fe80::1]:80/").await.is_ok());
         assert!(wake("not-a-mac", None).await.is_err());
@@ -954,15 +691,7 @@ mod tests {
 
     #[test]
     fn private_addresses() {
-        for ip in [
-            "10.0.0.1",
-            "172.16.4.2",
-            "192.168.0.9",
-            "169.254.1.1",
-            "127.0.0.1",
-            "fd00::1",
-            "fe80::2",
-        ] {
+        for ip in ["10.0.0.1", "172.16.4.2", "192.168.0.9", "169.254.1.1", "127.0.0.1", "fd00::1", "fe80::2"] {
             assert!(is_private(ip.parse().unwrap()), "{ip}");
         }
         for ip in ["8.8.8.8", "172.32.0.1", "2001:4860::8888"] {

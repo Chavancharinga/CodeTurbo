@@ -36,20 +36,11 @@ fn language(data: &[u8], strings: &[(usize, String)]) -> &'static str {
         "Rust"
     } else if has(b"\xff Go buildinf:") {
         "Go"
-    } else if strings
-        .iter()
-        .any(|(_, s)| s == "mscorlib" || s.starts_with("System.Private.CoreLib"))
-    {
+    } else if strings.iter().any(|(_, s)| s == "mscorlib" || s.starts_with("System.Private.CoreLib")) {
         ".NET"
-    } else if strings
-        .iter()
-        .any(|(_, s)| s.starts_with("Electron/") || s == "node.dll")
-    {
+    } else if strings.iter().any(|(_, s)| s.starts_with("Electron/") || s == "node.dll") {
         "Electron/Node"
-    } else if strings
-        .iter()
-        .any(|(_, s)| s.starts_with("MSVCP") || s.starts_with("libstdc++"))
-    {
+    } else if strings.iter().any(|(_, s)| s.starts_with("MSVCP") || s.starts_with("libstdc++")) {
         "C++"
     } else {
         "desconhecida (C ou outra)"
@@ -58,8 +49,7 @@ fn language(data: &[u8], strings: &[(usize, String)]) -> &'static str {
 
 /// Report on a binary file.
 pub fn inspect(data: &[u8], question: &str) -> Result<String, String> {
-    let file = object::File::parse(data)
-        .map_err(|e| format!("formato não reconhecido como binário: {e}"))?;
+    let file = object::File::parse(data).map_err(|e| format!("formato não reconhecido como binário: {e}"))?;
     let all = strings(data, 6);
     let mut r = format!(
         "Binary: {:?}, {:?}, {} bytes, likely language: {}, entry 0x{:x}\n",
@@ -69,51 +59,26 @@ pub fn inspect(data: &[u8], question: &str) -> Result<String, String> {
         language(data, &all),
         file.entry()
     );
-    let sections: Vec<String> = file
-        .sections()
-        .filter_map(|s| Some(format!("{} ({}b)", s.name().ok()?, s.size())))
-        .take(16)
-        .collect();
+    let sections: Vec<String> = file.sections().filter_map(|s| Some(format!("{} ({}b)", s.name().ok()?, s.size()))).take(16).collect();
     r.push_str(&format!("Sections: {}\n", sections.join(", ")));
     if let Ok(imports) = file.imports() {
         let mut by_lib: std::collections::BTreeMap<String, Vec<String>> = Default::default();
         for i in &imports {
             let lib = String::from_utf8_lossy(i.library()).into_owned();
-            by_lib
-                .entry(lib)
-                .or_default()
-                .push(crate::demangle::demangle_short(&String::from_utf8_lossy(
-                    i.name(),
-                )));
+            by_lib.entry(lib).or_default().push(crate::demangle::demangle_short(&String::from_utf8_lossy(i.name())));
         }
         if !by_lib.is_empty() {
             r.push_str("Imports:\n");
             for (lib, names) in by_lib.iter().take(15) {
                 let shown: Vec<&String> = names.iter().take(12).collect();
-                r.push_str(&format!(
-                    "  {lib}: {}{}\n",
-                    shown
-                        .iter()
-                        .map(|s| s.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", "),
-                    if names.len() > 12 { ", …" } else { "" }
-                ));
+                r.push_str(&format!("  {lib}: {}{}\n", shown.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "), if names.len() > 12 { ", …" } else { "" }));
             }
         }
     }
     if let Ok(exports) = file.exports() {
-        let names: Vec<String> = exports
-            .iter()
-            .take(30)
-            .map(|e| crate::demangle::demangle_short(&String::from_utf8_lossy(e.name())))
-            .collect();
+        let names: Vec<String> = exports.iter().take(30).map(|e| crate::demangle::demangle_short(&String::from_utf8_lossy(e.name()))).collect();
         if !names.is_empty() {
-            r.push_str(&format!(
-                "Exports ({}): {}\n",
-                exports.len(),
-                names.join(", ")
-            ));
+            r.push_str(&format!("Exports ({}): {}\n", exports.len(), names.join(", ")));
         }
     }
     let terms = crate::terms(question);
@@ -124,25 +89,12 @@ pub fn inspect(data: &[u8], question: &str) -> Result<String, String> {
         .take(25)
         .collect();
     if !symbols.is_empty() {
-        r.push_str(&format!(
-            "Symbols matching the question: {}\n",
-            symbols.join(", ")
-        ));
+        r.push_str(&format!("Symbols matching the question: {}\n", symbols.join(", ")));
     }
-    let urls: Vec<&String> = all
-        .iter()
-        .map(|(_, s)| s)
-        .filter(|s| s.contains("http://") || s.contains("https://"))
-        .take(12)
-        .collect();
+    let urls: Vec<&String> =
+        all.iter().map(|(_, s)| s).filter(|s| s.contains("http://") || s.contains("https://")).take(12).collect();
     if !urls.is_empty() {
-        r.push_str(&format!(
-            "URLs inside: {}\n",
-            urls.iter()
-                .map(|s| s.as_str())
-                .collect::<Vec<_>>()
-                .join(" | ")
-        ));
+        r.push_str(&format!("URLs inside: {}\n", urls.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(" | ")));
     }
     if !terms.is_empty() {
         let hits: Vec<String> = all
@@ -151,12 +103,7 @@ pub fn inspect(data: &[u8], question: &str) -> Result<String, String> {
             .take(30)
             .map(|(o, s)| format!("  0x{o:x}: {}", s.chars().take(140).collect::<String>()))
             .collect();
-        r.push_str(&format!(
-            "Strings matching {:?} ({} shown):\n{}\n",
-            terms,
-            hits.len(),
-            hits.join("\n")
-        ));
+        r.push_str(&format!("Strings matching {:?} ({} shown):\n{}\n", terms, hits.len(), hits.join("\n")));
     }
     r.push_str("Unknowns: control flow and full C pseudocode need a decompiler.");
     Ok(r)
