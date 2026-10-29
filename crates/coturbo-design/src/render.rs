@@ -381,7 +381,7 @@ async fn run(browser: &Path, size: (u32, u32), args: &[String]) -> Result<String
     let n = RUNS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     let profile = std::env::temp_dir().join(format!("codeturbo-render-{}-{n}", std::process::id()));
     let mut cmd = tokio::process::Command::new(browser);
-    cmd.args(["--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--allow-file-access-from-files"]);
+    cmd.args(["--headless=new", "--disable-gpu", "--hide-scrollbars", "--no-first-run", "--no-default-browser-check", "--allow-file-access-from-files"]);
     // Hosted CI runners on Linux forbid the browser's own sandbox; on Android
     // (Termux) Chromium only starts without it.
     if (cfg!(target_os = "linux") && std::env::var_os("CI").is_some()) || on_android() {
@@ -442,7 +442,7 @@ async fn measure_at(browser: &Path, html: &Path, shot: &Path, size: (u32, u32)) 
     let frame = |src: &str, name: &str| -> Result<String, String> {
         let f = html.with_file_name(format!(".codeturbo-render-{stem}-{}-{name}.html", size.0));
         let doc = format!(
-            "<!DOCTYPE html><html><body style=\"margin:0;background:#1b1d22\"><iframe scrolling=\"no\" src=\"{src}\" style=\"border:0;width:{}px;height:{}px;background:#fff\"></iframe></body></html>",
+            "<!DOCTYPE html><html style=\"overflow:hidden\"><body style=\"margin:0;overflow:hidden;background:#1b1d22\"><iframe scrolling=\"no\" src=\"{src}\" style=\"display:block;border:0;width:{}px;height:{}px;background:#fff\"></iframe></body></html>",
             size.0, size.1
         );
         std::fs::write(&f, doc).map_err(|e| e.to_string())?;
