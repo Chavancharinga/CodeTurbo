@@ -175,7 +175,7 @@ impl Session {
     }
 
     fn info(&self, text: impl Into<String>) {
-        self.send(Out::Lines(vec![Line::styled(format!("  {}", text.into()), dim())]));
+        self.send(Out::Lines(text.into().lines().map(|l| Line::styled(format!("  {l}"), dim())).collect()));
     }
 
     fn warn(&self, text: impl Into<String>) {

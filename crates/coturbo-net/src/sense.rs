@@ -206,15 +206,57 @@ pub mod wlan {
 
 /// This machine's WiFi signal now, in dBm, if it is on WiFi.
 pub fn host_rssi() -> Option<f64> {
+    host_wifi().ok()
+}
+
+/// Runs a command for at most `secs`. The Termux:API commands wait forever
+/// when the Termux:API app is missing, so they are killed after a while.
+/// `Err(true)` when the command is not installed.
+fn bounded(cmd: &str, args: &[&str], secs: u64) -> Result<Option<String>, bool> {
+    let mut child = std::process::Command::new(cmd)
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| e.kind() == std::io::ErrorKind::NotFound)?;
+    let until = Instant::now() + Duration::from_secs(secs);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => {
+                let mut out = String::new();
+                let _ = std::io::Read::read_to_string(&mut child.stdout.take().ok_or(false)?, &mut out);
+                return Ok(Some(out));
+            }
+            Ok(None) if Instant::now() < until => std::thread::sleep(Duration::from_millis(50)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Ok(None);
+            }
+        }
+    }
+}
+
+/// This machine's WiFi signal in dBm, or why it cannot be read, in words.
+pub fn host_wifi() -> Result<f64, String> {
     if cfg!(windows) {
-        return parse_netsh(&quiet("netsh", &["wlan", "show", "interfaces"])?);
+        return quiet("netsh", &["wlan", "show", "interfaces"]).as_deref().and_then(parse_netsh).ok_or_else(|| "this computer is not on WiFi".to_string());
     }
     if let Some(v) = std::fs::read_to_string("/proc/net/wireless").ok().as_deref().and_then(parse_proc_wireless) {
-        return Some(v);
+        return Ok(v);
     }
-    // Termux on Android (the Termux:API add-on).
-    let j: serde_json::Value = serde_json::from_str(&quiet("termux-wifi-connectioninfo", &[])?).ok()?;
-    j["rssi"].as_f64().filter(|r| *r < 0.0)
+    let termux = std::env::var_os("TERMUX_VERSION").is_some() || cfg!(target_os = "android");
+    // Termux on Android: the Termux:API app and its `termux-api` package.
+    match bounded("termux-wifi-connectioninfo", &[], 6) {
+        Ok(Some(out)) => {
+            let j: serde_json::Value = serde_json::from_str(&out).map_err(|_| "Termux:API gave no WiFi reading".to_string())?;
+            j["rssi"].as_f64().filter(|r| *r < 0.0 && *r > -127.0).ok_or_else(|| "this phone is not on WiFi".to_string())
+        }
+        Ok(None) => Err("the Termux:API app did not answer: install it from the store you got Termux from, open it once, then run /sense again".to_string()),
+        Err(true) if termux => Err("to read this phone's WiFi, install the Termux:API app and run: pkg install termux-api".to_string()),
+        Err(_) => Err("this computer is not on WiFi".to_string()),
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -549,7 +591,33 @@ pub async fn run(seconds: Option<f64>, on: &(dyn Fn(Event) + Send + Sync)) -> Re
     let started = Instant::now();
     let an = std::sync::Arc::new(std::sync::Mutex::new(Analyzer::default()));
     let native = native_wifi(an.clone(), started);
-    let native_on = native.is_some();
+    // Elsewhere the system's own reading, on a thread of its own: on a phone
+    // it can take seconds. It keeps trying, and says why while it cannot.
+    let problem = std::sync::Arc::new(std::sync::Mutex::new(None::<String>));
+    let host = native.is_none().then(|| {
+        let (an, problem) = (an.clone(), problem.clone());
+        std::thread::spawn(move || {
+            while !STOP.load(Ordering::SeqCst) {
+                let got = host_wifi();
+                let wait = match &got {
+                    Ok(v) => {
+                        if let Ok(mut a) = an.lock() {
+                            a.push_rssi(started.elapsed().as_secs_f64(), *v);
+                        }
+                        400
+                    }
+                    Err(_) => 2000,
+                };
+                if let Ok(mut p) = problem.lock() {
+                    *p = got.err();
+                }
+                let until = Instant::now() + Duration::from_millis(wait);
+                while Instant::now() < until && !STOP.load(Ordering::SeqCst) {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+            }
+        })
+    });
     let udp = tokio::net::UdpSocket::bind(("0.0.0.0", CSI_PORT)).await.ok();
     let listen = {
         let an = an.clone();
@@ -570,40 +638,27 @@ pub async fn run(seconds: Option<f64>, on: &(dyn Fn(Event) + Send + Sync)) -> Re
         let an = an.clone();
         async move {
             let mut last = Reading { source: String::new(), csi: false, rate_hz: 0.0, seconds: 0.0, level: None, motion: 0.0, presence: Presence::Learning, breathing: None, motion_history: Vec::new(), signal_history: Vec::new(), fingerprint: Vec::new() };
-            let mut tick = 0u32;
-            let mut wifi = true;
             loop {
                 let now = started.elapsed().as_secs_f64();
                 if STOP.load(Ordering::SeqCst) || seconds.is_some_and(|s| now >= s) {
                     STOP.store(true, Ordering::SeqCst);
                     return last;
                 }
-                // The computer's WiFi about twice a second.
-                if wifi && !native_on && tick.is_multiple_of(2) {
-                    match tokio::task::spawn_blocking(host_rssi).await.ok().flatten() {
-                        Some(v) => {
-                            if let Ok(mut a) = an.lock() {
-                                a.push_rssi(started.elapsed().as_secs_f64(), v);
-                            }
-                        }
-                        None if tick == 0 => wifi = false,
-                        None => {}
-                    }
-                }
                 if let Ok(mut a) = an.lock() {
                     last = a.reading(started.elapsed().as_secs_f64(), now);
                 }
-                if !wifi && last.signal_history.is_empty() {
-                    last.source = format!("waiting for ESP32 CSI on UDP port {CSI_PORT} (this computer is not on WiFi)");
+                if let Some(why) = problem.lock().ok().and_then(|p| p.clone())
+                    && last.signal_history.is_empty()
+                {
+                    last.source = format!("waiting for ESP32 CSI on UDP port {CSI_PORT} ({why})");
                 }
                 on(Event::Reading(last.clone()));
-                tick += 1;
                 tokio::time::sleep(Duration::from_millis(250)).await;
             }
         }
     };
     let (_, last) = tokio::join!(listen, sample);
-    if let Some(t) = native {
+    for t in native.into_iter().chain(host) {
         let _ = tokio::task::spawn_blocking(move || t.join()).await;
     }
     on(Event::End);
@@ -703,6 +758,17 @@ mod tests {
             moving = a.reading(t, t);
         }
         assert_eq!(moving.presence, Presence::Moving, "{moving:?}");
+    }
+
+    #[test]
+    fn a_missing_command_says_so_and_a_hung_one_is_cut_short() {
+        assert_eq!(bounded("codeturbo-no-such-command", &[], 1), Err(true));
+        let (quick, slow): (&[&str], &[&str]) = if cfg!(windows) { (&["/c", "echo hi"], &["/c", "ping -n 6 127.0.0.1 >nul"]) } else { (&["-c", "echo hi"], &["-c", "sleep 5"]) };
+        let shell = if cfg!(windows) { "cmd" } else { "sh" };
+        assert!(bounded(shell, quick, 5).unwrap().unwrap().contains("hi"));
+        let t = Instant::now();
+        assert_eq!(bounded(shell, slow, 1), Ok(None));
+        assert!(t.elapsed() < Duration::from_secs(4));
     }
 
     #[test]

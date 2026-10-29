@@ -109,7 +109,8 @@ pub fn draw(f: &mut Frame, area: Rect, view: &SenseView, ms: u128) {
     let signal: Vec<u64> = r.signal_history.iter().map(|v| (((v - mid) / span + 0.5) * 100.0).clamp(1.0, 100.0) as u64).collect();
     let unit = match r.level {
         Some(l) => format!(" signal, last minute: {l:.0} dBm (range {:.0} dB) ", (hi - lo).max(0.0)),
-        None => " signal, last minute (CSI amplitude) ".to_string(),
+        None if r.csi => " signal, last minute (CSI amplitude) ".to_string(),
+        None => " signal, last minute: no samples yet ".to_string(),
     };
     f.render_widget(
         Sparkline::default()
