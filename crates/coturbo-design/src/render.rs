@@ -82,7 +82,11 @@ const cut=items.filter(e=>{const r=R(e);return own(e)&&(r.right>W+1||r.left<-1||
 const scrollers=[...document.querySelectorAll('body *')].filter(e=>{const s=getComputedStyle(e);return vis(e)&&((/(auto|scroll)/.test(s.overflowY)&&e.scrollHeight>e.clientHeight+1)||(/(auto|scroll)/.test(s.overflowX)&&e.scrollWidth>e.clientWidth+1))&&e.clientWidth>0;}).map(label).slice(0,5);
 const small=W<600?[...document.querySelectorAll('a,button,input,select')].filter(e=>{const r=R(e);return vis(e)&&r.width>0&&(r.height<32||r.width<32);}).length:0;
 const rgb=t=>{const m=(t||'').match(/[\d.]+/g);return m?m.map(Number):null;};const lin=v=>{v/=255;return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4);};const lum=c=>0.2126*lin(c[0])+0.7152*lin(c[1])+0.0722*lin(c[2]);const bgOf=e=>{for(let a=e;a;a=a.parentElement){const s=getComputedStyle(a);if(s.backgroundImage&&s.backgroundImage!=='none')return null;const c=rgb(s.backgroundColor);if(c&&(c.length<4||c[3]>0.9))return c;}return [255,255,255];};const contrast=[];for(const e of items){if(contrast.length>=8)break;if(!own(e))continue;const s=getComputedStyle(e);const f=rgb(s.color);const b=bgOf(e);if(!f||!b||(f.length>3&&f[3]<0.5))continue;const L1=lum(f),L2=lum(b);const r=(Math.max(L1,L2)+0.05)/(Math.min(L1,L2)+0.05);const px=parseFloat(s.fontSize);const big=px>=24||(px>=18.6&&parseInt(s.fontWeight)>=700);if(r<(big?3:4.5))contrast.push(label(e)+' '+r.toFixed(1)+':1');}const longlines=[];const sizes=new Set();const inks=new Set();const fills=new Set();for(const e of items){if(!own(e))continue;const s=getComputedStyle(e);const px=parseFloat(s.fontSize);sizes.add(Math.round(px));inks.add(s.color);if(/^(P|LI|DD|BLOCKQUOTE)$/.test(e.tagName)&&e.textContent.trim().length>160&&longlines.length<5){const chars=R(e).width/(px*0.5);if(chars>90)longlines.push(label(e)+' ~'+Math.round(chars)+' chars');}}for(const e of all){const c=getComputedStyle(e).backgroundColor;if(c&&c!=='rgba(0, 0, 0, 0)'&&c!=='transparent')fills.add(c);}const noalt=[...document.images].filter(i=>vis(i)&&!i.hasAttribute('alt')).length;const unlabeled=[...document.querySelectorAll('input,select,textarea')].filter(i=>vis(i)&&!/^(hidden|submit|button|reset|image)$/.test(i.type)&&!(i.labels&&i.labels.length)&&!i.getAttribute('aria-label')&&!i.getAttribute('aria-labelledby')&&!i.title).length;const nolang=!document.documentElement.getAttribute('lang');const noviewport=!document.querySelector('meta[name=viewport]');let host=document.documentElement;try{if(window.parent!==window)host=parent.document.documentElement;}catch(e){}
-const out=JSON.stringify({rounded,radii:radii.size,shadowed,shadows:shadows.size,centered,text,rows,tiny,overlaps,tight,broken,hscroll,scrollers,small,cut,edge,under,contrast,noalt,unlabeled,nolang,noviewport,longlines,sizes:sizes.size,inks:inks.size,fills:fills.size});host.setAttribute('data-codeturbo',out);console.log('CT_PROBE:'+out);};
+const bold=e=>{const s=getComputedStyle(e);if(/^(IMG|VIDEO|CANVAS|PICTURE)$/.test(e.tagName)||(s.backgroundImage&&s.backgroundImage!=='none'))return true;const c=rgb(s.backgroundColor);if(!c||(c.length>3&&c[3]<0.5))return false;return Math.max(c[0],c[1],c[2])-Math.min(c[0],c[1],c[2])>18||lum(c)<0.3;};
+const H=Math.max(1,document.documentElement.scrollHeight);const spans=[];for(const e of all){const r=R(e);if(r.width>=W*0.5&&bold(e))spans.push([r.top+scrollY,r.bottom+scrollY]);}
+spans.sort((a,b)=>a[0]-b[0]);let cov=0,end=-1e9;for(const [a,b] of spans){if(b<=end)continue;cov+=b-Math.max(a,end);end=b;}
+const colour=(bold(document.body)||bold(document.documentElement))?100:Math.round(cov/H*100);const screens=Math.round(H/innerHeight*10);
+const out=JSON.stringify({colour,screens,rounded,radii:radii.size,shadowed,shadows:shadows.size,centered,text,rows,tiny,overlaps,tight,broken,hscroll,scrollers,small,cut,edge,under,contrast,noalt,unlabeled,nolang,noviewport,longlines,sizes:sizes.size,inks:inks.size,fills:fills.size});host.setAttribute('data-codeturbo',out);console.log('CT_PROBE:'+out);};
 if(document.readyState==='complete')setTimeout(go,300);else addEventListener('load',()=>setTimeout(go,300));})();</script>"#;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -130,6 +134,11 @@ pub struct Metrics {
     pub sizes: usize,
     pub inks: usize,
     pub fills: usize,
+    /// Share of the page's height (0–100) under colour, photos or
+    /// illustrations rather than the plain background.
+    pub colour: usize,
+    /// The page's height in tenths of a screen.
+    pub screens: usize,
 }
 
 /// Measurements at every screen size checked.
@@ -214,6 +223,8 @@ pub fn parse_metrics(dom: &str) -> Option<Metrics> {
         sizes: n("sizes"),
         inks: n("inks"),
         fills: n("fills"),
+        colour: n("colour"),
+        screens: n("screens"),
     })
 }
 
@@ -318,6 +329,13 @@ pub fn judge(p: &Page) -> Vec<Finding> {
         add(Severity::P2, "render-too-many-colours", format!(
             "{} text colours and {} background colours drawn; keep to the contract roles (ink, muted, primary...) so the palette reads as one",
             d.inks, d.fills
+        ));
+    }
+    // A long page that is all plain background reads as a template.
+    if d.screens >= 25 && d.colour < 15 {
+        add(Severity::P1, "render-no-identity", format!(
+            "only {}% of the page carries colour, photos or illustrations: the brand lives on the buttons alone; put whole sections on --color-deep, --color-primary or --color-tint (DESIGN.md, colour plan) and show the subject in images or SVG",
+            d.colour
         ));
     }
     let m = &p.desktop;

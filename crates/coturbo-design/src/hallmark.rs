@@ -27,6 +27,9 @@ static ITALIC_IN: LazyLock<Regex> = LazyLock::new(|| re(r"(?is)<(em|i)\b[^>]*>[^
 static ACCENT_IN: LazyLock<Regex> =
     LazyLock::new(|| re(r#"(?is)<span\b[^>]*\bclass(?:Name)?\s*=\s*["'][^"']*\b(accent|highlight|gradient|text-primary|text-accent|colored|brand|marker)[^"']*["']"#));
 static ARROW_LINK: LazyLock<Regex> = LazyLock::new(|| re(r"(?s)>([^<>]{2,40}?)\s*(→|->|›|»)\s*</(a|button)>"));
+static CTA: LazyLock<Regex> = LazyLock::new(|| re(r"(?is)<(a|button)\b[^>]*>\s*([^<]{2,40}?)\s*</(?:a|button)>"));
+/// Link and button texts that could sit on any page.
+const GENERIC_CTA: &[&str] = &["saiba mais", "clique aqui", "leia mais", "ver mais", "enviar", "learn more", "click here", "read more", "submit", "more info", "mais informações"];
 static MIDDOTS: LazyLock<Regex> = LazyLock::new(|| re(r">[^<>]*\S\s+·\s+[^<>]*\S\s+·\s+\S[^<>]*<"));
 static PROOF: LazyLock<Regex> = LazyLock::new(|| {
     re(r"(?i)trusted by|loved by|★★★★★|\b4\.[89]\s*/\s*5\b|\b\d[\d,.]*\s*(k|m)?\+\s*(happy\s+)?(users|customers|teams|companies|developers|businesses|clientes|empresas|usuários)")
@@ -203,6 +206,9 @@ pub(crate) fn check_markup(text: &str, markup: &str, out: &mut Vec<Finding>) {
     }
     if let Some(m) = ARROW_LINK.find(markup) {
         add(Severity::P2, "arrow-link", line_of(text, m.start()), "an arrow glued to link or button text, as in `Learn more →` (Hallmark gate 63): the words alone".into());
+    }
+    if let Some(c) = CTA.captures_iter(markup).find(|c| GENERIC_CTA.contains(&c[2].trim().to_lowercase().as_str())) {
+        add(Severity::P2, "generic-cta", line_of(text, c.get(0).expect("match").start()), format!("\"{}\" says nothing about what the reader gets: name the result with a verb (DESIGN.md, copy)", c[2].trim()));
     }
     if let Some(m) = MIDDOTS.find(markup) {
         add(Severity::P2, "middot-meta", line_of(text, m.start()), "meta joined with middle dots (`A · B · C`), template punctuation (Hallmark gate 63)".into());

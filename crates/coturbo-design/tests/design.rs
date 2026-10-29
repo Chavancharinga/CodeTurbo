@@ -68,7 +68,7 @@ fn the_contract_round_trips() {
     assert!(md.contains("Signature element: um cofre"));
     assert!(md.contains("fonts.googleapis.com/css2?family="));
     let c = Contract::parse(&md);
-    assert_eq!(c.colors().len(), 8);
+    assert_eq!(c.colors().len(), 11);
     assert_eq!(c.space(), t.space);
     assert_eq!(c.radii(), t.radius.iter().map(|(_, r)| *r).collect::<Vec<_>>());
     assert!(c.vars["--font-display"].contains(&t.font_display));
@@ -513,4 +513,35 @@ article p { max-width: 95ch; }
     let ok = page.replace(".reveal { opacity: 0; }", ".js .reveal { opacity: 0; }").replace("e.preventDefault();", "e.preventDefault(); fetch('/join', {method: 'POST'});");
     let rules: Vec<&str> = fiscal::check("index.html", &ok, None).iter().map(|x| x.rule).collect();
     assert!(!rules.contains(&"hidden-at-rest") && !rules.contains(&"fake-send"), "{rules:?}");
+}
+
+#[test]
+fn the_palette_has_room_for_the_brand_and_the_page_must_use_it() {
+    let mut with_brand = brief("editorial");
+    with_brand.brand = vec!["#8b3a52".into(), "#c98b67".into()];
+    for t in [compile(&brief("editorial")), compile(&brief("divertido")), compile(&with_brand)] {
+        let (deep, on_deep, tint, bg) = (t.color("deep"), t.color("on-deep"), t.color("tint"), t.color("bg"));
+        assert!(contrast(on_deep, deep) >= 4.5, "text on deep reads: {} on {}", hex(on_deep), hex(deep));
+        assert!(contrast(deep, bg) >= 7.0, "deep is a real dark band: {}", hex(deep));
+        assert!(contrast(t.color("ink"), tint) >= 4.5, "text on tint reads: {}", hex(tint));
+        assert_ne!(tint, bg);
+    }
+    let md = contract::markdown(&compile(&brief("editorial")));
+    assert!(md.contains("## Colour plan") && md.contains("## Copy") && md.contains("## Imagery"));
+
+    let plain = Metrics { screens: 60, colour: 4, ..Default::default() };
+    let page = Page { desktop: plain.clone(), mobile: plain.clone(), tablet: plain.clone(), laptop: plain };
+    assert!(judge(&page).iter().any(|f| f.rule == "render-no-identity" && f.blocking()));
+    let banded = Metrics { screens: 60, colour: 40, ..Default::default() };
+    let page = Page { desktop: banded.clone(), mobile: banded.clone(), tablet: banded.clone(), laptop: banded };
+    assert!(!judge(&page).iter().any(|f| f.rule == "render-no-identity"));
+}
+
+#[test]
+fn a_call_to_action_that_fits_any_page_is_flagged() {
+    let page = "<!doctype html><html lang=\"pt\"><body><a class=\"btn\" href=\"#x\">Saiba mais</a><button>Quero minha vaga</button></body></html>";
+    let f = fiscal::check("index.html", page, None);
+    let cta: Vec<_> = f.iter().filter(|f| f.rule == "generic-cta").collect();
+    assert_eq!(cta.len(), 1, "{f:?}");
+    assert!(cta[0].message.contains("Saiba mais"));
 }

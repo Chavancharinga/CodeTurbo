@@ -84,6 +84,9 @@ pub fn color_roles(t: &Tokens) -> Vec<(&'static str, String, &'static str)> {
         "on-primary" => "Text/icon on the primary colour",
         "primary-ink" => "The brand colour used as readable text",
         "accent" => "Secondary highlight",
+        "deep" => "Bold sections in the brand (opening, highlight band, closing call)",
+        "on-deep" => "Text on the deep colour",
+        "tint" => "Light brand bands that alternate with the page",
         n if n.starts_with("gray") => "Neutral scale for hierarchy",
         _ => "",
     };
@@ -144,6 +147,27 @@ pub fn markdown(t: &Tokens) -> String {
          ## Visual theme and atmosphere\n\n\
          - Subject: {}\n- Audience: {}\n- Tone: {} ({})\n- Signature element: {}\n- Brand colours kept: {}\n\n\
          ## Palette and roles\n\n| Token | Colour | Role |\n| --- | --- | --- |\n{roles}\n\n\
+         ## Colour plan\n\n\
+         Colour is the identity, not a button fill. Give whole sections their colour: the opening or the highlight band \
+         on `--color-deep` (text `--color-on-deep`), at least one band on `--color-primary`, others alternating between \
+         `--color-tint` and `--color-bg`; the accent marks numerals, ornaments and small details. Keep at least a third \
+         of the page off the plain background: the check measures it on the rendered page.\n\n\
+         ## Imagery\n\n\
+         A subject people buy with their eyes (beauty, food, fashion, places, products) has to be shown. Use the user's \
+         photos in `<img>` with `aspect-ratio`, `object-fit: cover` and a real alt; without them, draw the subject in \
+         inline SVG or CSS (its shapes, colours and textures, in the palette) at the opening and between sections. \
+         Text and buttons alone do not sell it.\n\n\
+         ## Copy\n\n\
+         Write like a conversion copywriter, in the page's language:\n\n\
+         - Headline: the outcome the audience wants, concrete (what they will be able to do or earn, and how soon), \
+         not the name of the product's category. Subheading: for whom and how, in one sentence.\n\
+         - Each section heading states a benefit or answers an objection; plain labels (\"Modules\", \"About\") only as small navigation.\n\
+         - Specifics over adjectives: what is included, how long it takes, what they have at the end. Never invent \
+         results, ratings or student counts the user did not give.\n\
+         - Calls to action name the result with a verb (\"Quero minha vaga\", \"Start the first lesson\"), never \
+         \"Learn more\" or \"Click here\"; repeat the main one after the opening, after the proof and at the close.\n\
+         - The FAQ answers the real objections: time, price, no experience, materials, certificate, guarantee.\n\
+         - Short paragraphs (two or three lines), speak to the reader as \"you\", no buzzwords.\n\n\
          ## Composition\n\n{}.\n\n\
          ## Do and don't\n\n\
          Do: build around the signature element; vary the size and shape of blocks; \

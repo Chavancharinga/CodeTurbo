@@ -166,6 +166,14 @@ fn readable(c: Rgb, bg: Rgb, ratio: f64) -> Rgb {
     reach(l, ch, h, bg, ratio, luminance(bg) > 0.4)
 }
 
+/// White or near-black, whichever reads better on `c`.
+fn on(c: Rgb) -> Rgb {
+    let (_, _, h) = to_oklch(c);
+    let light = oklch(0.97, 0.012, h);
+    let dark = oklch(0.16, 0.02, h);
+    if contrast(light, c) >= contrast(dark, c) { light } else { dark }
+}
+
 /// The palette built around the brand's own colors.
 fn brand_palette(roles: &BrandRoles, chroma_hint: f64) -> Option<Vec<(&'static str, Rgb)>> {
     let primary = *roles.chromatic.first().or(roles.dark.as_ref())?;
@@ -181,9 +189,11 @@ fn brand_palette(roles: &BrandRoles, chroma_hint: f64) -> Option<Vec<(&'static s
         let (l, c, h) = to_oklch(primary);
         oklch((l - 0.25).max(0.3), (c * 0.9).max(chroma_hint * 0.5), h)
     });
+    let (pl, pc, _) = to_oklch(primary);
+    let deep = oklch(pl.min(0.27), pc.max(chroma_hint * 0.6), hue);
     Some(vec![
         ("bg", bg),
-        ("surface", oklch(0.955, 0.01, hue)),
+        ("surface", oklch(0.955, 0.018, hue)),
         ("ink", ink),
         ("muted", reach(0.48, 0.015, hue, bg, 4.6, true)),
         ("line", oklch(0.86, 0.01, hue)),
@@ -192,6 +202,10 @@ fn brand_palette(roles: &BrandRoles, chroma_hint: f64) -> Option<Vec<(&'static s
         // The brand color as text on the page, darkened only if it must be.
         ("primary-ink", readable(primary, bg, 4.5)),
         ("accent", accent),
+        // Whole sections in the brand: a dark one and a light band.
+        ("deep", deep),
+        ("on-deep", on(deep)),
+        ("tint", oklch(0.93, (pc * 0.35).max(0.035), hue)),
         // A neutral scale for hierarchy, tinted toward the brand.
         ("gray-100", oklch(0.95, 0.008, hue)),
         ("gray-300", oklch(0.82, 0.01, hue)),
@@ -227,6 +241,8 @@ pub fn compile(b: &Brief) -> Tokens {
         _ => 150.0 + (seed % 60) as f64,
     };
     let accent = oklch(if dark { 0.8 } else { 0.72 }, chroma * 1.1, (hue + offset) % 360.0);
+    let deep = oklch(if dark { 0.3 } else { 0.27 }, chroma * 0.8, hue);
+    let tint = oklch(if dark { 0.27 } else { 0.92 }, chroma * 0.35, hue);
     let pairs = font_pairs(tone);
     let (picked_display, picked_body) = pairs[(seed / 7) as usize % pairs.len()];
     // The project's own fonts win over the catalog.
@@ -286,6 +302,9 @@ pub fn compile(b: &Brief) -> Tokens {
             ("primary", primary),
             ("on-primary", on_primary),
             ("accent", accent),
+            ("deep", deep),
+            ("on-deep", on(deep)),
+            ("tint", tint),
         ] },
         font_display: display.to_string(),
         font_body: body.to_string(),
