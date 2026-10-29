@@ -79,7 +79,8 @@ const DEFAULT_HUES: [f64; 5] = [264.0, 277.0, 293.0, 150.0, 163.0];
 /// Hue window and chroma of the main color per tone.
 fn hue_range(t: Tone) -> (f64, f64, f64) {
     match t {
-        Tone::Editorial => (15.0, 75.0, 0.12),
+        // Bordeaux and rose through to ochre.
+        Tone::Editorial => (-25.0, 75.0, 0.12),
         Tone::Playful => (0.0, 360.0, 0.19),
         Tone::Technical => (180.0, 240.0, 0.11),
         Tone::Warm => (25.0, 110.0, 0.13),

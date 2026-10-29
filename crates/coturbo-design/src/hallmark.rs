@@ -32,7 +32,7 @@ static CTA: LazyLock<Regex> = LazyLock::new(|| re(r"(?is)<(a|button)\b[^>]*>\s*(
 const GENERIC_CTA: &[&str] = &["saiba mais", "clique aqui", "leia mais", "ver mais", "enviar", "learn more", "click here", "read more", "submit", "more info", "mais informações"];
 static MIDDOTS: LazyLock<Regex> = LazyLock::new(|| re(r">[^<>]*\S\s+·\s+[^<>]*\S\s+·\s+\S[^<>]*<"));
 static PROOF: LazyLock<Regex> = LazyLock::new(|| {
-    re(r"(?i)trusted by|loved by|★★★★★|\b4\.[89]\s*/\s*5\b|\b\d[\d,.]*\s*(k|m)?\+\s*(happy\s+)?(users|customers|teams|companies|developers|businesses|clientes|empresas|usuários)")
+    re(r"(?i)trusted by|loved by|★★★★★|\b4\.[89]\s*/\s*5\b|\b\d[\d,.]*\s*(k|m)?\+\s*(happy\s+)?(users|customers|teams|companies|developers|businesses|clientes|empresas|usuários)|fatur\w*\s+(de\s+|até\s+)?r\$|ganh\w*\s+(até\s+)?r\$|earn\s+(up\s+to\s+)?\$\d|\$[\d,.]+k?\s*(/|per\s+)month")
 });
 static CHROME: LazyLock<Regex> =
     LazyLock::new(|| re(r#"(?i)class(?:Name)?\s*=\s*["'][^"']*\b(traffic-lights?|window-dots|browser-(bar|chrome|header|top)|mac-?dots|window-controls|titlebar-dots)\b"#));

@@ -545,3 +545,19 @@ fn a_call_to_action_that_fits_any_page_is_flagged() {
     assert_eq!(cta.len(), 1, "{f:?}");
     assert!(cta[0].message.contains("Saiba mais"));
 }
+
+#[test]
+fn an_invented_income_promise_counts_as_invented_proof() {
+    let page = "<!doctype html><html lang=\"pt\"><body><p>Aprenda a faturar de R$ 3.000 a R$ 7.000 por mês.</p></body></html>";
+    assert!(fiscal::check("index.html", page, None).iter().any(|f| f.rule == "invented-proof"));
+}
+
+#[test]
+fn a_full_row_of_the_grid_runs_to_the_screen_edges() {
+    use coturbo_design::grid::{Element, Kind, css};
+    let els = vec![
+        Element { id: "hero".into(), kind: Kind::Title, share: Some(1.0), break_before: false },
+    ];
+    let out = css(&els);
+    assert!(out.contains(":where(#hero) { margin-inline: -16px; padding-inline: 16px; }"), "{out}");
+}
