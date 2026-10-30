@@ -860,8 +860,16 @@ impl Tools {
     /// Compiles the brief into tokens and locks them in `DESIGN.md`.
     fn design_brief(&self, input: &Value) -> Res {
         use coturbo_design::{compiler, contract};
-        let given: Vec<String> =
+        let mut given: Vec<String> =
             input["brand_colors"].as_array().into_iter().flatten().filter_map(|v| v.as_str().map(str::to_string)).collect();
+        // Brand colours are the user's to give: ones the model made up would
+        // switch the theme off for the stock neon look.
+        if let Some(asked) = coturbo_design::request(&self.root).map(|r| r.to_lowercase()) {
+            let named = ["cor ", "cores", "paleta", "color", "colour", "palette"].iter().any(|w| asked.contains(w));
+            if !named {
+                given.retain(|c| asked.contains(&c.trim().to_lowercase()));
+            }
+        }
         let fresh = input["new_palette"].as_bool() == Some(true);
         // A redesign starts from the design system the project already has.
         let existing = if fresh { Default::default() } else { coturbo_design::extract::scan(&self.root) };

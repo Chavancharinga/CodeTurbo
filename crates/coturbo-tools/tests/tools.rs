@@ -304,6 +304,30 @@ async fn design_brief_locks_a_contract_and_edits_are_inspected() {
 }
 
 #[tokio::test]
+async fn brand_colours_the_user_never_gave_do_not_switch_the_theme_off() {
+    let brief = json!({
+        "subject": "infraestrutura de IA e chips para data centers",
+        "audience": "times de engenharia",
+        "tone": "preciso e técnico",
+        "signature": "um painel de telemetria ao vivo",
+        "brand_colors": ["#00f0ff", "#7928ca"]
+    });
+    let dir = tempfile::tempdir().unwrap();
+    coturbo_design::remember_request(dir.path(), "Crie um site para uma empresa de tecnologia de ponta.");
+    let t = Tools::new(dir.path(), Mode::Ast);
+    assert!(!t.call("design_brief", &brief).await.is_error);
+    let md = read(dir.path(), "DESIGN.md");
+    assert!(md.contains("## Theme:") && !md.to_lowercase().contains("#00f0ff"), "the theme stays: {}", &md[..400.min(md.len())]);
+
+    let dir = tempfile::tempdir().unwrap();
+    coturbo_design::remember_request(dir.path(), "Site da empresa, cores da marca #00f0ff e #7928ca.");
+    let t = Tools::new(dir.path(), Mode::Ast);
+    assert!(!t.call("design_brief", &brief).await.is_error);
+    let md = read(dir.path(), "DESIGN.md");
+    assert!(!md.contains("## Theme:"), "the user's own colours win");
+}
+
+#[tokio::test]
 async fn large_typescript_files_are_read_as_skeletons() {
     let dir = tempfile::tempdir().unwrap();
     let mut src = String::from("import { x } from './x';\nexport interface User { id: number; name: string }\n");
