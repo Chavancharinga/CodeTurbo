@@ -54,6 +54,8 @@ static NAME_SLOT: LazyLock<Regex> = LazyLock::new(|| {
 static SECTION: LazyLock<Regex> = LazyLock::new(|| re(r"(?is)<section\b.*?(?:</section>|$)"));
 static WHO: LazyLock<Regex> =
     LazyLock::new(|| re(r"(?i)\b(professora|professor|instrutora|instrutor|mentora|instructor|teacher|quem sou|sobre mim|about me|meet your|founder|fundadora)\b"));
+static FOOTER: LazyLock<Regex> = LazyLock::new(|| re(r"(?is)<footer\b.*?(?:</footer>|$)"));
+static FOOT_HEAD: LazyLock<Regex> = LazyLock::new(|| re(r"(?i)<h[2-6]\b"));
 static FOUND_IMG: LazyLock<Regex> = LazyLock::new(|| re(r#"(?is)<img\b[^>]*\bsrc\s*=\s*["'][^"']*assets/images/[^"']*["']"#));
 
 /// Each number in a text, without separators: with the cents and without.
@@ -292,6 +294,12 @@ pub(crate) fn check_markup(text: &str, markup: &str, facts: Option<&str>, out: &
         if &h[1] != "3" && ACCENT_IN.is_match(inner) {
             add(Severity::P2, "accent-word", line, "one word of the heading set apart in colour or a highlight (Hallmark gate 38iii): the whole head in one ink".into());
         }
+    }
+    if let Some(f) = FOOTER.find(markup)
+        && FOOT_HEAD.find_iter(f.as_str()).count() >= 2
+    {
+        add(Severity::P1, "template-footer", line_of(text, f.start()),
+            "the footer is the template's columns of headed link lists, the same on every generated page: build the footer DESIGN.md dealt (Picks, Footer), or a sign-off with one line of small links, in the page's voice".into());
     }
     if let Some(m) = ARROW_LINK.find(markup) {
         add(Severity::P2, "arrow-link", line_of(text, m.start()), "an arrow glued to link or button text, as in `Learn more →` (Hallmark gate 63): the words alone".into());

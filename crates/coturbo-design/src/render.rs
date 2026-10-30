@@ -94,7 +94,10 @@ const heads=[...document.querySelectorAll('h2,h3,h4,h5,h6')].filter(e=>{const t=
 const widows=[...document.querySelectorAll('h1,h2,h3,h4')].filter(e=>{if(!vis(e))return false;const ls=lineBoxes(e);if(ls.length<2)return false;const last=ls[ls.length-1];const top=Math.max(...ls.slice(0,-1).map(l=>l.w));return last.w<top*0.3&&!/\s/.test((e.innerText||'').trim().split('\n').pop().trim());}).map(label).slice(0,5);
 const VH=innerHeight;let heroArea=0;for(const e of document.querySelectorAll('img,video,body *')){if(!vis(e))continue;const pic=e.tagName==='IMG'?e.naturalWidth>=400:(e.tagName==='VIDEO'||/url\(/.test(getComputedStyle(e).backgroundImage));if(!pic)continue;const r=R(e);heroArea+=Math.max(0,Math.min(r.right,W)-Math.max(r.left,0))*Math.max(0,Math.min(r.bottom,VH)-Math.max(r.top,0));}const hero=Math.min(100,Math.round(heroArea/(W*VH)*100));
 const holes=[];for(const p of document.querySelectorAll('body *')){const s=getComputedStyle(p);if(!(s.display.includes('grid')||(s.display.includes('flex')&&s.flexWrap==='wrap')))continue;const k=[...p.children].filter(c=>vis(c)&&R(c).width>120&&R(c).height>40);if(k.length<3)continue;const w=k.map(c=>R(c).width);if(Math.max(...w)-Math.min(...w)>4)continue;const tops=[...new Set(k.map(c=>Math.round(R(c).top)))].sort((a,b)=>a-b);if(tops.length<2)continue;const cols=k.filter(c=>Math.round(R(c).top)===tops[0]).length;const last=k.filter(c=>Math.round(R(c).top)===tops[tops.length-1]).length;if(cols>=2&&last<cols&&holes.length<5)holes.push(label(p)+' '+k.length+' items in '+cols+' columns');}
-const out=JSON.stringify({wrapped,heads,widows,hero,holes,colour,screens,photos,rounded,radii:radii.size,shadowed,shadows:shadows.size,centered,text,rows,tiny,overlaps,tight,broken,hscroll,scrollers,small,cut,edge,under,contrast,noalt,unlabeled,nolang,noviewport,longlines,sizes:sizes.size,inks:inks.size,fills:fills.size});host.setAttribute('data-codeturbo',out);console.log('CT_PROBE:'+out);};
+const unfilled=[];for(const i of document.querySelectorAll('img')){const f=i.parentElement&&i.parentElement.tagName==='PICTURE'?i.parentElement.parentElement:i.parentElement;if(!f||!vis(i)||unfilled.length>=5)continue;if([...f.children].filter(vis).length!==1)continue;const a=R(i);if(a.width<80||a.height<80)continue;const fs=getComputedStyle(f);const framed=parseFloat(fs.borderTopWidth)>0||(fs.backgroundColor&&!/rgba\(0, 0, 0, 0\)|transparent/.test(fs.backgroundColor));if(!framed)continue;const gw=f.clientWidth-parseFloat(fs.paddingLeft)-parseFloat(fs.paddingRight)-a.width,gh=f.clientHeight-parseFloat(fs.paddingTop)-parseFloat(fs.paddingBottom)-a.height;if(gw>12||gh>12)unfilled.push(label(f)+' '+Math.round(Math.max(gw,gh))+'px empty');}
+const fts=document.querySelectorAll('footer');const ft=fts[fts.length-1];const tail=ft&&vis(ft)?Math.max(0,Math.round(document.documentElement.scrollHeight-(R(ft).bottom+scrollY))):0;
+const fcols=(()=>{if(!ft)return 0;for(const g of [ft,...ft.querySelectorAll('*')]){const k=[...g.children].filter(c=>vis(c)&&R(c).width>100);if(k.length<3)continue;const t=R(k[0]).top;if(!k.every(c=>Math.abs(R(c).top-t)<4))continue;if(k.some(c=>{const l=[...c.querySelectorAll('a')].filter(vis);return l.length>=4&&new Set(l.map(x=>Math.round(R(x).top))).size>=4;}))return k.length;}return 0;})();
+const out=JSON.stringify({wrapped,heads,widows,hero,holes,unfilled,tail,fcols,colour,screens,photos,rounded,radii:radii.size,shadowed,shadows:shadows.size,centered,text,rows,tiny,overlaps,tight,broken,hscroll,scrollers,small,cut,edge,under,contrast,noalt,unlabeled,nolang,noviewport,longlines,sizes:sizes.size,inks:inks.size,fills:fills.size});host.setAttribute('data-codeturbo',out);console.log('CT_PROBE:'+out);};
 if(document.readyState==='complete')setTimeout(go,300);else addEventListener('load',()=>setTimeout(go,300));})();</script>"#;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -159,6 +162,12 @@ pub struct Metrics {
     pub hero: usize,
     /// Grids of equal cards whose last row leaves empty cells.
     pub holes: Vec<String>,
+    /// Framed photos that leave part of their frame empty.
+    pub unfilled: Vec<String>,
+    /// Pixels of page left below the last footer.
+    pub tail: usize,
+    /// Columns of the footer when it is the template's stacked link lists.
+    pub fcols: usize,
 }
 
 /// Measurements at every screen size checked.
@@ -251,6 +260,9 @@ pub fn parse_metrics(dom: &str) -> Option<Metrics> {
         widows: list("widows"),
         hero: n("hero"),
         holes: list("holes"),
+        unfilled: list("unfilled"),
+        tail: n("tail"),
+        fcols: n("fcols"),
     })
 }
 
@@ -405,6 +417,27 @@ pub fn judge(p: &Page) -> Vec<Finding> {
             ));
             break;
         }
+    }
+    for (m, at) in [(&p.desktop, "on desktop"), (&p.mobile, "on the phone")] {
+        if !m.unfilled.is_empty() {
+            add(Severity::P1, "render-unfilled-frame", format!(
+                "a photo leaves part of its frame empty {at}: {}; let it fill the frame (width and height 100%, object-fit: cover, no max-height on the img)",
+                sample(&m.unfilled)
+            ));
+            break;
+        }
+    }
+    if p.desktop.fcols >= 3 {
+        add(Severity::P1, "render-template-footer", format!(
+            "the footer is {} columns with a stacked list of links, the footer of every generated page: build the footer DESIGN.md dealt (Picks, Footer), or a sign-off with one line of small links, in the page's voice",
+            p.desktop.fcols
+        ));
+    }
+    if p.desktop.tail > 8 {
+        add(Severity::P1, "render-below-footer", format!(
+            "the page goes on {}px below the footer: the footer closes the page; remove what follows it (margins, empty blocks, a min-height) so it reaches the bottom edge",
+            p.desktop.tail
+        ));
     }
     let m = &p.desktop;
     if m.rows >= 3 {

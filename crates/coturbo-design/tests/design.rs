@@ -194,7 +194,11 @@ async fn the_rendered_page_is_checked_for_accessibility() {
 <section style="background:#1f2a44;padding:24px"><p style="color:#2b3550">Dark text on a dark band, inherited background.</p></section>
 <p style="color:#111111">Readable text on white.</p>
 <p style="background:oklch(18% 0.008 60);color:oklch(84% 0.024 82)">Readable OKLCH text, as the themes write it.</p>
+<figure style="margin:0;width:300px;height:300px;border:2px solid #000"><img src="data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==" alt="short" style="display:block;width:100%;height:100%;max-height:200px"></figure>
+<figure style="margin:0;width:300px;height:300px;border:2px solid #000"><img src="data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==" alt="full" style="display:block;width:100%;height:100%;object-fit:cover"></figure>
 <img src="data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==" width="80" height="80">
+<footer style="height:40px">end</footer>
+<div style="height:120px"></div>
 <form><input type="email" placeholder="Your e-mail"><label>Name <input type="text"></label></form>
 </body></html>"##,
     )
@@ -204,6 +208,8 @@ async fn the_rendered_page_is_checked_for_accessibility() {
     assert!(m.desktop.contrast[0].contains("Dark text"), "{:?}", m.desktop.contrast);
     assert_eq!((m.desktop.noalt, m.desktop.unlabeled), (1, 1), "the image and the placeholder-only field");
     assert!(m.desktop.nolang && m.desktop.noviewport);
+    assert!(m.desktop.tail >= 120, "the page goes on below the footer: {}", m.desktop.tail);
+    assert_eq!(m.desktop.unfilled.len(), 1, "only the photo held short of its frame: {:?}", m.desktop.unfilled);
     let rules: Vec<&str> = judge(&m).iter().map(|f| f.rule).collect();
     for r in ["render-low-contrast", "render-missing-alt", "render-unlabeled-field", "render-no-viewport", "render-no-lang"] {
         assert!(rules.contains(&r), "missing {r}: {rules:?}");
@@ -643,18 +649,30 @@ fn prices_people_and_portraits_must_come_from_the_user() {
 }
 
 #[test]
+fn the_template_footer_of_headed_columns_blocks() {
+    let rule = |page: &str| fiscal::check("index.html", page, None).iter().any(|f| f.rule == "template-footer" && f.blocking());
+    assert!(rule("<!doctype html><html lang=\"pt\"><body><footer><div><h3>Atelier</h3><p>Curso</p></div>\
+        <div><h4>Navegação</h4><ul><li><a href=\"#a\">Técnicas</a></li></ul></div><div><h4>Créditos</h4><p>Fotos</p></div></footer></body></html>"));
+    assert!(!rule("<!doctype html><html lang=\"pt\"><body><footer><p>Até a próxima aula, na bancada.</p>\
+        <p><a href=\"#a\">Técnicas</a> · <a href=\"#b\">Dúvidas</a></p></footer></body></html>"));
+}
+
+#[test]
 fn small_openings_holes_and_broken_labels_block() {
     let bad = Metrics {
         photos: 6,
         hero: 4,
         holes: vec!["div.grid 5 items in 3 columns".into()],
+        unfilled: vec!["figure.hero \"\" 90px empty".into()],
+        tail: 96,
+        fcols: 3,
         wrapped: vec!["a.nav \"A Professora\"".into()],
         heads: vec!["h2 \"Perguntas\"".into()],
         ..Default::default()
     };
     let page = Page { desktop: bad.clone(), mobile: Metrics::default(), tablet: Metrics::default(), laptop: Metrics::default() };
     let f = judge(&page);
-    for r in ["render-small-hero", "render-grid-hole", "render-wrapped-label", "render-wrapped-heading"] {
+    for r in ["render-small-hero", "render-grid-hole", "render-wrapped-label", "render-wrapped-heading", "render-unfilled-frame", "render-below-footer", "render-template-footer"] {
         assert!(f.iter().any(|x| x.rule == r && x.blocking()), "{r}");
     }
     let good = Metrics { photos: 6, hero: 45, ..Default::default() };
