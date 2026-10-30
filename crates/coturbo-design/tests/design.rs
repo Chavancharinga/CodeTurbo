@@ -193,6 +193,7 @@ async fn the_rendered_page_is_checked_for_accessibility() {
 <body style="background:#ffffff;font-family:Georgia;padding:24px">
 <section style="background:#1f2a44;padding:24px"><p style="color:#2b3550">Dark text on a dark band, inherited background.</p></section>
 <p style="color:#111111">Readable text on white.</p>
+<p style="background:oklch(18% 0.008 60);color:oklch(84% 0.024 82)">Readable OKLCH text, as the themes write it.</p>
 <img src="data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==" width="80" height="80">
 <form><input type="email" placeholder="Your e-mail"><label>Name <input type="text"></label></form>
 </body></html>"##,
