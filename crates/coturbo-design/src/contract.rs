@@ -197,10 +197,12 @@ pub fn markdown(t: &Tokens) -> String {
          - Scrollbars are invisible (the kit hides them on the page and on every strip, which still scrolls by \
          swipe, wheel and drag); never style or bring them back.\n\n\
          ## Motion\n\n\
-         `codeturbo-motion.js` animates the page with GSAP and ScrollTrigger in this style's rhythm ({motion}). \
+         `codeturbo-motion.js` animates the page with GSAP and ScrollTrigger in this style's rhythm ({motion}) \
+         and makes scrolling smooth with Lenis on GSAP's ticker (anchor links glide too). \
          Load it at the end of `<body>`:\n\n```html\n\
          <script src=\"https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js\" defer></script>\n\
          <script src=\"https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js\" defer></script>\n\
+         <script src=\"https://cdn.jsdelivr.net/npm/lenis@1.1.20/dist/lenis.min.js\" defer></script>\n\
          <script src=\"codeturbo-motion.js\" defer></script>\n```\n\n\
          Then mark the elements: `data-intro` on the opening; `data-reveal` on each section (`data-reveal=\"stagger\"` on a \
          list or grid brings its items in one by one); photos in `<figure class=\"frame\" data-parallax><img …></figure>` drift \

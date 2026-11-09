@@ -324,6 +324,7 @@ pub fn browser_window_enabled() -> bool {
 
 pub fn make_tools(root: &Path, mode: Mode, cfg: &Config) -> Tools {
     let tools = Tools::new(root, mode).with_native_checks(cfg.diagnostics_on_write);
+    coturbo_tools::graph::refresh(tools.root());
     match cfg.lsp_config() {
         Some(lsp) => {
             let root = tools.root().to_path_buf();

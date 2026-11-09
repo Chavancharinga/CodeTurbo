@@ -58,6 +58,16 @@ hidden until a script runs, invented metrics, a form that says thanks
 without sending anything, and more. A design that fails is refused, with the
 evidence.
 
+Every page starts from a kit built for its brand: a palette derived from the
+brand colour (tinted neutrals, one accent that stands out, contrast checked),
+type on a modular scale, a 12/8/4-column grid on an 8 px spacing scale, and
+motion with GSAP and ScrollTrigger. Scrolling is smooth (Lenis on GSAP's
+ticker, anchor links included), scrollbars stay invisible, and nothing moves
+under reduced motion. The built-in `frontend-design` skill turns a generic site
+into a professional one while keeping its content and brand, and `svg-craft`
+draws icons, logos and illustrations from computed geometry, then checks the
+rendered image.
+
 **Sensing through WiFi**
 People disturb the radio waves that fill a room. Type `/sense` (or ask) and
 a full-screen view shows, live, whether someone is moving or still, with
@@ -104,6 +114,15 @@ click, or just ask. No hub or home-automation server is needed, control
 reaches private addresses only, and the agent's actions are approved by you
 first.
 
+**A map of the code before the first search**
+When [graphify](https://pypi.org/project/graphifyy/) is installed
+(`uv tool install graphifyy` or `pip install graphifyy`), each session in a git
+project refreshes its knowledge graph in the background: modules, symbols and
+the relations between them, built locally from the syntax tree with no model
+and no tokens. The agent reads the graph's report and asks it questions
+(`graphify query`, `path`, `explain`, `affected`) instead of searching file by
+file. The output folder stays out of git; `CODETURBO_NO_GRAPH=1` turns it off.
+
 **Any provider, found automatically**
 CodeTurbo detects what is on your machine and lists only that: the official
 Claude Code, Codex and Antigravity CLIs (so your own plan is used), a running
@@ -122,8 +141,9 @@ OpenAI-compatible server are supported.
   project's decisions, remembered per project.
 - **Hooks, skills and custom commands**: your own commands before and after
   tools, skill packs (`SKILL.md`) and `/commands` from Markdown files,
-  including the ones already in `~/.claude`. Hallmark, last30days and RuView
-  ship built in, with their mechanisms running natively.
+  including the ones already in `~/.claude`. Hallmark, last30days,
+  frontend-design, svg-craft and RuView ship built in, with their mechanisms
+  running natively.
 - **Small requests**: a short system prompt, and the tools for particular
   jobs (browser, devices, reverse engineering, research, sensing...) only
   named until the agent loads one, so each request carries about half the
@@ -258,6 +278,11 @@ Write coding style, folders that must not change and usual commands in
 `CODETURBO.md` at the project root. CodeTurbo follows it in every session and
 also reads `AGENTS.md` and `CLAUDE.md` when present.
 
+Rules for every project go in `CODETURBO.md` inside the config folder
+(`%APPDATA%\codeturbo` on Windows, `~/.config/codeturbo` elsewhere); Claude
+Code's `~/.claude/CLAUDE.md` is read as well, so rules written once for either
+agent hold in both.
+
 ### Configuration
 
 Preferences live in `%APPDATA%\codeturbo\config.toml` on Windows and
@@ -268,6 +293,7 @@ Preferences live in `%APPDATA%\codeturbo\config.toml` on Windows and
 | `CODETURBO_BROWSER`            | `window` or `headless`: how the agent's browser opens          |
 | `CODETURBO_GRAPHICS`           | `off` keeps the mini browser in blocks instead of an image     |
 | `CODETURBO_NO_UPDATE_CHECK`    | turns the daily update notice off                              |
+| `CODETURBO_NO_GRAPH`           | stops the background refresh of the graphify knowledge graph   |
 | `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET` | adds Reddit to `last30days` (a "script" app from reddit.com/prefs/apps) |
 | `GITHUB_TOKEN`                 | raises GitHub's search limits for `last30days`                 |
 

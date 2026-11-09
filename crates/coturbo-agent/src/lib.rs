@@ -231,6 +231,35 @@ pub fn add_rule(root: &std::path::Path, rule: &str) -> Result<(), String> {
     std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))
 }
 
+/// The user's own standing instructions for every project: CodeTurbo's
+/// `<config>/codeturbo/CODETURBO.md` and Claude Code's `~/.claude/CLAUDE.md`,
+/// so rules written once for either agent hold here too.
+pub fn user_memory() -> String {
+    let config = if cfg!(windows) {
+        std::env::var_os("APPDATA").map(|a| std::path::PathBuf::from(a).join("codeturbo"))
+    } else {
+        std::env::var_os("XDG_CONFIG_HOME").map(std::path::PathBuf::from).or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".config"))).map(|c| c.join("codeturbo"))
+    };
+    let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(std::path::PathBuf::from);
+    let mut out = String::new();
+    for path in [config.map(|c| c.join("CODETURBO.md")), home.map(|h| h.join(".claude").join("CLAUDE.md"))].into_iter().flatten() {
+        let Ok(text) = std::fs::read_to_string(&path) else { continue };
+        let text = text.trim();
+        if text.is_empty() {
+            continue;
+        }
+        let mut cut = text.len().min(MEMORY_MAX);
+        while !text.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        out.push_str(&format!("
+
+The user's instructions for every project, from {} (follow them):
+{}", path.display(), &text[..cut]));
+    }
+    out
+}
+
 pub fn project_memory(root: &std::path::Path) -> String {
     let mut out = String::new();
     for name in MEMORY_FILES {
@@ -390,7 +419,7 @@ impl<'a> Agent<'a> {
             provider,
             tools,
             config,
-            system: system_prompt(tools.mode()) + &project_memory(tools.root()) + &stream_rules(tools.root()) + &remembered(tools.root()) + &coturbo_tools::skills::catalogue(tools.root()),
+            system: system_prompt(tools.mode()) + &user_memory() + &project_memory(tools.root()) + &stream_rules(tools.root()) + &remembered(tools.root()) + &coturbo_tools::skills::catalogue(tools.root()) + &coturbo_tools::graph::note(tools.root()),
             history: Vec::new(),
             pending_summary: None,
             last: None,
@@ -508,7 +537,7 @@ impl<'a> Agent<'a> {
 
     /// Rebuilds the system prompt so a just-added rule takes effect.
     pub fn reload_rules(&mut self, root: &std::path::Path) {
-        self.system = system_prompt(self.tools.mode()) + &project_memory(root) + &stream_rules(root);
+        self.system = system_prompt(self.tools.mode()) + &user_memory() + &project_memory(root) + &stream_rules(root);
     }
 
     pub fn session_usage(&self) -> Usage {

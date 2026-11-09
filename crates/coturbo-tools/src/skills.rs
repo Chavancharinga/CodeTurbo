@@ -4,8 +4,8 @@
 //! - A skill is a folder with a `SKILL.md` (front matter `name` and
 //!   `description`, then instructions) and any files it needs; the agent
 //!   loads it with the `skill` tool when a task matches its description.
-//! - Some skills ship inside CodeTurbo (`builtin/`: Hallmark and
-//!   last30days) and are written out to the config folder on first use; a copy
+//! - Some skills ship inside CodeTurbo (`builtin/`: Hallmark, last30days,
+//!   frontend-design and svg-craft) and are written out to the config folder on first use; a copy
 //!   the user installed wins over them, and their mechanisms run natively
 //!   (see [`ENGINE_NOTES`]).
 //! - A command is a `<name>.md` file; typing `/<name> words` sends its text
@@ -47,7 +47,7 @@ fn home() -> Option<PathBuf> {
 const BUILTIN: &[(&str, &str)] = include!(concat!(env!("OUT_DIR"), "/builtin.rs"));
 
 /// What CodeTurbo does natively for a built-in skill, put before its text.
-pub const ENGINE_NOTES: [(&str, &str); 2] = [
+pub const ENGINE_NOTES: [(&str, &str); 4] = [
     (
         "last30days",
         "CodeTurbo runs this research natively: call the `last30days` tool (Hacker News, GitHub, Polymarket, dev.to and arXiv, plus Reddit when REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET are set), then write the brief as below. The Python scripts are not needed; only when they are in this skill's folder and the user wants X, YouTube or TikTok as well, run them as the skill says.",
@@ -55,6 +55,14 @@ pub const ENGINE_NOTES: [(&str, &str); 2] = [
     (
         "hallmark",
         "CodeTurbo's design inspector runs Hallmark's static gates after every edit of an interface file (each finding names its gate), and design_review renders the page at desktop and phone widths: use them wherever the skill says sloplint.mjs. The themes are references/themes/<name>.md (list them in references/themes/README.md and read one with skill + file). scripts/*.mjs exist only when the user installed the skill with them and Node is present.",
+    ),
+    (
+        "frontend-design",
+        "design_brief turns the brand into the tokens of section 3 (palette, type, spacing) and writes DESIGN.md; layout_grid places the blocks on the grid of section 5; find_images finds the real photos of section 8; the kit (codeturbo-kit.css, codeturbo-motion.js) already hides scrollbars and runs GSAP with Lenis smooth scrolling as in section 7; design_review renders the page at four widths for section 10. On a redesign, design_brief also extracts the current site's colours and fonts so the brand is kept.",
+    ),
+    (
+        "svg-craft",
+        "Generate the geometry with a short script through bash, write the .svg, then render it with browse or design_review (or headless Edge with --screenshot) and look at the capture before going on.",
     ),
 ];
 

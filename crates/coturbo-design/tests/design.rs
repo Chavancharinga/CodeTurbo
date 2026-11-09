@@ -594,10 +594,11 @@ fn a_named_style_fixes_the_look_of_the_whole_page() {
         assert!(contrast(t.color("ink"), t.color("bg")) >= 7.0, "{}", st.name());
         let md = contract::markdown(&t);
         assert!(md.contains(&format!("## Style: {}", st.name())) && md.contains("## Motion") && md.contains("## Icons"), "{}", st.name());
-        assert!(md.contains("gsap/3.12.5/ScrollTrigger.min.js") && md.contains("<svg class=\"icon\""));
+        assert!(md.contains("gsap/3.12.5/ScrollTrigger.min.js") && md.contains("lenis@1.1.20") && md.contains("<svg class=\"icon\""));
         assert!(!md.to_lowercase().contains("emoji icons") || md.contains("never emoji"));
         let js = coturbo_design::kit::motion_js(&t);
         assert!(js.contains("registerPlugin") && js.contains("prefers-reduced-motion") && js.contains("Headless"));
+        assert!(js.contains("new window.Lenis") && js.contains("lenis.raf") && js.contains("lenis.scrollTo"));
         assert!(js.contains(st.motion().ease));
     }
     let mut b = brief("editorial");

@@ -5,6 +5,7 @@
 mod ci;
 mod devices;
 mod fsops;
+pub mod graph;
 pub mod memory;
 pub mod schedule;
 pub mod skills;
